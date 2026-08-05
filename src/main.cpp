@@ -20,7 +20,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.3.3";
+constexpr char FIRMWARE_VERSION[] = "0.3.4";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 
@@ -128,10 +128,6 @@ uint8_t consecutiveSuccesses = 0;
 bool offlineAlertSent = false;
 bool pendingOfflineEmail = false;
 bool pendingRecoveryEmail = false;
-bool manualDiscoveryRequested = false;
-bool manualSubnetScanRequested = false;
-bool manualHealthCheckRequested = false;
-bool testEmailRequested = false;
 bool cameraAlertLedOn = false;
 bool cameraAlertLedBlinking = false;
 bool bluetoothMemoryReleaseAttempted = false;
@@ -1210,20 +1206,6 @@ bool sendIpChangeAlert(const String& oldIp, const String& newIp)
     );
 
     return sendResendEmail(subject, html);
-}
-
-bool sendTestEmail()
-{
-    const String html = buildEmailHtml(
-        EMAIL_THEME_INFO,
-        "TESTE",
-        "Envio de e-mail funcionando",
-        "O ESP32 chamou a API do Resend com sucesso. Abaixo está o estado "
-        "real do monitoramento no momento do teste.",
-        String()
-    );
-
-    return sendResendEmail("[Teste] ESP32 Camera Watchdog", html);
 }
 
 void saveCameraTarget()
@@ -2550,26 +2532,6 @@ void configureHttpServer()
         serveCameraSnapshot();
     });
 
-    httpServer.on("/api/check", HTTP_POST, [] {
-        manualHealthCheckRequested = true;
-        httpServer.send(202, "application/json", "{\"accepted\":true}");
-    });
-
-    httpServer.on("/api/discover", HTTP_POST, [] {
-        manualDiscoveryRequested = true;
-        httpServer.send(202, "application/json", "{\"accepted\":true}");
-    });
-
-    httpServer.on("/api/scan", HTTP_POST, [] {
-        manualSubnetScanRequested = true;
-        httpServer.send(202, "application/json", "{\"accepted\":true}");
-    });
-
-    httpServer.on("/api/test-email", HTTP_POST, [] {
-        testEmailRequested = true;
-        httpServer.send(202, "application/json", "{\"accepted\":true}");
-    });
-
     httpServer.on("/health", HTTP_GET, [] {
         httpServer.send(200, "text/plain", "ok");
     });
@@ -2624,29 +2586,6 @@ bool connectToWiFi()
     }
 
     return true;
-}
-
-void processPendingActions()
-{
-    if (manualDiscoveryRequested) {
-        manualDiscoveryRequested = false;
-        discoverOnvifCamera();
-    }
-
-    if (manualSubnetScanRequested) {
-        manualSubnetScanRequested = false;
-        scanSubnetForCamera();
-    }
-
-    if (manualHealthCheckRequested) {
-        manualHealthCheckRequested = false;
-        runHealthCheck();
-    }
-
-    if (testEmailRequested) {
-        testEmailRequested = false;
-        sendTestEmail();
-    }
 }
 
 void processPendingEmails()
@@ -2736,7 +2675,6 @@ void loop()
     updateCameraAlertLed();
     httpServer.handleClient();
     maintainWiFi();
-    processPendingActions();
     processPendingEmails();
 
     if (millis() - lastHealthCheckAtMs >= HEALTH_CHECK_INTERVAL_MS) {

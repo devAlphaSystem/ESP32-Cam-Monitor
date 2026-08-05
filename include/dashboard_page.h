@@ -68,7 +68,11 @@ box-shadow:var(--shadow);overflow:hidden}
 border-bottom:1px solid var(--line)}
 .viewer-h h2{font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 .viewer-h p{margin:3px 0 0;font-size:12.5px;color:var(--dim)}
-.feed-toggle{flex:none;width:auto;padding:8px 13px;border-radius:9px;font-size:12.5px}
+.feed-toggle{flex:none;width:auto;padding:8px 13px;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;
+color:var(--text);cursor:pointer;background:var(--surface);border:1px solid var(--line2);transition:.16s ease}
+.feed-toggle:hover{background:var(--surface2);border-color:var(--accent);transform:translateY(-1px)}
+.feed-toggle:active{transform:none}
+.feed-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;min-height:220px;
 background:#05070a;overflow:hidden}
 .viewer-stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,#17202c 0,#05070a 66%)}
@@ -98,20 +102,10 @@ font-weight:650;letter-spacing:.07em;text-transform:uppercase}
 .bars i:nth-child(3){height:14px}.bars i:nth-child(4){height:19px}
 .bars i.on{background:currentColor}
 
-/* acoes */
 .sec{margin-top:24px}
 .sec-t{display:flex;align-items:baseline;gap:10px;margin-bottom:11px}
 .sec-t h2{font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 .sec-t span{font-size:12.5px;color:var(--dim)}
-.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
-button{font:inherit;font-size:14px;font-weight:600;color:var(--text);cursor:pointer;
-display:flex;align-items:center;gap:10px;text-align:left;padding:14px 16px;border-radius:12px;
-background:var(--surface);border:1px solid var(--line2);transition:.16s ease}
-button svg{width:17px;height:17px;flex:none;fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-button:hover:not(:disabled){background:var(--surface2);border-color:var(--accent);transform:translateY(-1px)}
-button:active:not(:disabled){transform:none}
-button:disabled{opacity:.5;cursor:progress}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* registro */
 .log{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
@@ -135,11 +129,6 @@ pre{margin:0;padding:0 16px 16px;white-space:pre-wrap;overflow-wrap:anywhere;
 font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--muted)}
 footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim)}
 
-#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,26px);z-index:9;
-background:var(--surface2);border:1px solid var(--line2);border-radius:11px;box-shadow:var(--shadow);
-padding:12px 18px;font-size:13.5px;font-weight:600;opacity:0;pointer-events:none;transition:.25s ease;max-width:90vw}
-#toast.show{opacity:1;transform:translate(-50%,0)}
-
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){
 main{padding:14px 12px 36px}
@@ -147,7 +136,6 @@ main{padding:14px 12px 36px}
 .hero-name{font-size:23px}
 .gauge{width:96px;height:96px;margin:0}
 .grid{grid-template-columns:1fr;gap:10px}
-.acts{grid-template-columns:1fr}
 .row dt{flex:1 1 100%}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -227,16 +215,6 @@ main{padding:14px 12px 36px}
 </section>
 
 <section class="sec">
-  <div class="sec-t"><h2>Ações</h2><span>executadas no dispositivo</span></div>
-  <div class="acts">
-    <button data-path="/api/check"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>Verificar agora</button>
-    <button data-path="/api/discover"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>Descobrir por ONVIF</button>
-    <button data-path="/api/scan"><svg viewBox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/><path d="M4 12h16"/></svg>Varrer a sub-rede</button>
-    <button data-path="/api/test-email"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg>Enviar e-mail de teste</button>
-  </div>
-</section>
-
-<section class="sec">
   <div class="sec-t"><h2>Registro</h2><span>última atividade conhecida</span></div>
   <dl class="log">
     <div class="row"><dt>Último evento</dt><dd id="l-event">—</dd></div>
@@ -254,8 +232,6 @@ main{padding:14px 12px 36px}
 
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
-
-<div id="toast"></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -442,33 +418,6 @@ setInterval(() => {
   const ago = Math.round((Date.now() - lastOk) / 1000);
   $('liveText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
 }, 1000);
-
-let toastTimer;
-function toast(message, bad) {
-  const box = $('toast');
-  box.textContent = message;
-  box.style.color = bad ? 'var(--bad)' : 'var(--ok)';
-  box.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => box.classList.remove('show'), 3200);
-}
-
-document.querySelectorAll('button[data-path]').forEach(button => {
-  button.addEventListener('click', async () => {
-    const label = button.textContent.trim();
-    document.querySelectorAll('button[data-path]').forEach(b => b.disabled = true);
-    try {
-      const response = await fetch(button.dataset.path, { method: 'POST' });
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      toast(label + ': solicitado ao dispositivo');
-    } catch (error) {
-      toast(label + ': falhou (' + error.message + ')', true);
-    } finally {
-      document.querySelectorAll('button[data-path]').forEach(b => b.disabled = false);
-      setTimeout(refresh, 600);
-    }
-  });
-});
 
 const feedToggleButton = $('feedToggle');
 

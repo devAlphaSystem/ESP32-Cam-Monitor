@@ -17,7 +17,7 @@ Firmware para uma ESP32 clássica monitorar uma câmera Wi-Fi ONVIF/RTSP e envia
 - pode avisar quando o IP da câmera muda;
 - oferece uma prévia JPEG ao vivo sem enviar as credenciais da câmera ao navegador;
 - pisca o LED integrado enquanto a câmera não está confirmada como online;
-- oferece painel web local.
+- oferece painel web local somente para consulta.
 
 Esta versão não reinicia a câmera por ONVIF. O `SystemReboot` exige autenticação compatível com o firmware específico da câmera e será uma evolução separada.
 
@@ -98,17 +98,11 @@ Painel: http://192.168.1.15
 Painel mDNS: http://camera-watchdog.local
 ```
 
-No painel existem quatro ações:
-
-- verificar agora;
-- descobrir por ONVIF;
-- varrer a sub-rede;
-- enviar e-mail de teste.
-
-O painel também apresenta uma prévia ao vivo. O ESP32 consulta os perfis de
-mídia e o endereço de snapshot por ONVIF, mantém o endereço completo somente
-na RAM e repassa cada JPEG ao navegador. Usuário e senha eventualmente
-retornados pela câmera não são incluídos no HTML nem na API de status.
+O painel é somente para consulta e apresenta uma prévia ao vivo. O ESP32
+consulta os perfis de mídia e o endereço de snapshot por ONVIF, mantém o
+endereço completo somente na RAM e repassa cada JPEG ao navegador. Usuário e
+senha eventualmente retornados pela câmera não são incluídos no HTML nem na
+API de status.
 
 `CAMERA_SNAPSHOT_PROFILE_MATCH` seleciona preferencialmente um perfil cujo
 nome contenha o trecho configurado. O perfil secundário costuma reduzir o uso
