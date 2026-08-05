@@ -18,7 +18,7 @@ Firmware para uma ESP32 clássica monitorar uma câmera Wi-Fi ONVIF/RTSP e envia
 - oferece uma prévia JPEG ao vivo sem enviar as credenciais da câmera ao navegador;
 - pisca o LED integrado enquanto a câmera não está confirmada como online;
 - oferece painel web local somente para consulta, organizado como SPA nas abas
-  `Câmera` e `Recursos`;
+  `Câmera`, `Prévia` e `Recursos`;
 - acompanha heap, firmware, flash, PSRAM, Wi-Fi e características do chip na
   aba `Recursos`.
 
@@ -101,13 +101,15 @@ Painel: http://192.168.1.15
 Painel mDNS: http://camera-watchdog.local
 ```
 
-O painel é uma SPA somente para consulta. As abas `Câmera` e `Recursos` ficam
-disponíveis no cabeçalho e são alternadas sem recarregar a página.
+O painel é uma SPA somente para consulta. As abas `Câmera`, `Prévia` e
+`Recursos` ficam disponíveis no cabeçalho e são alternadas sem recarregar a
+página.
 
-Na aba `Câmera`, o ESP32 apresenta uma prévia ao vivo. Ele consulta os perfis de
+Na aba `Prévia`, o ESP32 apresenta a imagem ao vivo. Ele consulta os perfis de
 mídia e o endereço de snapshot por ONVIF, mantém o endereço completo somente
 na RAM e repassa cada JPEG ao navegador. Usuário e senha eventualmente
-retornados pela câmera não são incluídos no HTML nem na API de status.
+retornados pela câmera não são incluídos no HTML nem na API de status. As abas
+`Câmera` e `Recursos` não solicitam imagens da câmera.
 
 A aba `Recursos` acompanha o heap atual, o menor heap desde o boot, o maior
 bloco alocável, uma estimativa de fragmentação, o tamanho do firmware, o espaço
@@ -121,9 +123,10 @@ nome contenha o trecho configurado. O perfil secundário costuma reduzir o uso
 de rede e a latência. Se não houver correspondência, o primeiro perfil ONVIF é
 usado.
 
-A prévia é atualizada quadro a quadro e é pausada quando a aba fica oculta. Ela
-não decodifica H.264/H.265, não possui áudio e não substitui um player RTSP,
-WebRTC ou um NVR.
+A prévia é atualizada quadro a quadro somente enquanto sua própria aba está
+ativa. Ao trocar de página da SPA ou ocultar a aba do navegador, o carregamento
+de novos quadros é interrompido. Ela não decodifica H.264/H.265, não possui
+áudio e não substitui um player RTSP, WebRTC ou um NVR.
 
 ## Como a falha é confirmada
 

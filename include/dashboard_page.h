@@ -70,17 +70,11 @@ background:conic-gradient(var(--sc,var(--dim)) calc(var(--p,0)*3.6deg),rgba(255,
 .hole span{font-size:10.5px;color:var(--dim);letter-spacing:.05em;text-transform:uppercase}
 
 /* previa da camera */
-.viewer{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+.viewer{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
 box-shadow:var(--shadow);overflow:hidden}
-.viewer-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:15px 17px;
-border-bottom:1px solid var(--line)}
+.viewer-h{padding:15px 17px;border-bottom:1px solid var(--line)}
 .viewer-h h2{font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 .viewer-h p{margin:3px 0 0;font-size:12.5px;color:var(--dim)}
-.feed-toggle{flex:none;width:auto;padding:8px 13px;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;
-color:var(--text);cursor:pointer;background:var(--surface);border:1px solid var(--line2);transition:.16s ease}
-.feed-toggle:hover{background:var(--surface2);border-color:var(--accent);transform:translateY(-1px)}
-.feed-toggle:active{transform:none}
-.feed-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;min-height:220px;
 background:#05070a;overflow:hidden}
 .viewer-stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,#17202c 0,#05070a 66%)}
@@ -91,8 +85,6 @@ color:var(--muted);font-size:13px;background:rgba(5,7,10,.7);transition:opacity 
 .feed-state.hidden{opacity:0;pointer-events:none}
 .feed-stamp{position:absolute;z-index:3;right:10px;bottom:10px;padding:5px 9px;border-radius:7px;
 background:rgba(5,7,10,.72);color:#b7c3d2;font:11px/1.3 var(--mono);backdrop-filter:blur(5px)}
-.viewer.paused .viewer-h{border-bottom:0}
-.viewer.paused .viewer-stage{display:none}
 
 /* metricas */
 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 0}
@@ -181,6 +173,7 @@ main{padding:14px 12px 36px}
   <div class="top-tools">
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
+      <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false">Prévia</button>
       <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
     </nav>
     <div class="live" id="live"><span class="beat"></span><span id="liveText">conectando…</span></div>
@@ -221,21 +214,6 @@ main{padding:14px 12px 36px}
   </article>
 </div>
 
-<section class="viewer" id="viewer" aria-labelledby="viewerTitle">
-  <div class="viewer-h">
-    <div>
-      <h2 id="viewerTitle">Prévia ao vivo</h2>
-      <p id="feedMeta">Quadros JPEG protegidos pelo ESP32, sem expor credenciais da câmera</p>
-    </div>
-    <button class="feed-toggle" id="feedToggle" type="button" aria-controls="viewerStage" aria-expanded="true">Pausar prévia</button>
-  </div>
-  <div class="viewer-stage" id="viewerStage">
-    <img id="cameraFeed" alt="Imagem ao vivo da câmera monitorada" decoding="async">
-    <div class="feed-state" id="feedState">Carregando o primeiro quadro da câmera…</div>
-    <div class="feed-stamp" id="feedStamp">aguardando imagem</div>
-  </div>
-</section>
-
 <section class="sec">
   <div class="sec-t"><h2>Registro</h2><span>última atividade conhecida</span></div>
   <dl class="log">
@@ -251,6 +229,20 @@ main{padding:14px 12px 36px}
   <summary>Diagnóstico completo (JSON)</summary>
   <pre id="raw">Carregando…</pre>
 </details>
+</div>
+
+<div id="feedView" role="tabpanel" aria-labelledby="feedTab" data-view-panel="feed" hidden>
+  <section class="viewer" aria-labelledby="viewerTitle">
+    <div class="viewer-h">
+      <h2 id="viewerTitle">Prévia ao vivo</h2>
+      <p id="feedMeta">Quadros JPEG protegidos pelo ESP32, sem expor credenciais da câmera</p>
+    </div>
+    <div class="viewer-stage">
+      <img id="cameraFeed" alt="Imagem ao vivo da câmera monitorada" decoding="async">
+      <div class="feed-state" id="feedState">Carregando o primeiro quadro da câmera…</div>
+      <div class="feed-stamp" id="feedStamp">aguardando imagem</div>
+    </div>
+  </section>
 </div>
 
 <div id="resourcesView" role="tabpanel" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
@@ -337,7 +329,9 @@ const PALETTE = {
 };
 const HISTORY_LIMIT = 60;
 const resourceHistory = { heap: [], rssi: [] };
-let activeView = location.hash === '#resources' ? 'resources' : 'camera';
+let activeView = location.hash === '#resources'
+  ? 'resources'
+  : location.hash === '#feed' ? 'feed' : 'camera';
 
 function duration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -472,14 +466,13 @@ function setProbe(prefix, tcp, spoke, code, latency, protocol) {
 
 let lastOk = 0;
 let cameraKnown = false;
-let feedEnabled = true;
 let feedLoading = false;
 let feedFailures = 0;
 let feedTimer;
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
-  if (!feedEnabled || document.hidden || activeView !== 'camera') return;
+  if (document.hidden || activeView !== 'feed') return;
   feedTimer = setTimeout(() => {
     feedTimer = null;
     loadFeed();
@@ -487,7 +480,7 @@ function scheduleFeed(delay) {
 }
 
 function loadFeed() {
-  if (!feedEnabled || document.hidden || activeView !== 'camera' || feedLoading) return;
+  if (document.hidden || activeView !== 'feed' || feedLoading) return;
   if (!cameraKnown) {
     $('feedState').classList.remove('hidden');
     $('feedState').textContent = 'Aguardando a câmera ser localizada…';
@@ -536,7 +529,7 @@ function render(d) {
       : 'Preparando o perfil JPEG protegido pelo ESP32';
   }
 
-  if (feedEnabled && activeView === 'camera' && !feedLoading && !feedTimer) scheduleFeed(0);
+  if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
 
   const c = d.counters;
   const rate = c.totalChecks ? c.successfulChecks / c.totalChecks * 100 : 0;
@@ -602,7 +595,7 @@ setInterval(() => {
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = name === 'resources' ? 'resources' : 'camera';
+  const nextView = name === 'resources' || name === 'feed' ? name : 'camera';
   activeView = nextView;
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
     panel.hidden = panel.dataset.viewPanel !== nextView;
@@ -610,13 +603,28 @@ function activateView(name, updateHash) {
   document.querySelectorAll('.tab[data-view]').forEach(tab => {
     tab.setAttribute('aria-selected', tab.dataset.view === nextView ? 'true' : 'false');
   });
-  document.title = (nextView === 'resources' ? 'Recursos' : 'Câmera') + ' · Camera Watchdog';
+  const viewTitle = nextView === 'resources'
+    ? 'Recursos'
+    : nextView === 'feed' ? 'Prévia' : 'Câmera';
+  document.title = viewTitle + ' · Camera Watchdog';
 
-  if (nextView === 'camera') {
-    if (feedEnabled) scheduleFeed(0);
+  if (nextView === 'feed') {
+    $('feedState').textContent = cameraKnown
+      ? 'Atualizando a imagem…'
+      : 'Aguardando a câmera ser localizada…';
+    $('feedState').classList.remove('hidden');
+    $('feedStamp').textContent = 'aguardando imagem';
+    scheduleFeed(0);
   } else {
     clearTimeout(feedTimer);
     feedTimer = null;
+    const frame = $('cameraFeed');
+    frame.onload = null;
+    frame.onerror = null;
+    frame.removeAttribute('src');
+    frame.classList.remove('ready');
+    feedLoading = false;
+    feedFailures = 0;
   }
 
   const nextHash = '#' + nextView;
@@ -628,32 +636,10 @@ document.querySelectorAll('.tab[data-view]').forEach(tab => {
 });
 
 window.addEventListener('hashchange', () => {
-  activateView(location.hash === '#resources' ? 'resources' : 'camera', false);
-});
-
-const feedToggleButton = $('feedToggle');
-
-feedToggleButton.addEventListener('click', () => {
-  feedEnabled = !feedEnabled;
-  feedToggleButton.textContent = feedEnabled ? 'Pausar prévia' : 'Retomar prévia';
-  feedToggleButton.setAttribute('aria-expanded', feedEnabled ? 'true' : 'false');
-  $('viewer').classList.toggle('paused', !feedEnabled);
-  $('viewerStage').setAttribute('aria-hidden', feedEnabled ? 'false' : 'true');
-
-  if (feedEnabled) {
-    $('feedState').textContent = 'Atualizando a imagem…';
-    $('feedState').classList.remove('hidden');
-    scheduleFeed(0);
-  } else {
-    clearTimeout(feedTimer);
-    feedTimer = null;
-    feedLoading = false;
-    $('cameraFeed').removeAttribute('src');
-    $('cameraFeed').classList.remove('ready');
-    $('feedState').textContent = 'Prévia pausada';
-    $('feedState').classList.remove('hidden');
-    $('feedStamp').textContent = 'atualização pausada';
-  }
+  const hashView = location.hash === '#resources'
+    ? 'resources'
+    : location.hash === '#feed' ? 'feed' : 'camera';
+  activateView(hashView, false);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -663,7 +649,7 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
 
-  if (feedEnabled) scheduleFeed(0);
+  if (activeView === 'feed') scheduleFeed(0);
 });
 
 activateView(activeView, false);

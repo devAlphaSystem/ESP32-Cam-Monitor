@@ -20,7 +20,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.3.6";
+constexpr char FIRMWARE_VERSION[] = "0.3.7";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 
