@@ -20,7 +20,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.3.4";
+constexpr char FIRMWARE_VERSION[] = "0.3.6";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 
@@ -2370,8 +2370,17 @@ void runHealthCheck()
 
 String buildStatusJson()
 {
+    const uint32_t heapTotalBytes = ESP.getHeapSize();
+    const uint32_t heapFreeBytes = ESP.getFreeHeap();
+    const uint32_t heapMinimumFreeBytes = ESP.getMinFreeHeap();
+    const uint32_t heapLargestBlockBytes = ESP.getMaxAllocHeap();
+    const uint32_t psramTotalBytes = ESP.getPsramSize();
+    const uint32_t psramFreeBytes = ESP.getFreePsram();
+    const uint32_t psramMinimumFreeBytes = ESP.getMinFreePsram();
+    const uint32_t psramLargestBlockBytes = ESP.getMaxAllocPsram();
+
     String json;
-    json.reserve(2200);
+    json.reserve(2800);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -2389,12 +2398,46 @@ String buildStatusJson()
     json += "\"stateSinceSeconds\":";
     json += (millis() - lastStateChangeAtMs) / 1000UL;
     json += ",";
-    json += "\"freeHeapBytes\":";
-    json += ESP.getFreeHeap();
-    json += ",";
-    json += "\"minimumFreeHeapBytes\":";
-    json += ESP.getMinFreeHeap();
-    json += ",";
+
+    json += "\"resources\":{";
+    json += "\"heap\":{";
+    json += "\"totalBytes\":";
+    json += heapTotalBytes;
+    json += ",\"freeBytes\":";
+    json += heapFreeBytes;
+    json += ",\"minimumFreeBytes\":";
+    json += heapMinimumFreeBytes;
+    json += ",\"largestBlockBytes\":";
+    json += heapLargestBlockBytes;
+    json += "},";
+    json += "\"psram\":{";
+    json += "\"totalBytes\":";
+    json += psramTotalBytes;
+    json += ",\"freeBytes\":";
+    json += psramFreeBytes;
+    json += ",\"minimumFreeBytes\":";
+    json += psramMinimumFreeBytes;
+    json += ",\"largestBlockBytes\":";
+    json += psramLargestBlockBytes;
+    json += "},";
+    json += "\"flash\":{";
+    json += "\"chipBytes\":";
+    json += ESP.getFlashChipSize();
+    json += ",\"sketchBytes\":";
+    json += ESP.getSketchSize();
+    json += ",\"freeSketchBytes\":";
+    json += ESP.getFreeSketchSpace();
+    json += "},";
+    json += "\"chip\":{";
+    json += "\"model\":\"";
+    json += ESP.getChipModel();
+    json += "\",\"revision\":";
+    json += static_cast<unsigned int>(ESP.getChipRevision());
+    json += ",\"cores\":";
+    json += static_cast<unsigned int>(ESP.getChipCores());
+    json += ",\"cpuFrequencyMHz\":";
+    json += ESP.getCpuFreqMHz();
+    json += "}},";
 
     json += "\"bluetoothMemory\":{";
     json += "\"configured\":";

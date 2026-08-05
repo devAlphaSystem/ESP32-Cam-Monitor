@@ -21,6 +21,7 @@ static const char DASHBOARD_PAGE[] PROGMEM = R"HTML(<!doctype html>
 --r:14px;--shadow:0 1px 2px rgba(0,0,0,.35),0 14px 34px -20px rgba(0,0,0,.95);
 --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
 html{-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
 body{margin:0;color:var(--text);background:var(--bg);background-attachment:fixed;
 background-image:radial-gradient(900px 460px at 8% -14%,rgba(56,189,248,.11),transparent 60%),
 radial-gradient(760px 380px at 94% -8%,rgba(52,211,153,.07),transparent 55%);
@@ -35,6 +36,13 @@ h1,h2{margin:0;font-weight:650;letter-spacing:-.015em}
 .brand{min-width:0}
 .brand h1{font-size:19px}
 .brand p{margin:2px 0 0;font-size:12.5px;color:var(--dim)}
+.top-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
+.tabs{display:flex;gap:3px;padding:3px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.tab{padding:5px 12px;border:0;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer;
+font:inherit;font-size:12.5px;font-weight:600;line-height:1.5;transition:.16s ease}
+.tab:hover{color:var(--text);background:var(--surface2)}
+.tab[aria-selected="true"]{color:var(--text);background:var(--line2)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .live{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
 background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;white-space:nowrap}
 .beat{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;animation:beat 2.4s infinite}
@@ -95,12 +103,31 @@ font-weight:650;letter-spacing:.07em;text-transform:uppercase}
 .card-v{margin-top:9px;font-size:21px;font-weight:670;letter-spacing:-.02em;overflow-wrap:anywhere}
 .card-m{margin-top:3px;font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}
-.pip.ok{background:var(--ok)}.pip.warn{background:var(--warn)}.pip.bad{background:var(--bad)}
+.pip.ok{background:var(--ok)}.pip.warn{background:var(--warn)}.pip.bad{background:var(--bad)}.pip.info{background:var(--info)}
 .bars{display:inline-flex;align-items:flex-end;gap:3px;height:19px;vertical-align:-3px;margin-right:9px}
 .bars i{width:5px;border-radius:1.5px;background:rgba(255,255,255,.13)}
 .bars i:nth-child(1){height:6px}.bars i:nth-child(2){height:10px}
 .bars i:nth-child(3){height:14px}.bars i:nth-child(4){height:19px}
 .bars i.on{background:currentColor}
+.meter{height:5px;margin-top:11px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
+.meter i{display:block;width:0;height:100%;border-radius:inherit;background:var(--ok);transition:width .4s ease}
+.meter i.warn{background:var(--warn)}.meter i.bad{background:var(--bad)}
+
+/* historico de recursos */
+.chart-card{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+padding:16px;box-shadow:var(--shadow)}
+.chart-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+.chart-head h2{font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.chart-head p{margin:3px 0 0;font-size:12.5px;color:var(--dim)}
+.legend{display:flex;flex-wrap:wrap;gap:13px;color:var(--muted);font-size:12px}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.legend .wifi-dot{background:var(--warn)}
+.chart{width:100%;height:210px;margin-top:13px;display:block;overflow:visible}
+.chart line{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart polyline{fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;
+vector-effect:non-scaling-stroke}
+.chart .wifi-line{stroke:var(--warn)}
 
 .sec{margin-top:24px}
 .sec-t{display:flex;align-items:baseline;gap:10px;margin-bottom:11px}
@@ -132,6 +159,8 @@ footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim)}
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){
 main{padding:14px 12px 36px}
+.top-tools{width:100%;justify-content:space-between}
+.tabs{flex:1}.tab{flex:1}
 .hero{padding:18px;gap:16px}
 .hero-name{font-size:23px}
 .gauge{width:96px;height:96px;margin:0}
@@ -144,13 +173,21 @@ main{padding:14px 12px 36px}
 <body>
 <main>
 
-<div class="top">
+<header class="top">
   <div class="brand">
     <h1>Camera Watchdog</h1>
     <p>Monitor ONVIF/RTSP com alertas por e-mail</p>
   </div>
-  <div class="live" id="live"><span class="beat"></span><span id="liveText">conectando…</span></div>
-</div>
+  <div class="top-tools">
+    <nav class="tabs" role="tablist" aria-label="Seções do painel">
+      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
+      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
+    </nav>
+    <div class="live" id="live"><span class="beat"></span><span id="liveText">conectando…</span></div>
+  </div>
+</header>
+
+<div id="cameraView" role="tabpanel" aria-labelledby="cameraTab" data-view-panel="camera">
 
 <section class="hero" id="hero">
   <div class="hero-main">
@@ -178,24 +215,9 @@ main{padding:14px 12px 36px}
     <div class="card-m" id="m-rtsp">—</div>
   </article>
   <article class="card">
-    <div class="card-h">Wi-Fi do ESP32<i class="pip" id="p-wifi"></i></div>
-    <div class="card-v" id="v-wifi"><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="rssi">—</span></div>
-    <div class="card-m" id="m-wifi">—</div>
-  </article>
-  <article class="card">
-    <div class="card-h">Falhas consecutivas<i class="pip" id="p-fail"></i></div>
-    <div class="card-v" id="v-fail">—</div>
-    <div class="card-m" id="m-fail">—</div>
-  </article>
-  <article class="card">
     <div class="card-h">Verificações</div>
     <div class="card-v" id="v-checks">—</div>
     <div class="card-m" id="m-checks">—</div>
-  </article>
-  <article class="card">
-    <div class="card-h">Memória livre<i class="pip" id="p-heap"></i></div>
-    <div class="card-v" id="v-heap">—</div>
-    <div class="card-m" id="m-heap">—</div>
   </article>
 </div>
 
@@ -229,6 +251,77 @@ main{padding:14px 12px 36px}
   <summary>Diagnóstico completo (JSON)</summary>
   <pre id="raw">Carregando…</pre>
 </details>
+</div>
+
+<div id="resourcesView" role="tabpanel" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
+  <section class="hero" id="resourcesHero">
+    <div class="hero-main">
+      <span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">carregando</span></span>
+      <h2 class="hero-name" id="resourcesChip">ESP32</h2>
+      <div class="hero-sub" id="resourcesMeta">aguardando dados do dispositivo…</div>
+    </div>
+    <div>
+      <div class="gauge">
+        <div class="arc" id="resourcesArc"></div>
+        <div class="hole"><div><b id="resourcesHeapPercent">—</b><br><span>heap livre</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <article class="card">
+      <div class="card-h">Heap livre<i class="pip" id="p-rheap"></i></div>
+      <div class="card-v" id="r-heap">—</div>
+      <div class="card-m" id="r-heap-meta">—</div>
+      <div class="meter"><i id="r-heap-meter"></i></div>
+    </article>
+    <article class="card">
+      <div class="card-h">Maior bloco alocável<i class="pip" id="p-rblock"></i></div>
+      <div class="card-v" id="r-block">—</div>
+      <div class="card-m" id="r-block-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Menor heap desde o boot<i class="pip" id="p-rmin"></i></div>
+      <div class="card-v" id="r-min">—</div>
+      <div class="card-m" id="r-min-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Firmware e flash</div>
+      <div class="card-v info" id="r-flash">—</div>
+      <div class="card-m" id="r-flash-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">PSRAM<i class="pip" id="p-rpsram"></i></div>
+      <div class="card-v" id="r-psram">—</div>
+      <div class="card-m" id="r-psram-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Wi-Fi do ESP32<i class="pip" id="p-wifi"></i></div>
+      <div class="card-v" id="v-wifi"><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="rssi">—</span></div>
+      <div class="card-m" id="m-wifi">—</div>
+    </article>
+  </div>
+
+  <section class="chart-card" aria-labelledby="historyTitle">
+    <div class="chart-head">
+      <div>
+        <h2 id="historyTitle">Histórico recente</h2>
+        <p>Até três minutos desta sessão do navegador</p>
+      </div>
+      <div class="legend">
+        <span><i></i>Heap <b id="historyHeap">—</b></span>
+        <span><i class="wifi-dot"></i>Wi-Fi <b id="historyRssi">—</b></span>
+      </div>
+    </div>
+    <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Histórico de heap livre e sinal Wi-Fi">
+      <line x1="0" y1="20" x2="600" y2="20"></line>
+      <line x1="0" y1="90" x2="600" y2="90"></line>
+      <line x1="0" y1="160" x2="600" y2="160"></line>
+      <polyline id="heapHistory" points=""></polyline>
+      <polyline class="wifi-line" id="rssiHistory" points=""></polyline>
+    </svg>
+  </section>
+</div>
 
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
@@ -242,6 +335,9 @@ const PALETTE = {
   discovering:['Procurando', 'var(--info)', 'rgba(96,165,250,.13)', 'rgba(96,165,250,.28)'],
   starting:  ['Iniciando',   'var(--info)', 'rgba(96,165,250,.13)', 'rgba(96,165,250,.28)']
 };
+const HISTORY_LIMIT = 60;
+const resourceHistory = { heap: [], rssi: [] };
+let activeView = location.hash === '#resources' ? 'resources' : 'camera';
 
 function duration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -256,6 +352,103 @@ function duration(totalSeconds) {
 function pip(id, tone) { $(id).className = 'pip ' + tone; }
 
 function plural(count, one, many) { return count + ' ' + (count === 1 ? one : many); }
+
+function formatBytes(value) {
+  if (value >= 1048576) return (value / 1048576).toFixed(value >= 10485760 ? 1 : 2) + ' MB';
+  if (value >= 1024) return Math.round(value / 1024) + ' KB';
+  return value + ' B';
+}
+
+function resourceTone(percent) {
+  return percent >= 35 ? 'ok' : percent >= 20 ? 'warn' : 'bad';
+}
+
+function historyPoints(values, minimum, maximum) {
+  const width = 600, top = 20, height = 140;
+  const span = Math.max(1, values.length - 1);
+  return values.map((value, index) => {
+    const normalized = Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum)));
+    return (index / span * width).toFixed(1) + ',' + (top + (1 - normalized) * height).toFixed(1);
+  }).join(' ');
+}
+
+function renderResources(d) {
+  const resources = d.resources;
+  if (!resources) return;
+
+  const heap = resources.heap;
+  const heapPercent = heap.totalBytes ? heap.freeBytes / heap.totalBytes * 100 : 0;
+  const heapTone = resourceTone(heapPercent);
+  const toneValues = heapTone === 'ok'
+    ? ['Recursos estáveis', 'var(--ok)', 'rgba(52,211,153,.13)', 'rgba(52,211,153,.28)']
+    : heapTone === 'warn'
+      ? ['Heap em atenção', 'var(--warn)', 'rgba(251,191,36,.13)', 'rgba(251,191,36,.28)']
+      : ['Heap baixo', 'var(--bad)', 'rgba(248,113,113,.13)', 'rgba(248,113,113,.28)'];
+  const resourceHero = $('resourcesHero');
+  resourceHero.style.setProperty('--sc', toneValues[1]);
+  resourceHero.style.setProperty('--sbg', toneValues[2]);
+  resourceHero.style.setProperty('--sbd', toneValues[3]);
+  $('resourcesState').textContent = toneValues[0];
+  $('resourcesChip').textContent = resources.chip.model + ' rev. ' + resources.chip.revision;
+  $('resourcesMeta').textContent = resources.chip.cores + ' núcleos · '
+    + resources.chip.cpuFrequencyMHz + ' MHz · ligado há ' + duration(d.uptimeSeconds);
+  $('resourcesArc').style.setProperty('--p', heapPercent);
+  $('resourcesHeapPercent').textContent = Math.round(heapPercent) + '%';
+
+  $('r-heap').textContent = formatBytes(heap.freeBytes);
+  $('r-heap').className = 'card-v ' + heapTone;
+  $('r-heap-meta').textContent = formatBytes(heap.totalBytes - heap.freeBytes)
+    + ' usados de ' + formatBytes(heap.totalBytes);
+  $('r-heap-meter').style.width = Math.max(0, Math.min(100, heapPercent)) + '%';
+  $('r-heap-meter').className = heapTone;
+  pip('p-rheap', heapTone);
+
+  const fragmentation = heap.freeBytes
+    ? Math.max(0, 100 - heap.largestBlockBytes / heap.freeBytes * 100)
+    : 100;
+  const blockTone = fragmentation <= 25 ? 'ok' : fragmentation <= 50 ? 'warn' : 'bad';
+  $('r-block').textContent = formatBytes(heap.largestBlockBytes);
+  $('r-block').className = 'card-v ' + blockTone;
+  $('r-block-meta').textContent = 'fragmentação estimada em ' + Math.round(fragmentation) + '%';
+  pip('p-rblock', blockTone);
+
+  const minimumPercent = heap.totalBytes ? heap.minimumFreeBytes / heap.totalBytes * 100 : 0;
+  const minimumTone = resourceTone(minimumPercent);
+  $('r-min').textContent = formatBytes(heap.minimumFreeBytes);
+  $('r-min').className = 'card-v ' + minimumTone;
+  $('r-min-meta').textContent = Math.round(minimumPercent) + '% do heap total';
+  pip('p-rmin', minimumTone);
+
+  const flash = resources.flash;
+  $('r-flash').textContent = formatBytes(flash.sketchBytes);
+  $('r-flash-meta').textContent = formatBytes(flash.freeSketchBytes)
+    + ' livres na partição · flash ' + formatBytes(flash.chipBytes);
+
+  const psram = resources.psram;
+  if (psram.totalBytes) {
+    const psramPercent = psram.freeBytes / psram.totalBytes * 100;
+    const psramTone = resourceTone(psramPercent);
+    $('r-psram').textContent = formatBytes(psram.freeBytes);
+    $('r-psram').className = 'card-v ' + psramTone;
+    $('r-psram-meta').textContent = 'livres de ' + formatBytes(psram.totalBytes)
+      + ' · maior bloco ' + formatBytes(psram.largestBlockBytes);
+    pip('p-rpsram', psramTone);
+  } else {
+    $('r-psram').textContent = 'não disponível';
+    $('r-psram').className = 'card-v info';
+    $('r-psram-meta').textContent = 'esta placa não expõe PSRAM';
+    pip('p-rpsram', 'info');
+  }
+
+  resourceHistory.heap.push(heapPercent);
+  resourceHistory.rssi.push(d.wifi.connected ? d.wifi.rssi : -100);
+  if (resourceHistory.heap.length > HISTORY_LIMIT) resourceHistory.heap.shift();
+  if (resourceHistory.rssi.length > HISTORY_LIMIT) resourceHistory.rssi.shift();
+  $('heapHistory').setAttribute('points', historyPoints(resourceHistory.heap, 0, 100));
+  $('rssiHistory').setAttribute('points', historyPoints(resourceHistory.rssi, -100, -30));
+  $('historyHeap').textContent = Math.round(heapPercent) + '%';
+  $('historyRssi').textContent = d.wifi.connected ? d.wifi.rssi + ' dBm' : 'desconectado';
+}
 
 function setProbe(prefix, tcp, spoke, code, latency, protocol) {
   const value = $('v-' + prefix), meta = $('m-' + prefix);
@@ -286,7 +479,7 @@ let feedTimer;
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
-  if (!feedEnabled || document.hidden) return;
+  if (!feedEnabled || document.hidden || activeView !== 'camera') return;
   feedTimer = setTimeout(() => {
     feedTimer = null;
     loadFeed();
@@ -294,7 +487,7 @@ function scheduleFeed(delay) {
 }
 
 function loadFeed() {
-  if (!feedEnabled || document.hidden || feedLoading) return;
+  if (!feedEnabled || document.hidden || activeView !== 'camera' || feedLoading) return;
   if (!cameraKnown) {
     $('feedState').classList.remove('hidden');
     $('feedState').textContent = 'Aguardando a câmera ser localizada…';
@@ -343,7 +536,7 @@ function render(d) {
       : 'Preparando o perfil JPEG protegido pelo ESP32';
   }
 
-  if (feedEnabled && !feedLoading && !feedTimer) scheduleFeed(0);
+  if (feedEnabled && activeView === 'camera' && !feedLoading && !feedTimer) scheduleFeed(0);
 
   const c = d.counters;
   const rate = c.totalChecks ? c.successfulChecks / c.totalChecks * 100 : 0;
@@ -363,26 +556,14 @@ function render(d) {
   $('m-wifi').textContent = d.wifi.connected ? d.wifi.ssid + ' · gateway ' + d.wifi.gateway : 'tentando reconectar';
   pip('p-wifi', level >= 3 ? 'ok' : level === 2 ? 'warn' : 'bad');
 
-  const fails = c.consecutiveFailures;
-  $('v-fail').textContent = fails;
-  $('v-fail').className = 'card-v ' + (fails ? (fails >= 3 ? 'bad' : 'warn') : 'ok');
-  $('m-fail').textContent = !fails
-    ? plural(c.consecutiveSuccesses, 'sucesso seguido', 'sucessos seguidos')
-    : d.state === 'offline'
-      ? 'falha confirmada, alerta disparado'
-      : 'confirmando a falha antes de alertar';
-  pip('p-fail', fails ? (fails >= 3 ? 'bad' : 'warn') : 'ok');
-
+  const currentSequence = c.consecutiveFailures
+    ? plural(c.consecutiveFailures, 'falha consecutiva', 'falhas consecutivas')
+    : plural(c.consecutiveSuccesses, 'sucesso seguido', 'sucessos seguidos');
   $('v-checks').textContent = c.totalChecks;
-  $('m-checks').textContent = c.failedChecks + ' com falha · '
+  $('m-checks').textContent = plural(c.failedChecks, 'falha no total', 'falhas no total') + ' · '
+    + currentSequence + ' · '
     + plural(c.discoveryRuns, 'descoberta', 'descobertas') + ' · '
     + plural(c.subnetScanRuns, 'varredura', 'varreduras');
-
-  const heapKb = Math.round(d.freeHeapBytes / 1024);
-  $('v-heap').textContent = heapKb + ' KB';
-  $('v-heap').className = 'card-v ' + (heapKb >= 100 ? 'ok' : heapKb >= 50 ? 'warn' : 'bad');
-  $('m-heap').textContent = 'mínimo já observado: ' + Math.round(d.minimumFreeHeapBytes / 1024) + ' KB';
-  pip('p-heap', heapKb >= 100 ? 'ok' : heapKb >= 50 ? 'warn' : 'bad');
 
   $('l-event').textContent = d.lastEvent;
   $('l-url').textContent = d.camera.onvifUrl || 'desconhecido';
@@ -396,6 +577,7 @@ function render(d) {
   $('raw').textContent = JSON.stringify(d, null, 2);
   $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + d.firmwareVersion
     + ' · ligado há ' + duration(d.uptimeSeconds);
+  renderResources(d);
 
   lastOk = Date.now();
 }
@@ -418,6 +600,36 @@ setInterval(() => {
   const ago = Math.round((Date.now() - lastOk) / 1000);
   $('liveText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
 }, 1000);
+
+function activateView(name, updateHash) {
+  const nextView = name === 'resources' ? 'resources' : 'camera';
+  activeView = nextView;
+  document.querySelectorAll('[data-view-panel]').forEach(panel => {
+    panel.hidden = panel.dataset.viewPanel !== nextView;
+  });
+  document.querySelectorAll('.tab[data-view]').forEach(tab => {
+    tab.setAttribute('aria-selected', tab.dataset.view === nextView ? 'true' : 'false');
+  });
+  document.title = (nextView === 'resources' ? 'Recursos' : 'Câmera') + ' · Camera Watchdog';
+
+  if (nextView === 'camera') {
+    if (feedEnabled) scheduleFeed(0);
+  } else {
+    clearTimeout(feedTimer);
+    feedTimer = null;
+  }
+
+  const nextHash = '#' + nextView;
+  if (updateHash && location.hash !== nextHash) location.hash = nextHash;
+}
+
+document.querySelectorAll('.tab[data-view]').forEach(tab => {
+  tab.addEventListener('click', () => activateView(tab.dataset.view, true));
+});
+
+window.addEventListener('hashchange', () => {
+  activateView(location.hash === '#resources' ? 'resources' : 'camera', false);
+});
 
 const feedToggleButton = $('feedToggle');
 
@@ -454,6 +666,7 @@ document.addEventListener('visibilitychange', () => {
   if (feedEnabled) scheduleFeed(0);
 });
 
+activateView(activeView, false);
 refresh();
 setInterval(refresh, 3000);
 </script>

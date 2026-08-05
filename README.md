@@ -17,7 +17,10 @@ Firmware para uma ESP32 clássica monitorar uma câmera Wi-Fi ONVIF/RTSP e envia
 - pode avisar quando o IP da câmera muda;
 - oferece uma prévia JPEG ao vivo sem enviar as credenciais da câmera ao navegador;
 - pisca o LED integrado enquanto a câmera não está confirmada como online;
-- oferece painel web local somente para consulta.
+- oferece painel web local somente para consulta, organizado como SPA nas abas
+  `Câmera` e `Recursos`;
+- acompanha heap, firmware, flash, PSRAM, Wi-Fi e características do chip na
+  aba `Recursos`.
 
 Esta versão não reinicia a câmera por ONVIF. O `SystemReboot` exige autenticação compatível com o firmware específico da câmera e será uma evolução separada.
 
@@ -98,11 +101,20 @@ Painel: http://192.168.1.15
 Painel mDNS: http://camera-watchdog.local
 ```
 
-O painel é somente para consulta e apresenta uma prévia ao vivo. O ESP32
-consulta os perfis de mídia e o endereço de snapshot por ONVIF, mantém o
-endereço completo somente na RAM e repassa cada JPEG ao navegador. Usuário e
-senha eventualmente retornados pela câmera não são incluídos no HTML nem na
-API de status.
+O painel é uma SPA somente para consulta. As abas `Câmera` e `Recursos` ficam
+disponíveis no cabeçalho e são alternadas sem recarregar a página.
+
+Na aba `Câmera`, o ESP32 apresenta uma prévia ao vivo. Ele consulta os perfis de
+mídia e o endereço de snapshot por ONVIF, mantém o endereço completo somente
+na RAM e repassa cada JPEG ao navegador. Usuário e senha eventualmente
+retornados pela câmera não são incluídos no HTML nem na API de status.
+
+A aba `Recursos` acompanha o heap atual, o menor heap desde o boot, o maior
+bloco alocável, uma estimativa de fragmentação, o tamanho do firmware, o espaço
+livre na partição da aplicação, a flash física, a PSRAM e o Wi-Fi. Ela também
+mostra modelo, revisão, núcleos e frequência do chip. O histórico de heap e
+sinal Wi-Fi mantém até três minutos apenas na sessão atual do navegador e não
+grava dados no ESP32.
 
 `CAMERA_SNAPSHOT_PROFILE_MATCH` seleciona preferencialmente um perfil cujo
 nome contenha o trecho configurado. O perfil secundário costuma reduzir o uso
