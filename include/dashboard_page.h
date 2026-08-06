@@ -85,6 +85,19 @@ color:var(--muted);font-size:13px;background:rgba(5,7,10,.7);transition:opacity 
 .feed-state.hidden{opacity:0;pointer-events:none}
 .feed-stamp{position:absolute;z-index:3;right:10px;bottom:10px;padding:5px 9px;border-radius:7px;
 background:rgba(5,7,10,.72);color:#b7c3d2;font:11px/1.3 var(--mono);backdrop-filter:blur(5px)}
+.viewer-stage img.ready{cursor:zoom-in}
+.feed-fs-btn{position:absolute;z-index:4;right:10px;top:10px;width:32px;height:32px;display:grid;place-items:center;
+border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(5,7,10,.72);color:#dbe6f2;
+cursor:pointer;backdrop-filter:blur(5px);transition:.16s ease}
+.feed-fs-btn:hover{background:rgba(20,27,37,.92);color:#fff}
+.feed-fs-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.feed-fs-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
+.viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen{width:100%;height:100%}
+.viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
+.viewer-stage:fullscreen::before,.viewer-stage:-webkit-full-screen::before,.viewer-stage.fs-fallback::before{display:none}
+.viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
+body.fs-locked{overflow:hidden}
 
 /* metricas */
 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 0}
@@ -241,6 +254,10 @@ main{padding:14px 12px 36px}
       <img id="cameraFeed" alt="Imagem ao vivo da câmera monitorada" decoding="async">
       <div class="feed-state" id="feedState">Carregando o primeiro quadro da câmera…</div>
       <div class="feed-stamp" id="feedStamp">aguardando imagem</div>
+      <button type="button" class="feed-fs-btn" id="feedFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
+        <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
+        <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
+      </button>
     </div>
   </section>
 </div>
@@ -469,6 +486,9 @@ let cameraKnown = false;
 let feedLoading = false;
 let feedFailures = 0;
 let feedTimer;
+let feedRequestedAtMs = 0;
+const FEED_MIN_INTERVAL_MS = 300;   // piso de seguranca para nao sobrecarregar o loop do ESP32
+const FEED_TARGET_CYCLE_MS = 600;   // meta de intervalo total (busca + espera) entre quadros
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
@@ -490,13 +510,15 @@ function loadFeed() {
 
   const frame = $('cameraFeed');
   feedLoading = true;
+  feedRequestedAtMs = Date.now();
   frame.onload = () => {
     feedLoading = false;
     feedFailures = 0;
     frame.classList.add('ready');
     $('feedState').classList.add('hidden');
     $('feedStamp').textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR');
-    scheduleFeed(1000);
+    const elapsed = Date.now() - feedRequestedAtMs;
+    scheduleFeed(Math.max(FEED_MIN_INTERVAL_MS, FEED_TARGET_CYCLE_MS - elapsed));
   };
   frame.onerror = () => {
     feedLoading = false;
@@ -508,6 +530,60 @@ function loadFeed() {
   };
   frame.src = '/api/camera/snapshot?t=' + Date.now();
 }
+
+const feedStage = document.querySelector('.viewer-stage');
+const feedFsBtn = $('feedFsBtn');
+
+function isNativeFullscreen() {
+  return document.fullscreenElement === feedStage || document.webkitFullscreenElement === feedStage;
+}
+
+function updateFsButton() {
+  const active = isNativeFullscreen() || feedStage.classList.contains('fs-fallback');
+  feedFsBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  feedFsBtn.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ver em tela cheia');
+  feedFsBtn.title = active ? 'Sair da tela cheia' : 'Tela cheia';
+  feedFsBtn.querySelector('.ic-expand').hidden = active;
+  feedFsBtn.querySelector('.ic-collapse').hidden = !active;
+}
+
+function exitFallbackFullscreen() {
+  feedStage.classList.remove('fs-fallback');
+  document.body.classList.remove('fs-locked');
+  updateFsButton();
+}
+
+function toggleFullscreen() {
+  if (isNativeFullscreen()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    return;
+  }
+  if (feedStage.classList.contains('fs-fallback')) {
+    exitFallbackFullscreen();
+    return;
+  }
+
+  const request = feedStage.requestFullscreen || feedStage.webkitRequestFullscreen;
+  if (!request) {
+    feedStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateFsButton();
+    return;
+  }
+  Promise.resolve(request.call(feedStage)).catch(() => {
+    feedStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateFsButton();
+  });
+}
+
+feedFsBtn.addEventListener('click', toggleFullscreen);
+$('cameraFeed').addEventListener('click', () => { if (cameraKnown) toggleFullscreen(); });
+document.addEventListener('fullscreenchange', updateFsButton);
+document.addEventListener('webkitfullscreenchange', updateFsButton);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
+});
 
 function render(d) {
   const [label, color, bg, border] = PALETTE[d.state] || ['Desconhecido', 'var(--dim)', '', ''];
@@ -616,6 +692,8 @@ function activateView(name, updateHash) {
     $('feedStamp').textContent = 'aguardando imagem';
     scheduleFeed(0);
   } else {
+    if (isNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    if (feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
     clearTimeout(feedTimer);
     feedTimer = null;
     const frame = $('cameraFeed');

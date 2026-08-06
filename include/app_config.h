@@ -60,7 +60,9 @@ constexpr uint32_t SCAN_CONNECT_TIMEOUT_MS = 90UL;
 constexpr uint32_t SNAPSHOT_HTTP_TIMEOUT_MS = 6000UL;
 constexpr unsigned long SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS = 30000UL;
 constexpr size_t MAX_ONVIF_RESPONSE_SIZE = 32768;
-constexpr size_t SNAPSHOT_RELAY_BUFFER_SIZE = 1024;
+// Buffer maior = menos iteracoes de leitura/escrita por quadro, liberando o
+// loop principal mais rapido durante o relay do snapshot.
+constexpr size_t SNAPSHOT_RELAY_BUFFER_SIZE = 2048;
 constexpr size_t MAX_SNAPSHOT_SIZE_BYTES = 512 * 1024;
 
 constexpr bool ENABLE_AUTOMATIC_SUBNET_SCAN = true;
