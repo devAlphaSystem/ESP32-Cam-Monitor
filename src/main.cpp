@@ -21,8 +21,6 @@
 #include "dashboard_page.h"
 #include "secrets.h"
 
-// Mantem compatibilidade com secrets.h antigos. Para autenticar na camera,
-// defina estas duas macros no seu arquivo include/secrets.h.
 #ifndef CAMERA_ONVIF_USERNAME_VALUE
 #define CAMERA_ONVIF_USERNAME_VALUE ""
 #endif
@@ -31,12 +29,20 @@
 #define CAMERA_ONVIF_PASSWORD_VALUE ""
 #endif
 
+#ifndef DASHBOARD_ADMIN_PASSWORD_VALUE
+#define DASHBOARD_ADMIN_PASSWORD_VALUE ""
+#endif
+
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.4.0";
+constexpr char FIRMWARE_VERSION[] = "0.5.0";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
+constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
+constexpr char SETTINGS_NVS_KEY[] = "runtime";
+constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
+constexpr unsigned long ADMIN_RESTART_DELAY_MS = 1200UL;
 
 const IPAddress WS_DISCOVERY_MULTICAST(239, 255, 255, 250);
 
@@ -61,6 +67,194 @@ enum class IncidentKind {
     VideoUnavailable,
     CameraOffline
 };
+
+enum class AdminAction {
+    None,
+    HealthCheck,
+    Rediscover,
+    CameraReboot,
+    ResetRebootLimiter,
+    RestartEsp32
+};
+
+struct RuntimeSettings {
+    char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
+    char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
+    uint16_t cameraRtspPort;
+
+    uint32_t healthCheckIntervalMs;
+    uint32_t startupGraceMs;
+    uint8_t failuresBeforeRediscovery;
+    uint8_t failuresBeforeOffline;
+    uint8_t successesBeforeRecovery;
+    uint8_t videoFailuresBeforeAlert;
+    uint8_t videoFailuresBeforeReboot;
+
+    uint8_t enableOnvifAutoReboot;
+    uint32_t onvifRebootGraceMs;
+    uint32_t onvifRebootCooldownMs;
+    uint32_t onvifRebootWindowMs;
+    uint8_t maxOnvifRebootAttemptsPerWindow;
+
+    uint32_t wifiConnectTimeoutMs;
+    uint8_t enableAutomaticSubnetScan;
+    uint32_t discoveryTimeoutMs;
+    uint32_t rediscoveryIntervalMs;
+    uint32_t subnetScanIntervalMs;
+
+    uint8_t enableEmailAlerts;
+    uint8_t emailOnIpChange;
+    uint32_t emailRetryIntervalMs;
+
+    uint32_t tcpConnectTimeoutMs;
+    uint32_t serviceResponseTimeoutMs;
+    uint32_t scanConnectTimeoutMs;
+    uint32_t snapshotHttpTimeoutMs;
+    uint32_t snapshotResolveRetryIntervalMs;
+    uint8_t snapshotFailuresBeforeReresolve;
+
+    uint8_t enableCameraAlertLed;
+    uint32_t cameraAlertLedBlinkIntervalMs;
+    uint32_t feedMinIntervalMs;
+    uint32_t feedTargetCycleMs;
+    uint32_t statusRefreshIntervalMs;
+};
+
+struct StoredSettingsBlob {
+    uint32_t magic;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    RuntimeSettings values;
+    uint32_t checksum;
+};
+
+template <size_t Size>
+void copySettingText(char (&destination)[Size], const char* source)
+{
+    memset(destination, 0, Size);
+
+    if (source == nullptr || Size == 0) {
+        return;
+    }
+
+    const size_t sourceLength = strlen(source);
+    const size_t copyLength = min(sourceLength, Size - 1);
+    memcpy(destination, source, copyLength);
+    destination[copyLength] = '\0';
+}
+
+template <size_t Size>
+void copySettingText(char (&destination)[Size], const String& source)
+{
+    memset(destination, 0, Size);
+    const size_t copyLength = min(
+        static_cast<size_t>(source.length()),
+        Size - 1
+    );
+    memcpy(destination, source.c_str(), copyLength);
+    destination[copyLength] = '\0';
+}
+
+RuntimeSettings makeDefaultRuntimeSettings()
+{
+    RuntimeSettings values{};
+    copySettingText(values.cameraName, CAMERA_NAME);
+    copySettingText(
+        values.snapshotProfileMatch,
+        CAMERA_SNAPSHOT_PROFILE_MATCH
+    );
+    values.cameraRtspPort = CAMERA_RTSP_PORT;
+
+    values.healthCheckIntervalMs = HEALTH_CHECK_INTERVAL_MS;
+    values.startupGraceMs = STARTUP_GRACE_MS;
+    values.failuresBeforeRediscovery = FAILURES_BEFORE_REDISCOVERY;
+    values.failuresBeforeOffline = FAILURES_BEFORE_OFFLINE;
+    values.successesBeforeRecovery = SUCCESSES_BEFORE_RECOVERY;
+    values.videoFailuresBeforeAlert = VIDEO_FAILURES_BEFORE_ALERT;
+    values.videoFailuresBeforeReboot = VIDEO_FAILURES_BEFORE_REBOOT;
+
+    values.enableOnvifAutoReboot = ENABLE_ONVIF_AUTO_REBOOT ? 1 : 0;
+    values.onvifRebootGraceMs = ONVIF_REBOOT_GRACE_MS;
+    values.onvifRebootCooldownMs = ONVIF_REBOOT_COOLDOWN_MS;
+    values.onvifRebootWindowMs = ONVIF_REBOOT_WINDOW_MS;
+    values.maxOnvifRebootAttemptsPerWindow =
+        MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW;
+
+    values.wifiConnectTimeoutMs = WIFI_CONNECT_TIMEOUT_MS;
+    values.enableAutomaticSubnetScan =
+        ENABLE_AUTOMATIC_SUBNET_SCAN ? 1 : 0;
+    values.discoveryTimeoutMs = DISCOVERY_TIMEOUT_MS;
+    values.rediscoveryIntervalMs = REDISCOVERY_INTERVAL_MS;
+    values.subnetScanIntervalMs = SUBNET_SCAN_INTERVAL_MS;
+
+    values.enableEmailAlerts = ENABLE_EMAIL_ALERTS ? 1 : 0;
+    values.emailOnIpChange = EMAIL_ON_IP_CHANGE ? 1 : 0;
+    values.emailRetryIntervalMs = EMAIL_RETRY_INTERVAL_MS;
+
+    values.tcpConnectTimeoutMs = TCP_CONNECT_TIMEOUT_MS;
+    values.serviceResponseTimeoutMs = SERVICE_RESPONSE_TIMEOUT_MS;
+    values.scanConnectTimeoutMs = SCAN_CONNECT_TIMEOUT_MS;
+    values.snapshotHttpTimeoutMs = SNAPSHOT_HTTP_TIMEOUT_MS;
+    values.snapshotResolveRetryIntervalMs =
+        SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS;
+    values.snapshotFailuresBeforeReresolve =
+        SNAPSHOT_FAILURES_BEFORE_RERESOLVE;
+
+    values.enableCameraAlertLed = ENABLE_CAMERA_ALERT_LED ? 1 : 0;
+    values.cameraAlertLedBlinkIntervalMs =
+        CAMERA_ALERT_LED_BLINK_INTERVAL_MS;
+    values.feedMinIntervalMs = FEED_MIN_INTERVAL_MS;
+    values.feedTargetCycleMs = FEED_TARGET_CYCLE_MS;
+    values.statusRefreshIntervalMs = STATUS_REFRESH_INTERVAL_MS;
+    return values;
+}
+
+RuntimeSettings settings = makeDefaultRuntimeSettings();
+
+static_assert(
+    sizeof(RuntimeSettings) <= 256,
+    "RuntimeSettings excedeu o limite planejado"
+);
+
+#define CAMERA_NAME (settings.cameraName)
+#define CAMERA_SNAPSHOT_PROFILE_MATCH (settings.snapshotProfileMatch)
+#define CAMERA_RTSP_PORT (settings.cameraRtspPort)
+#define HEALTH_CHECK_INTERVAL_MS (settings.healthCheckIntervalMs)
+#define STARTUP_GRACE_MS (settings.startupGraceMs)
+#define FAILURES_BEFORE_REDISCOVERY (settings.failuresBeforeRediscovery)
+#define FAILURES_BEFORE_OFFLINE (settings.failuresBeforeOffline)
+#define SUCCESSES_BEFORE_RECOVERY (settings.successesBeforeRecovery)
+#define VIDEO_FAILURES_BEFORE_ALERT (settings.videoFailuresBeforeAlert)
+#define VIDEO_FAILURES_BEFORE_REBOOT (settings.videoFailuresBeforeReboot)
+#define ENABLE_ONVIF_AUTO_REBOOT (settings.enableOnvifAutoReboot != 0)
+#define ONVIF_REBOOT_GRACE_MS (settings.onvifRebootGraceMs)
+#define ONVIF_REBOOT_COOLDOWN_MS (settings.onvifRebootCooldownMs)
+#define ONVIF_REBOOT_WINDOW_MS (settings.onvifRebootWindowMs)
+#define MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW \
+    (settings.maxOnvifRebootAttemptsPerWindow)
+#define WIFI_CONNECT_TIMEOUT_MS (settings.wifiConnectTimeoutMs)
+#define ENABLE_AUTOMATIC_SUBNET_SCAN \
+    (settings.enableAutomaticSubnetScan != 0)
+#define DISCOVERY_TIMEOUT_MS (settings.discoveryTimeoutMs)
+#define REDISCOVERY_INTERVAL_MS (settings.rediscoveryIntervalMs)
+#define SUBNET_SCAN_INTERVAL_MS (settings.subnetScanIntervalMs)
+#define ENABLE_EMAIL_ALERTS (settings.enableEmailAlerts != 0)
+#define EMAIL_ON_IP_CHANGE (settings.emailOnIpChange != 0)
+#define EMAIL_RETRY_INTERVAL_MS (settings.emailRetryIntervalMs)
+#define TCP_CONNECT_TIMEOUT_MS (settings.tcpConnectTimeoutMs)
+#define SERVICE_RESPONSE_TIMEOUT_MS (settings.serviceResponseTimeoutMs)
+#define SCAN_CONNECT_TIMEOUT_MS (settings.scanConnectTimeoutMs)
+#define SNAPSHOT_HTTP_TIMEOUT_MS (settings.snapshotHttpTimeoutMs)
+#define SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS \
+    (settings.snapshotResolveRetryIntervalMs)
+#define SNAPSHOT_FAILURES_BEFORE_RERESOLVE \
+    (settings.snapshotFailuresBeforeReresolve)
+#define ENABLE_CAMERA_ALERT_LED (settings.enableCameraAlertLed != 0)
+#define CAMERA_ALERT_LED_BLINK_INTERVAL_MS \
+    (settings.cameraAlertLedBlinkIntervalMs)
+#define FEED_MIN_INTERVAL_MS (settings.feedMinIntervalMs)
+#define FEED_TARGET_CYCLE_MS (settings.feedTargetCycleMs)
+#define STATUS_REFRESH_INTERVAL_MS (settings.statusRefreshIntervalMs)
 
 struct ParsedUrl {
     bool valid = false;
@@ -132,6 +326,15 @@ WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 Preferences preferences;
 
+bool settingsLoadedFromNvs = false;
+uint32_t settingsRevision = 1;
+uint32_t settingsWriteCount = 0;
+String settingsWriteToken;
+String lastSettingsResult = "Usando valores de fabrica";
+AdminAction pendingAdminAction = AdminAction::None;
+String lastAdminActionResult = "Nenhuma acao administrativa executada";
+unsigned long espRestartRequestedAtMs = 0;
+
 CameraTarget camera;
 SnapshotTarget snapshotTarget;
 SnapshotProbe lastSnapshotProbe;
@@ -202,6 +405,435 @@ String lastCameraRebootResult = "Ainda nao solicitado";
 unsigned long lastSnapshotResolveAttemptAtMs = 0;
 int lastSnapshotResolveStatusCode = 0;
 
+void saveCameraTarget();
+
+uint32_t settingsChecksum(const RuntimeSettings& values)
+{
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&values);
+    uint32_t hash = 2166136261UL;
+
+    for (size_t index = 0; index < sizeof(RuntimeSettings); index++) {
+        hash ^= bytes[index];
+        hash *= 16777619UL;
+    }
+
+    return hash;
+}
+
+size_t boundedTextLength(const char* value, size_t capacity)
+{
+    for (size_t index = 0; index < capacity; index++) {
+        if (value[index] == '\0') {
+            return index;
+        }
+    }
+
+    return capacity;
+}
+
+bool settingTextValid(
+    const char* value,
+    size_t capacity,
+    size_t minimumLength,
+    size_t maximumLength
+)
+{
+    const size_t length = boundedTextLength(value, capacity);
+
+    if (
+        length >= capacity ||
+        length < minimumLength ||
+        length > maximumLength
+    ) {
+        return false;
+    }
+
+    for (size_t index = 0; index < length; index++) {
+        const uint8_t byte = static_cast<uint8_t>(value[index]);
+
+        if (byte < 0x20 || byte == 0x7F) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+template <typename T>
+bool settingInRange(T value, T minimum, T maximum)
+{
+    return value >= minimum && value <= maximum;
+}
+
+bool validateRuntimeSettings(
+    const RuntimeSettings& values,
+    String& error
+)
+{
+    if (!settingTextValid(
+        values.cameraName,
+        sizeof(values.cameraName),
+        CAMERA_NAME_MIN_LENGTH,
+        CAMERA_NAME_MAX_LENGTH
+    )) {
+        error = "Nome da camera invalido";
+        return false;
+    }
+
+    if (!settingTextValid(
+        values.snapshotProfileMatch,
+        sizeof(values.snapshotProfileMatch),
+        0,
+        SNAPSHOT_PROFILE_MATCH_MAX_LENGTH
+    )) {
+        error = "Filtro do perfil ONVIF invalido";
+        return false;
+    }
+
+#define CHECK_SETTING_RANGE(field, minimum, maximum, message) \
+    if (!settingInRange(values.field, minimum, maximum)) { \
+        error = message; \
+        return false; \
+    }
+
+    CHECK_SETTING_RANGE(
+        cameraRtspPort,
+        CAMERA_RTSP_PORT_MIN,
+        CAMERA_RTSP_PORT_MAX,
+        "Porta RTSP fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        healthCheckIntervalMs,
+        HEALTH_CHECK_INTERVAL_MIN_MS,
+        HEALTH_CHECK_INTERVAL_MAX_MS,
+        "Intervalo de verificacao fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        startupGraceMs,
+        STARTUP_GRACE_MIN_MS,
+        STARTUP_GRACE_MAX_MS,
+        "Tolerancia inicial fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        failuresBeforeRediscovery,
+        FAILURES_BEFORE_REDISCOVERY_MIN,
+        FAILURES_BEFORE_REDISCOVERY_MAX,
+        "Falhas para redescoberta fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        failuresBeforeOffline,
+        FAILURES_BEFORE_OFFLINE_MIN,
+        FAILURES_BEFORE_OFFLINE_MAX,
+        "Falhas para offline fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        successesBeforeRecovery,
+        SUCCESSES_BEFORE_RECOVERY_MIN,
+        SUCCESSES_BEFORE_RECOVERY_MAX,
+        "Sucessos para recuperacao fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        videoFailuresBeforeAlert,
+        VIDEO_FAILURES_BEFORE_ALERT_MIN,
+        VIDEO_FAILURES_BEFORE_ALERT_MAX,
+        "Falhas de imagem para alerta fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        videoFailuresBeforeReboot,
+        VIDEO_FAILURES_BEFORE_REBOOT_MIN,
+        VIDEO_FAILURES_BEFORE_REBOOT_MAX,
+        "Falhas de imagem para reboot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        onvifRebootGraceMs,
+        ONVIF_REBOOT_GRACE_MIN_MS,
+        ONVIF_REBOOT_GRACE_MAX_MS,
+        "Tolerancia apos reboot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        onvifRebootCooldownMs,
+        ONVIF_REBOOT_COOLDOWN_MIN_MS,
+        ONVIF_REBOOT_COOLDOWN_MAX_MS,
+        "Cooldown de reboot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        onvifRebootWindowMs,
+        ONVIF_REBOOT_WINDOW_MIN_MS,
+        ONVIF_REBOOT_WINDOW_MAX_MS,
+        "Janela de reboot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        maxOnvifRebootAttemptsPerWindow,
+        MAX_ONVIF_REBOOT_ATTEMPTS_MIN,
+        MAX_ONVIF_REBOOT_ATTEMPTS_MAX,
+        "Limite de reboots fora do intervalo"
+    );
+    CHECK_SETTING_RANGE(
+        wifiConnectTimeoutMs,
+        WIFI_CONNECT_TIMEOUT_MIN_MS,
+        WIFI_CONNECT_TIMEOUT_MAX_MS,
+        "Timeout de Wi-Fi fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        discoveryTimeoutMs,
+        DISCOVERY_TIMEOUT_MIN_MS,
+        DISCOVERY_TIMEOUT_MAX_MS,
+        "Timeout de descoberta fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        rediscoveryIntervalMs,
+        REDISCOVERY_INTERVAL_MIN_MS,
+        REDISCOVERY_INTERVAL_MAX_MS,
+        "Intervalo de redescoberta fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        subnetScanIntervalMs,
+        SUBNET_SCAN_INTERVAL_MIN_MS,
+        SUBNET_SCAN_INTERVAL_MAX_MS,
+        "Intervalo de varredura fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        emailRetryIntervalMs,
+        EMAIL_RETRY_INTERVAL_MIN_MS,
+        EMAIL_RETRY_INTERVAL_MAX_MS,
+        "Intervalo de e-mail fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        tcpConnectTimeoutMs,
+        TCP_CONNECT_TIMEOUT_MIN_MS,
+        TCP_CONNECT_TIMEOUT_MAX_MS,
+        "Timeout TCP fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        serviceResponseTimeoutMs,
+        SERVICE_RESPONSE_TIMEOUT_MIN_MS,
+        SERVICE_RESPONSE_TIMEOUT_MAX_MS,
+        "Timeout de protocolo fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        scanConnectTimeoutMs,
+        SCAN_CONNECT_TIMEOUT_MIN_MS,
+        SCAN_CONNECT_TIMEOUT_MAX_MS,
+        "Timeout da varredura fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        snapshotHttpTimeoutMs,
+        SNAPSHOT_HTTP_TIMEOUT_MIN_MS,
+        SNAPSHOT_HTTP_TIMEOUT_MAX_MS,
+        "Timeout do JPEG fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        snapshotResolveRetryIntervalMs,
+        SNAPSHOT_RESOLVE_RETRY_INTERVAL_MIN_MS,
+        SNAPSHOT_RESOLVE_RETRY_INTERVAL_MAX_MS,
+        "Intervalo para resolver snapshot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        snapshotFailuresBeforeReresolve,
+        SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MIN,
+        SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MAX,
+        "Falhas para resolver novamente o snapshot fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        cameraAlertLedBlinkIntervalMs,
+        CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS,
+        CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS,
+        "Intervalo do LED fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        feedMinIntervalMs,
+        FEED_MIN_INTERVAL_MIN_MS,
+        FEED_MIN_INTERVAL_MAX_MS,
+        "Intervalo minimo da previa fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        feedTargetCycleMs,
+        FEED_TARGET_CYCLE_MIN_MS,
+        FEED_TARGET_CYCLE_MAX_MS,
+        "Ciclo da previa fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        statusRefreshIntervalMs,
+        STATUS_REFRESH_INTERVAL_MIN_MS,
+        STATUS_REFRESH_INTERVAL_MAX_MS,
+        "Atualizacao do painel fora do limite"
+    );
+
+#undef CHECK_SETTING_RANGE
+
+    if (
+        values.enableOnvifAutoReboot > 1 ||
+        values.enableAutomaticSubnetScan > 1 ||
+        values.enableEmailAlerts > 1 ||
+        values.emailOnIpChange > 1 ||
+        values.enableCameraAlertLed > 1
+    ) {
+        error = "Opcao booleana invalida";
+        return false;
+    }
+
+    if (values.failuresBeforeOffline < values.failuresBeforeRediscovery) {
+        error = "Offline nao pode ocorrer antes da tentativa de redescoberta";
+        return false;
+    }
+
+    if (values.videoFailuresBeforeReboot < values.videoFailuresBeforeAlert) {
+        error = "O reboot nao pode ocorrer antes do alerta de imagem";
+        return false;
+    }
+
+    if (values.onvifRebootWindowMs < values.onvifRebootCooldownMs) {
+        error = "A janela de reboots deve ser maior ou igual ao cooldown";
+        return false;
+    }
+
+    if (values.feedTargetCycleMs < values.feedMinIntervalMs) {
+        error = "O ciclo da previa deve ser maior ou igual ao intervalo minimo";
+        return false;
+    }
+
+    return true;
+}
+
+bool saveRuntimeSettingsToNvs(const RuntimeSettings& values)
+{
+    StoredSettingsBlob blob{};
+    blob.magic = SETTINGS_MAGIC;
+    blob.schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
+    blob.payloadSize = sizeof(RuntimeSettings);
+    blob.values = values;
+    blob.checksum = settingsChecksum(blob.values);
+
+    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, false)) {
+        return false;
+    }
+
+    const size_t bytesWritten = preferences.putBytes(
+        SETTINGS_NVS_KEY,
+        &blob,
+        sizeof(blob)
+    );
+    preferences.end();
+    return bytesWritten == sizeof(blob);
+}
+
+bool clearRuntimeSettingsNvs()
+{
+    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, false)) {
+        return false;
+    }
+
+    const bool cleared = preferences.clear();
+    preferences.end();
+    return cleared;
+}
+
+void loadRuntimeSettings()
+{
+    settings = makeDefaultRuntimeSettings();
+    settingsLoadedFromNvs = false;
+
+    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, true)) {
+        lastSettingsResult = "NVS indisponivel; usando valores de fabrica";
+        Serial.println(lastSettingsResult);
+        return;
+    }
+
+    const size_t storedSize = preferences.getBytesLength(SETTINGS_NVS_KEY);
+    StoredSettingsBlob blob{};
+    const size_t bytesRead = storedSize == sizeof(blob)
+        ? preferences.getBytes(SETTINGS_NVS_KEY, &blob, sizeof(blob))
+        : 0;
+    preferences.end();
+
+    String validationError;
+    const bool valid =
+        bytesRead == sizeof(blob) &&
+        blob.magic == SETTINGS_MAGIC &&
+        blob.schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION &&
+        blob.payloadSize == sizeof(RuntimeSettings) &&
+        blob.checksum == settingsChecksum(blob.values) &&
+        validateRuntimeSettings(blob.values, validationError);
+
+    if (!valid) {
+        lastSettingsResult = storedSize == 0
+            ? "Usando valores de fabrica"
+            : "Configuracao salva invalida; valores de fabrica restaurados";
+        Serial.println(lastSettingsResult);
+        return;
+    }
+
+    settings = blob.values;
+    settingsLoadedFromNvs = true;
+    lastSettingsResult = "Configuracoes carregadas da NVS";
+    Serial.printf(
+        "Configuracoes NVS: ciclo=%lus; alerta=%u; reboot=%u; auto=%s.\n",
+        static_cast<unsigned long>(HEALTH_CHECK_INTERVAL_MS / 1000UL),
+        VIDEO_FAILURES_BEFORE_ALERT,
+        VIDEO_FAILURES_BEFORE_REBOOT,
+        ENABLE_ONVIF_AUTO_REBOOT ? "ativo" : "desativado"
+    );
+}
+
+String makeSettingsWriteToken()
+{
+    char buffer[41];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%08lx%08lx%08lx%08lx%08lx",
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random())
+    );
+    return String(buffer);
+}
+
+bool adminPasswordConfigured()
+{
+    return strlen(DASHBOARD_ADMIN_PASSWORD_VALUE) > 0;
+}
+
+bool secureTextEquals(const String& supplied, const char* expected)
+{
+    const size_t suppliedLength = supplied.length();
+    const size_t expectedLength = strlen(expected);
+    uint8_t difference = static_cast<uint8_t>(
+        suppliedLength == expectedLength ? 0 : 1
+    );
+
+    for (size_t index = 0; index < expectedLength; index++) {
+        const uint8_t suppliedByte = index < suppliedLength
+            ? static_cast<uint8_t>(supplied.charAt(index))
+            : 0;
+        difference |= suppliedByte ^ static_cast<uint8_t>(expected[index]);
+    }
+
+    return difference == 0;
+}
+
+const char* adminActionName(AdminAction action)
+{
+    switch (action) {
+        case AdminAction::None:
+            return "none";
+        case AdminAction::HealthCheck:
+            return "health_check";
+        case AdminAction::Rediscover:
+            return "rediscover";
+        case AdminAction::CameraReboot:
+            return "camera_reboot";
+        case AdminAction::ResetRebootLimiter:
+            return "reset_reboot_limiter";
+        case AdminAction::RestartEsp32:
+            return "restart_esp32";
+    }
+
+    return "unknown";
+}
+
 const char* stateName(CameraState state)
 {
     switch (state) {
@@ -256,8 +888,6 @@ void beginOrEscalateIncident(IncidentKind kind)
     ) {
         activeIncident = kind;
 
-        // A indisponibilidade total e uma escalada relevante. Se o alerta de
-        // video ja foi enviado, permite uma nova notificacao com o novo estado.
         if (incidentAlertSent) {
             incidentAlertSent = false;
             pendingIncidentEmail = true;
@@ -271,15 +901,17 @@ void beginOrEscalateIncident(IncidentKind kind)
         kind == IncidentKind::VideoUnavailable &&
         !incidentAlertSent
     ) {
-        // Se o controle voltou antes de o alerta ser enviado, classifica o
-        // incidente pelo estado atual em vez de notificar falsamente "offline".
         activeIncident = kind;
     }
 }
 
 void queueIncidentAlert()
 {
-    if (activeIncident != IncidentKind::None && !incidentAlertSent) {
+    if (
+        ENABLE_EMAIL_ALERTS &&
+        activeIncident != IncidentKind::None &&
+        !incidentAlertSent
+    ) {
         pendingIncidentEmail = true;
     }
 }
@@ -290,7 +922,7 @@ void resolveActiveIncident()
         return;
     }
 
-    if (incidentAlertSent) {
+    if (incidentAlertSent && ENABLE_EMAIL_ALERTS) {
         recoveryIncident = activeIncident;
         recoveryIncidentDurationMs = millis() - incidentStartedAtMs;
         pendingRecoveryEmail = true;
@@ -317,8 +949,20 @@ void configureCameraAlertLed()
 
 void updateCameraAlertLed()
 {
-    const bool shouldBlink = cameraState != CameraState::Online;
     const unsigned long now = millis();
+
+    if (!ENABLE_CAMERA_ALERT_LED) {
+        cameraAlertLedBlinking = false;
+        lastCameraAlertLedToggleAtMs = now;
+
+        if (cameraAlertLedOn) {
+            writeCameraAlertLed(false);
+        }
+
+        return;
+    }
+
+    const bool shouldBlink = cameraState != CameraState::Online;
 
     if (!shouldBlink) {
         cameraAlertLedBlinking = false;
@@ -357,9 +1001,6 @@ void releaseUnusedBluetoothMemory()
     bluetoothControllerStatusBeforeRelease =
         esp_bt_controller_get_status();
 
-    // O core Arduino libera apenas a memoria do controlador antes de setup()
-    // quando esp32-hal-bt nao e vinculado. Esta referencia adia essa liberacao
-    // para que controlador e pilha host sejam devolvidos juntos logo abaixo.
     bluetoothStartedBeforeRelease = btStarted();
     bluetoothMemoryReleaseResult = esp_bt_mem_release(ESP_BT_MODE_BTDM);
     heapAfterBluetoothReleaseBytes = ESP.getFreeHeap();
@@ -929,9 +1570,6 @@ String makeDigestAuthorization(
 
     if (!challenge.qop.isEmpty()) {
         if (!digestQopSupportsAuth(challenge.qop)) {
-            // auth-int exige hash do corpo da requisicao e nao pode ser tratado
-            // como auth. E melhor rejeitar o desafio do que enviar um digest
-            // formalmente incorreto e mascarar a causa da falha.
             return String();
         }
 
@@ -1370,6 +2008,56 @@ void invalidateSnapshotTarget()
     snapshotTarget = SnapshotTarget{};
 }
 
+void applyRuntimeSettings(const RuntimeSettings& previous)
+{
+    if (
+        strcmp(
+            previous.snapshotProfileMatch,
+            settings.snapshotProfileMatch
+        ) != 0
+    ) {
+        invalidateSnapshotTarget();
+        lastSnapshotResolveAttemptAtMs = 0;
+        lastSnapshotResolveStatusCode = 0;
+        snapshotTargetFailureStreak = 0;
+        lastSnapshotProbe = SnapshotProbe{};
+        lastSnapshotResult = "Perfil alterado; aguardando novo teste JPEG";
+    }
+
+    if (previous.cameraRtspPort != settings.cameraRtspPort) {
+        camera.rtspPort = settings.cameraRtspPort;
+
+        if (camera.valid) {
+            saveCameraTarget();
+        }
+    }
+
+    if (!ENABLE_CAMERA_ALERT_LED) {
+        cameraAlertLedBlinking = false;
+        writeCameraAlertLed(false);
+    }
+
+    if (!ENABLE_EMAIL_ALERTS) {
+        pendingIncidentEmail = false;
+        pendingRecoveryEmail = false;
+    }
+
+    if (
+        previous.healthCheckIntervalMs != settings.healthCheckIntervalMs
+    ) {
+        lastHealthCheckAtMs = millis();
+    }
+
+    if (
+        previous.onvifRebootWindowMs != settings.onvifRebootWindowMs ||
+        previous.onvifRebootCooldownMs != settings.onvifRebootCooldownMs ||
+        previous.maxOnvifRebootAttemptsPerWindow !=
+            settings.maxOnvifRebootAttemptsPerWindow
+    ) {
+        refreshCameraRebootWindow();
+    }
+}
+
 void setState(CameraState newState, const String& event)
 {
     if (cameraState != newState) {
@@ -1409,8 +2097,6 @@ bool sendResendEmail(const String& subject, const String& html)
 
     WiFiClientSecure secureClient;
 
-    // MVP pessoal: a conexao continua criptografada, mas o certificado do
-    // servidor nao e validado. Para produto, use uma CA confiavel.
     secureClient.setInsecure();
 
     HTTPClient request;
@@ -1431,10 +2117,6 @@ bool sendResendEmail(const String& subject, const String& html)
         String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
     );
 
-    // O corpo e escapado direto no payload: uma String intermediaria por campo
-    // dobraria o pico de heap justamente enquanto o mbedTLS mantem seus buffers.
-    // O HTML e cheio de aspas em estilos inline e cada uma vira \" ao ser
-    // escapada; a folga proporcional evita realocar no meio da montagem.
     String payload;
     payload.reserve(subject.length() + html.length() + html.length() / 4 + 512);
     payload += "{\"from\":\"";
@@ -1475,14 +2157,6 @@ bool sendResendEmail(const String& subject, const String& html)
     Serial.println(lastEmailResult);
     return false;
 }
-
-// ---------------------------------------------------------------------------
-// Modelo de e-mail
-//
-// Clientes de e-mail ignoram folhas de estilo, flexbox e grid, entao o layout
-// usa tabelas aninhadas e estilo inline: o mesmo resultado no Gmail, no Proton
-// e no Outlook. As legendas aqui sao acentuadas porque nunca vao ao serial.
-// ---------------------------------------------------------------------------
 
 struct EmailTheme {
     const char* accent;
@@ -1640,9 +2314,6 @@ String buildEmailHtml(
     const String& callout
 )
 {
-    // String::changeBuffer cresce de 16 em 16 bytes e realoca a cada passo, entao
-    // a reserva precisa cobrir o documento inteiro de uma vez. O corpo montado
-    // fica em torno de 9 KB com as linhas adicionais de diagnóstico.
     String html;
     html.reserve(10240);
 
@@ -1659,7 +2330,6 @@ String buildEmailHtml(
             "overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"
             "'Segoe UI',Roboto,Helvetica,Arial,sans-serif\">";
 
-    // Faixa superior colorida conforme a gravidade do aviso.
     html += "<tr><td style=\"height:4px;line-height:4px;font-size:0;background:";
     html += theme.accent;
     html += "\">&nbsp;</td></tr>";
@@ -1828,7 +2498,12 @@ bool sendRecoveryAlert()
 
 bool sendIpChangeAlert(const String& oldIp, const String& newIp)
 {
-    if (!EMAIL_ON_IP_CHANGE || oldIp.isEmpty() || oldIp == newIp) {
+    if (
+        !ENABLE_EMAIL_ALERTS ||
+        !EMAIL_ON_IP_CHANGE ||
+        oldIp.isEmpty() ||
+        oldIp == newIp
+    ) {
         return true;
     }
 
@@ -1874,8 +2549,6 @@ bool loadCameraTarget()
     const String savedUrl = preferences.getString("cam_url", "");
     const String savedUuid = preferences.getString("cam_uuid", "");
     const String savedScopes = preferences.getString("cam_scope", "");
-    const uint16_t savedRtspPort =
-        preferences.getUShort("rtsp_port", CAMERA_RTSP_PORT);
     preferences.end();
 
     if (savedUrl.isEmpty()) {
@@ -1891,7 +2564,7 @@ bool loadCameraTarget()
     camera.valid = true;
     camera.ip = parsed.ip;
     camera.onvifPort = parsed.port;
-    camera.rtspPort = savedRtspPort;
+    camera.rtspPort = CAMERA_RTSP_PORT;
     camera.onvifPath = parsed.path;
     camera.onvifUrl = savedUrl;
     camera.endpointUuid = savedUuid;
@@ -2601,11 +3274,6 @@ bool resolveSnapshotTarget()
     }
 
     snapshotTarget.valid = true;
-    // O host informado pelo equipamento nao e reutilizado. O proxy sempre
-    // conecta ao mesmo IP que ja foi validado como a camera monitorada; apenas
-    // porta, caminho e query do URI ONVIF sao aproveitados. Isso aceita cameras
-    // que anunciam 0.0.0.0 ou outro endereco local sem abrir um redirecionamento
-    // arbitrario pelo endpoint do ESP32.
     snapshotTarget.url = makeOnvifUrl(
         camera.ip,
         parsedSnapshot.port,
@@ -2884,9 +3552,17 @@ bool snapshotFailureAllowsAutomaticReboot()
         !containsIgnoreCase(lastSnapshotProbe.detail, "https local ainda nao suportado");
 }
 
-bool requestCameraRebootOnvif()
+bool requestCameraRebootOnvif(bool manualRequest = false)
 {
-    if (!ENABLE_ONVIF_AUTO_REBOOT || !camera.valid) {
+    if (!camera.valid) {
+        lastCameraRebootResult =
+            currentTimestamp() + " - camera ainda nao localizada";
+        return false;
+    }
+
+    if (!manualRequest && !ENABLE_ONVIF_AUTO_REBOOT) {
+        lastCameraRebootResult =
+            currentTimestamp() + " - reboot automatico desativado";
         return false;
     }
 
@@ -3214,8 +3890,6 @@ void serveCameraSnapshot()
 
     request.end();
 
-    // Finaliza corretamente uma resposta HTTP em chunks quando a câmera não
-    // informou Content-Length.
     if (contentLength < 0 && browserClient.connected()) {
         httpServer.sendContent("");
     }
@@ -3676,7 +4350,7 @@ String buildStatusJson()
     const unsigned long now = millis();
 
     String json;
-    json.reserve(4600);
+    json.reserve(5600);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -3716,9 +4390,6 @@ String buildStatusJson()
     json += ",\"sketchBytes\":";
     json += ESP.getSketchSize();
     json += ",\"freeSketchBytes\":";
-    // getFreeSketchSpace() reflete o slot OTA seguinte, que nao existe neste
-    // esquema de particoes (somente "factory"), entao calculamos o espaco
-    // livre real dentro da propria particao do app em execucao.
     {
         const esp_partition_t *runningPartition = esp_ota_get_running_partition();
         const uint32_t partitionBytes = runningPartition ? runningPartition->size : 0;
@@ -3912,17 +4583,629 @@ String buildStatusJson()
     json += jsonEscape(lastEmailResult);
     json += "\",\"resendConfigured\":";
     json += resendConfigured() ? "true" : "false";
-    json += "}";
+    json += ",\"ui\":{";
+    json += "\"feedMinimumIntervalMs\":";
+    json += FEED_MIN_INTERVAL_MS;
+    json += ",\"feedTargetCycleMs\":";
+    json += FEED_TARGET_CYCLE_MS;
+    json += ",\"statusRefreshIntervalMs\":";
+    json += STATUS_REFRESH_INTERVAL_MS;
+    json += "},\"settings\":{";
+    json += "\"revision\":";
+    json += settingsRevision;
+    json += ",\"source\":\"";
+    json += settingsLoadedFromNvs ? "nvs" : "factory";
+    json += "\",\"lastResult\":\"";
+    json += jsonEscape(lastSettingsResult);
+    json += "\"},\"adminAction\":{";
+    json += "\"pending\":\"";
+    json += adminActionName(pendingAdminAction);
+    json += "\",\"lastResult\":\"";
+    json += jsonEscape(lastAdminActionResult);
+    json += "\"}}";
 
     return json;
+}
+
+void sendJsonResponse(int statusCode, const String& json)
+{
+    httpServer.sendHeader("Cache-Control", "no-store");
+    httpServer.send(
+        statusCode,
+        "application/json; charset=utf-8",
+        json
+    );
+}
+
+void sendApiError(
+    int statusCode,
+    const char* code,
+    const String& detail
+)
+{
+    String json;
+    json.reserve(detail.length() + 96);
+    json += "{\"ok\":false,\"error\":\"";
+    json += code;
+    json += "\",\"detail\":\"";
+    json += jsonEscape(detail);
+    json += "\"}";
+    sendJsonResponse(statusCode, json);
+}
+
+bool authorizeSettingsMutation(String& error)
+{
+    if (!httpServer.hasArg("writeToken")) {
+        error = "Token de gravacao ausente; recarregue a aba Configuracoes";
+        return false;
+    }
+
+    if (httpServer.arg("writeToken") != settingsWriteToken) {
+        error = "Token de gravacao invalido; recarregue a pagina";
+        return false;
+    }
+
+    if (
+        adminPasswordConfigured() &&
+        (
+            !httpServer.hasArg("adminPassword") ||
+            !secureTextEquals(
+                httpServer.arg("adminPassword"),
+                DASHBOARD_ADMIN_PASSWORD_VALUE
+            )
+        )
+    ) {
+        error = "Senha administrativa incorreta";
+        return false;
+    }
+
+    return true;
+}
+
+bool readStringSettingArgument(
+    const char* name,
+    size_t minimumLength,
+    size_t maximumLength,
+    String& value,
+    String& error
+)
+{
+    if (!httpServer.hasArg(name)) {
+        error = String("Campo ausente: ") + name;
+        return false;
+    }
+
+    value = httpServer.arg(name);
+    value.trim();
+
+    if (value.length() < minimumLength || value.length() > maximumLength) {
+        error = String("Campo fora do tamanho permitido: ") + name;
+        return false;
+    }
+
+    for (size_t index = 0; index < value.length(); index++) {
+        const uint8_t byte = static_cast<uint8_t>(value.charAt(index));
+
+        if (byte < 0x20 || byte == 0x7F) {
+            error = String("Campo contem caractere invalido: ") + name;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool readUnsignedSettingArgument(
+    const char* name,
+    uint32_t minimum,
+    uint32_t maximum,
+    uint32_t& value,
+    String& error
+)
+{
+    if (!httpServer.hasArg(name)) {
+        error = String("Campo ausente: ") + name;
+        return false;
+    }
+
+    String textValue = httpServer.arg(name);
+    textValue.trim();
+
+    if (textValue.isEmpty()) {
+        error = String("Campo vazio: ") + name;
+        return false;
+    }
+
+    uint64_t parsed = 0;
+
+    for (size_t index = 0; index < textValue.length(); index++) {
+        const char character = textValue.charAt(index);
+
+        if (character < '0' || character > '9') {
+            error = String("Campo numerico invalido: ") + name;
+            return false;
+        }
+
+        parsed = parsed * 10ULL + static_cast<uint8_t>(character - '0');
+
+        if (parsed > maximum) {
+            error = String("Campo acima do limite: ") + name;
+            return false;
+        }
+    }
+
+    if (parsed < minimum) {
+        error = String("Campo abaixo do limite: ") + name;
+        return false;
+    }
+
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
+bool readBooleanSettingArgument(
+    const char* name,
+    uint8_t& value,
+    String& error
+)
+{
+    if (!httpServer.hasArg(name)) {
+        error = String("Campo ausente: ") + name;
+        return false;
+    }
+
+    String textValue = httpServer.arg(name);
+    textValue.toLowerCase();
+
+    if (textValue == "1" || textValue == "true" || textValue == "on") {
+        value = 1;
+        return true;
+    }
+
+    if (textValue == "0" || textValue == "false" || textValue == "off") {
+        value = 0;
+        return true;
+    }
+
+    error = String("Opcao booleana invalida: ") + name;
+    return false;
+}
+
+bool parseRuntimeSettingsRequest(
+    RuntimeSettings& candidate,
+    String& error
+)
+{
+    String textValue;
+    uint32_t numericValue = 0;
+
+    if (!readStringSettingArgument(
+        "cameraName",
+        CAMERA_NAME_MIN_LENGTH,
+        CAMERA_NAME_MAX_LENGTH,
+        textValue,
+        error
+    )) {
+        return false;
+    }
+    copySettingText(candidate.cameraName, textValue);
+
+    if (!readStringSettingArgument(
+        "snapshotProfileMatch",
+        0,
+        SNAPSHOT_PROFILE_MATCH_MAX_LENGTH,
+        textValue,
+        error
+    )) {
+        return false;
+    }
+    copySettingText(candidate.snapshotProfileMatch, textValue);
+
+#define READ_U32(field, argument, minimum, maximum) \
+    if (!readUnsignedSettingArgument( \
+        argument, minimum, maximum, numericValue, error \
+    )) { \
+        return false; \
+    } \
+    candidate.field = numericValue
+
+#define READ_U16(field, argument, minimum, maximum) \
+    READ_U32(field, argument, minimum, maximum); \
+    candidate.field = static_cast<uint16_t>(numericValue)
+
+#define READ_U8(field, argument, minimum, maximum) \
+    READ_U32(field, argument, minimum, maximum); \
+    candidate.field = static_cast<uint8_t>(numericValue)
+
+#define READ_BOOL(field, argument) \
+    if (!readBooleanSettingArgument(argument, candidate.field, error)) { \
+        return false; \
+    }
+
+    READ_U16(
+        cameraRtspPort,
+        "cameraRtspPort",
+        CAMERA_RTSP_PORT_MIN,
+        CAMERA_RTSP_PORT_MAX
+    );
+    READ_U32(
+        healthCheckIntervalMs,
+        "healthCheckIntervalMs",
+        HEALTH_CHECK_INTERVAL_MIN_MS,
+        HEALTH_CHECK_INTERVAL_MAX_MS
+    );
+    READ_U32(
+        startupGraceMs,
+        "startupGraceMs",
+        STARTUP_GRACE_MIN_MS,
+        STARTUP_GRACE_MAX_MS
+    );
+    READ_U8(
+        failuresBeforeRediscovery,
+        "failuresBeforeRediscovery",
+        FAILURES_BEFORE_REDISCOVERY_MIN,
+        FAILURES_BEFORE_REDISCOVERY_MAX
+    );
+    READ_U8(
+        failuresBeforeOffline,
+        "failuresBeforeOffline",
+        FAILURES_BEFORE_OFFLINE_MIN,
+        FAILURES_BEFORE_OFFLINE_MAX
+    );
+    READ_U8(
+        successesBeforeRecovery,
+        "successesBeforeRecovery",
+        SUCCESSES_BEFORE_RECOVERY_MIN,
+        SUCCESSES_BEFORE_RECOVERY_MAX
+    );
+    READ_U8(
+        videoFailuresBeforeAlert,
+        "videoFailuresBeforeAlert",
+        VIDEO_FAILURES_BEFORE_ALERT_MIN,
+        VIDEO_FAILURES_BEFORE_ALERT_MAX
+    );
+    READ_U8(
+        videoFailuresBeforeReboot,
+        "videoFailuresBeforeReboot",
+        VIDEO_FAILURES_BEFORE_REBOOT_MIN,
+        VIDEO_FAILURES_BEFORE_REBOOT_MAX
+    );
+
+    READ_BOOL(enableOnvifAutoReboot, "enableOnvifAutoReboot");
+    READ_U32(
+        onvifRebootGraceMs,
+        "onvifRebootGraceMs",
+        ONVIF_REBOOT_GRACE_MIN_MS,
+        ONVIF_REBOOT_GRACE_MAX_MS
+    );
+    READ_U32(
+        onvifRebootCooldownMs,
+        "onvifRebootCooldownMs",
+        ONVIF_REBOOT_COOLDOWN_MIN_MS,
+        ONVIF_REBOOT_COOLDOWN_MAX_MS
+    );
+    READ_U32(
+        onvifRebootWindowMs,
+        "onvifRebootWindowMs",
+        ONVIF_REBOOT_WINDOW_MIN_MS,
+        ONVIF_REBOOT_WINDOW_MAX_MS
+    );
+    READ_U8(
+        maxOnvifRebootAttemptsPerWindow,
+        "maxOnvifRebootAttemptsPerWindow",
+        MAX_ONVIF_REBOOT_ATTEMPTS_MIN,
+        MAX_ONVIF_REBOOT_ATTEMPTS_MAX
+    );
+
+    READ_U32(
+        wifiConnectTimeoutMs,
+        "wifiConnectTimeoutMs",
+        WIFI_CONNECT_TIMEOUT_MIN_MS,
+        WIFI_CONNECT_TIMEOUT_MAX_MS
+    );
+    READ_BOOL(enableAutomaticSubnetScan, "enableAutomaticSubnetScan");
+    READ_U32(
+        discoveryTimeoutMs,
+        "discoveryTimeoutMs",
+        DISCOVERY_TIMEOUT_MIN_MS,
+        DISCOVERY_TIMEOUT_MAX_MS
+    );
+    READ_U32(
+        rediscoveryIntervalMs,
+        "rediscoveryIntervalMs",
+        REDISCOVERY_INTERVAL_MIN_MS,
+        REDISCOVERY_INTERVAL_MAX_MS
+    );
+    READ_U32(
+        subnetScanIntervalMs,
+        "subnetScanIntervalMs",
+        SUBNET_SCAN_INTERVAL_MIN_MS,
+        SUBNET_SCAN_INTERVAL_MAX_MS
+    );
+
+    READ_BOOL(enableEmailAlerts, "enableEmailAlerts");
+    READ_BOOL(emailOnIpChange, "emailOnIpChange");
+    READ_U32(
+        emailRetryIntervalMs,
+        "emailRetryIntervalMs",
+        EMAIL_RETRY_INTERVAL_MIN_MS,
+        EMAIL_RETRY_INTERVAL_MAX_MS
+    );
+
+    READ_U32(
+        tcpConnectTimeoutMs,
+        "tcpConnectTimeoutMs",
+        TCP_CONNECT_TIMEOUT_MIN_MS,
+        TCP_CONNECT_TIMEOUT_MAX_MS
+    );
+    READ_U32(
+        serviceResponseTimeoutMs,
+        "serviceResponseTimeoutMs",
+        SERVICE_RESPONSE_TIMEOUT_MIN_MS,
+        SERVICE_RESPONSE_TIMEOUT_MAX_MS
+    );
+    READ_U32(
+        scanConnectTimeoutMs,
+        "scanConnectTimeoutMs",
+        SCAN_CONNECT_TIMEOUT_MIN_MS,
+        SCAN_CONNECT_TIMEOUT_MAX_MS
+    );
+    READ_U32(
+        snapshotHttpTimeoutMs,
+        "snapshotHttpTimeoutMs",
+        SNAPSHOT_HTTP_TIMEOUT_MIN_MS,
+        SNAPSHOT_HTTP_TIMEOUT_MAX_MS
+    );
+    READ_U32(
+        snapshotResolveRetryIntervalMs,
+        "snapshotResolveRetryIntervalMs",
+        SNAPSHOT_RESOLVE_RETRY_INTERVAL_MIN_MS,
+        SNAPSHOT_RESOLVE_RETRY_INTERVAL_MAX_MS
+    );
+    READ_U8(
+        snapshotFailuresBeforeReresolve,
+        "snapshotFailuresBeforeReresolve",
+        SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MIN,
+        SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MAX
+    );
+
+    READ_BOOL(enableCameraAlertLed, "enableCameraAlertLed");
+    READ_U32(
+        cameraAlertLedBlinkIntervalMs,
+        "cameraAlertLedBlinkIntervalMs",
+        CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS,
+        CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS
+    );
+    READ_U32(
+        feedMinIntervalMs,
+        "feedMinIntervalMs",
+        FEED_MIN_INTERVAL_MIN_MS,
+        FEED_MIN_INTERVAL_MAX_MS
+    );
+    READ_U32(
+        feedTargetCycleMs,
+        "feedTargetCycleMs",
+        FEED_TARGET_CYCLE_MIN_MS,
+        FEED_TARGET_CYCLE_MAX_MS
+    );
+    READ_U32(
+        statusRefreshIntervalMs,
+        "statusRefreshIntervalMs",
+        STATUS_REFRESH_INTERVAL_MIN_MS,
+        STATUS_REFRESH_INTERVAL_MAX_MS
+    );
+
+#undef READ_BOOL
+#undef READ_U8
+#undef READ_U16
+#undef READ_U32
+
+    return validateRuntimeSettings(candidate, error);
+}
+
+String buildSettingsJson()
+{
+    String json;
+    json.reserve(3400);
+    json += "{\"ok\":true,\"schemaVersion\":";
+    json += RUNTIME_SETTINGS_SCHEMA_VERSION;
+    json += ",\"source\":\"";
+    json += settingsLoadedFromNvs ? "nvs" : "factory";
+    json += "\",\"revision\":";
+    json += settingsRevision;
+    json += ",\"writeCount\":";
+    json += settingsWriteCount;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(lastSettingsResult);
+    json += "\",\"security\":{";
+    json += "\"passwordRequired\":";
+    json += adminPasswordConfigured() ? "true" : "false";
+    json += ",\"writeToken\":\"";
+    json += settingsWriteToken;
+    json += "\"},\"estimates\":{";
+    json += "\"imageAlertSeconds\":";
+    json += (
+        static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) *
+        VIDEO_FAILURES_BEFORE_ALERT
+    ) / 1000ULL;
+    json += ",\"imageRebootSeconds\":";
+    json += (
+        static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) *
+        VIDEO_FAILURES_BEFORE_REBOOT
+    ) / 1000ULL;
+    json += ",\"offlineSeconds\":";
+    json += (
+        static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) *
+        FAILURES_BEFORE_OFFLINE
+    ) / 1000ULL;
+    json += "},\"values\":{";
+    json += "\"cameraName\":\"";
+    json += jsonEscape(CAMERA_NAME);
+    json += "\",\"snapshotProfileMatch\":\"";
+    json += jsonEscape(CAMERA_SNAPSHOT_PROFILE_MATCH);
+    json += "\",\"cameraRtspPort\":";
+    json += CAMERA_RTSP_PORT;
+    json += ",\"healthCheckIntervalMs\":";
+    json += HEALTH_CHECK_INTERVAL_MS;
+    json += ",\"startupGraceMs\":";
+    json += STARTUP_GRACE_MS;
+    json += ",\"failuresBeforeRediscovery\":";
+    json += FAILURES_BEFORE_REDISCOVERY;
+    json += ",\"failuresBeforeOffline\":";
+    json += FAILURES_BEFORE_OFFLINE;
+    json += ",\"successesBeforeRecovery\":";
+    json += SUCCESSES_BEFORE_RECOVERY;
+    json += ",\"videoFailuresBeforeAlert\":";
+    json += VIDEO_FAILURES_BEFORE_ALERT;
+    json += ",\"videoFailuresBeforeReboot\":";
+    json += VIDEO_FAILURES_BEFORE_REBOOT;
+    json += ",\"enableOnvifAutoReboot\":";
+    json += ENABLE_ONVIF_AUTO_REBOOT ? "true" : "false";
+    json += ",\"onvifRebootGraceMs\":";
+    json += ONVIF_REBOOT_GRACE_MS;
+    json += ",\"onvifRebootCooldownMs\":";
+    json += ONVIF_REBOOT_COOLDOWN_MS;
+    json += ",\"onvifRebootWindowMs\":";
+    json += ONVIF_REBOOT_WINDOW_MS;
+    json += ",\"maxOnvifRebootAttemptsPerWindow\":";
+    json += MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW;
+    json += ",\"wifiConnectTimeoutMs\":";
+    json += WIFI_CONNECT_TIMEOUT_MS;
+    json += ",\"enableAutomaticSubnetScan\":";
+    json += ENABLE_AUTOMATIC_SUBNET_SCAN ? "true" : "false";
+    json += ",\"discoveryTimeoutMs\":";
+    json += DISCOVERY_TIMEOUT_MS;
+    json += ",\"rediscoveryIntervalMs\":";
+    json += REDISCOVERY_INTERVAL_MS;
+    json += ",\"subnetScanIntervalMs\":";
+    json += SUBNET_SCAN_INTERVAL_MS;
+    json += ",\"enableEmailAlerts\":";
+    json += ENABLE_EMAIL_ALERTS ? "true" : "false";
+    json += ",\"emailOnIpChange\":";
+    json += EMAIL_ON_IP_CHANGE ? "true" : "false";
+    json += ",\"emailRetryIntervalMs\":";
+    json += EMAIL_RETRY_INTERVAL_MS;
+    json += ",\"tcpConnectTimeoutMs\":";
+    json += TCP_CONNECT_TIMEOUT_MS;
+    json += ",\"serviceResponseTimeoutMs\":";
+    json += SERVICE_RESPONSE_TIMEOUT_MS;
+    json += ",\"scanConnectTimeoutMs\":";
+    json += SCAN_CONNECT_TIMEOUT_MS;
+    json += ",\"snapshotHttpTimeoutMs\":";
+    json += SNAPSHOT_HTTP_TIMEOUT_MS;
+    json += ",\"snapshotResolveRetryIntervalMs\":";
+    json += SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS;
+    json += ",\"snapshotFailuresBeforeReresolve\":";
+    json += SNAPSHOT_FAILURES_BEFORE_RERESOLVE;
+    json += ",\"enableCameraAlertLed\":";
+    json += ENABLE_CAMERA_ALERT_LED ? "true" : "false";
+    json += ",\"cameraAlertLedBlinkIntervalMs\":";
+    json += CAMERA_ALERT_LED_BLINK_INTERVAL_MS;
+    json += ",\"feedMinIntervalMs\":";
+    json += FEED_MIN_INTERVAL_MS;
+    json += ",\"feedTargetCycleMs\":";
+    json += FEED_TARGET_CYCLE_MS;
+    json += ",\"statusRefreshIntervalMs\":";
+    json += STATUS_REFRESH_INTERVAL_MS;
+    json += "}}";
+    return json;
+}
+
+void handleSaveSettings()
+{
+    String authorizationError;
+
+    if (!authorizeSettingsMutation(authorizationError)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    RuntimeSettings candidate = settings;
+    String validationError;
+
+    if (!parseRuntimeSettingsRequest(candidate, validationError)) {
+        sendApiError(422, "invalid_settings", validationError);
+        return;
+    }
+
+    if (!saveRuntimeSettingsToNvs(candidate)) {
+        sendApiError(500, "nvs_write_failed", "Falha ao gravar a NVS");
+        return;
+    }
+
+    const RuntimeSettings previous = settings;
+    settings = candidate;
+    settingsLoadedFromNvs = true;
+    settingsRevision++;
+    settingsWriteCount++;
+    lastSettingsResult = currentTimestamp() + " - configuracoes salvas";
+    applyRuntimeSettings(previous);
+    sendJsonResponse(200, buildSettingsJson());
+}
+
+void handleResetSettings()
+{
+    String authorizationError;
+
+    if (!authorizeSettingsMutation(authorizationError)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    if (!clearRuntimeSettingsNvs()) {
+        sendApiError(500, "nvs_clear_failed", "Falha ao limpar a NVS");
+        return;
+    }
+
+    const RuntimeSettings previous = settings;
+    settings = makeDefaultRuntimeSettings();
+    settingsLoadedFromNvs = false;
+    settingsRevision++;
+    settingsWriteCount++;
+    lastSettingsResult = currentTimestamp() + " - valores de fabrica restaurados";
+    applyRuntimeSettings(previous);
+    sendJsonResponse(200, buildSettingsJson());
+}
+
+bool queueAdminAction(AdminAction action, String& error)
+{
+    if (pendingAdminAction != AdminAction::None) {
+        error = String("Outra acao esta em andamento: ") +
+            adminActionName(pendingAdminAction);
+        return false;
+    }
+
+    pendingAdminAction = action;
+    lastAdminActionResult = currentTimestamp() + " - acao enfileirada: " +
+        adminActionName(action);
+    return true;
+}
+
+void handleAdminAction(AdminAction action)
+{
+    String authorizationError;
+
+    if (!authorizeSettingsMutation(authorizationError)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    String queueError;
+
+    if (!queueAdminAction(action, queueError)) {
+        sendApiError(409, "action_busy", queueError);
+        return;
+    }
+
+    String json = "{\"ok\":true,\"queued\":\"";
+    json += adminActionName(action);
+    json += "\",\"message\":\"Acao recebida e sera executada pelo loop principal\"}";
+    sendJsonResponse(202, json);
 }
 
 void configureHttpServer()
 {
     httpServer.on("/", HTTP_GET, [] {
-        // Servido com send_P para transmitir direto da flash. A sobrecarga
-        // send(int, const char*, const char*) copiaria a pagina inteira para a
-        // heap antes de escrever no socket.
         httpServer.send_P(200, "text/html; charset=utf-8", DASHBOARD_PAGE);
     });
 
@@ -3936,6 +5219,38 @@ void configureHttpServer()
 
     httpServer.on("/api/camera/snapshot", HTTP_GET, [] {
         serveCameraSnapshot();
+    });
+
+    httpServer.on("/api/settings", HTTP_GET, [] {
+        sendJsonResponse(200, buildSettingsJson());
+    });
+
+    httpServer.on("/api/settings", HTTP_POST, [] {
+        handleSaveSettings();
+    });
+
+    httpServer.on("/api/settings/reset", HTTP_POST, [] {
+        handleResetSettings();
+    });
+
+    httpServer.on("/api/actions/health-check", HTTP_POST, [] {
+        handleAdminAction(AdminAction::HealthCheck);
+    });
+
+    httpServer.on("/api/actions/rediscover", HTTP_POST, [] {
+        handleAdminAction(AdminAction::Rediscover);
+    });
+
+    httpServer.on("/api/actions/reboot-camera", HTTP_POST, [] {
+        handleAdminAction(AdminAction::CameraReboot);
+    });
+
+    httpServer.on("/api/actions/reset-reboot-limiter", HTTP_POST, [] {
+        handleAdminAction(AdminAction::ResetRebootLimiter);
+    });
+
+    httpServer.on("/api/actions/reboot-esp32", HTTP_POST, [] {
+        handleAdminAction(AdminAction::RestartEsp32);
     });
 
     httpServer.on("/health", HTTP_GET, [] {
@@ -3996,6 +5311,12 @@ bool connectToWiFi()
 
 void processPendingEmails()
 {
+    if (!ENABLE_EMAIL_ALERTS) {
+        pendingIncidentEmail = false;
+        pendingRecoveryEmail = false;
+        return;
+    }
+
     if (
         millis() - lastEmailAttemptAtMs < EMAIL_RETRY_INTERVAL_MS &&
         lastEmailAttemptAtMs != 0
@@ -4010,6 +5331,76 @@ void processPendingEmails()
 
     if (pendingRecoveryEmail) {
         sendRecoveryAlert();
+    }
+}
+
+void processPendingAdminAction()
+{
+    if (pendingAdminAction == AdminAction::None) {
+        return;
+    }
+
+    const AdminAction action = pendingAdminAction;
+    pendingAdminAction = AdminAction::None;
+
+    switch (action) {
+        case AdminAction::HealthCheck:
+            lastAdminActionResult =
+                currentTimestamp() + " - verificacao manual iniciada";
+            runHealthCheck();
+            lastAdminActionResult =
+                currentTimestamp() + " - verificacao manual concluida: " +
+                lastEvent;
+            break;
+
+        case AdminAction::Rediscover: {
+            setState(
+                CameraState::Discovering,
+                "Redescoberta manual solicitada pelo painel"
+            );
+            const bool found = discoverOnvifCamera();
+
+            if (found) {
+                resolveCameraOnvifEndpoint();
+                invalidateSnapshotTarget();
+                lastSnapshotResolveAttemptAtMs = 0;
+                runHealthCheck();
+            }
+
+            lastAdminActionResult = currentTimestamp() +
+                (found
+                    ? " - camera redescoberta e verificada"
+                    : " - redescoberta concluida sem camera compativel");
+            break;
+        }
+
+        case AdminAction::CameraReboot: {
+            const bool accepted = requestCameraRebootOnvif(true);
+            lastAdminActionResult = currentTimestamp() +
+                (accepted
+                    ? " - reboot ONVIF manual aceito"
+                    : " - reboot ONVIF manual nao executado: ") +
+                lastCameraRebootResult;
+            break;
+        }
+
+        case AdminAction::ResetRebootLimiter:
+            lastCameraRebootAttemptAtMs = 0;
+            cameraRebootWindowStartedAtMs = millis();
+            cameraRebootAttemptsInWindow = 0;
+            lastCameraRebootResult =
+                currentTimestamp() + " - limitador de reboots reiniciado";
+            lastAdminActionResult = lastCameraRebootResult;
+            break;
+
+        case AdminAction::RestartEsp32:
+            espRestartRequestedAtMs = millis();
+            lastAdminActionResult =
+                currentTimestamp() + " - reinicializacao do ESP32 agendada";
+            break;
+
+        case AdminAction::None:
+            break;
     }
 }
 
@@ -4031,11 +5422,13 @@ void maintainWiFi()
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-} // namespace
+}
 
 void setup()
 {
     Serial.begin(115200);
+    settingsWriteToken = makeSettingsWriteToken();
+    loadRuntimeSettings();
     configureCameraAlertLed();
     updateCameraAlertLed();
     delay(800);
@@ -4082,6 +5475,16 @@ void loop()
     httpServer.handleClient();
     maintainWiFi();
     processPendingEmails();
+    processPendingAdminAction();
+
+    if (
+        espRestartRequestedAtMs != 0 &&
+        millis() - espRestartRequestedAtMs >= ADMIN_RESTART_DELAY_MS
+    ) {
+        Serial.println("Reiniciando o ESP32 por solicitacao administrativa...");
+        delay(50);
+        ESP.restart();
+    }
 
     if (millis() - lastHealthCheckAtMs >= HEALTH_CHECK_INTERVAL_MS) {
         runHealthCheck();
