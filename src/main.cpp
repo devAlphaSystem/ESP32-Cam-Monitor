@@ -1,13 +1,17 @@
 #include <Arduino.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
+#include <MD5Builder.h>
 #include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiUdp.h>
 #include <esp_bt.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/sha1.h>
 #include <time.h>
 
 #include "app_config.h"
@@ -17,10 +21,20 @@
 #include "dashboard_page.h"
 #include "secrets.h"
 
+// Mantem compatibilidade com secrets.h antigos. Para autenticar na camera,
+// defina estas duas macros no seu arquivo include/secrets.h.
+#ifndef CAMERA_ONVIF_USERNAME_VALUE
+#define CAMERA_ONVIF_USERNAME_VALUE ""
+#endif
+
+#ifndef CAMERA_ONVIF_PASSWORD_VALUE
+#define CAMERA_ONVIF_PASSWORD_VALUE ""
+#endif
+
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.3.8";
+constexpr char FIRMWARE_VERSION[] = "0.4.0";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 
@@ -38,7 +52,14 @@ enum class CameraState {
     Discovering,
     Online,
     Degraded,
+    Recovering,
     Offline
+};
+
+enum class IncidentKind {
+    None,
+    VideoUnavailable,
+    CameraOffline
 };
 
 struct ParsedUrl {
@@ -87,15 +108,38 @@ struct SnapshotTarget {
     String profileName;
 };
 
+struct SnapshotProbe {
+    bool attempted = false;
+    bool targetResolved = false;
+    bool httpResponded = false;
+    bool jpegValid = false;
+    int statusCode = 0;
+    uint32_t latencyMs = 0;
+    size_t bytesRead = 0;
+    String detail = "Ainda nao executado";
+};
+
+struct DigestChallenge {
+    bool valid = false;
+    String realm;
+    String nonce;
+    String qop;
+    String opaque;
+    String algorithm = "MD5";
+};
+
 WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 Preferences preferences;
 
 CameraTarget camera;
 SnapshotTarget snapshotTarget;
+SnapshotProbe lastSnapshotProbe;
 ServiceProbe lastOnvifProbe;
 ServiceProbe lastRtspProbe;
 CameraState cameraState = CameraState::Starting;
+IncidentKind activeIncident = IncidentKind::None;
+IncidentKind recoveryIncident = IncidentKind::None;
 
 char discoveryBuffer[WS_DISCOVERY_BUFFER_SIZE + 1];
 DiscoveryCandidate discovered[MAX_DISCOVERED_CAMERAS];
@@ -106,9 +150,13 @@ unsigned long lastHealthCheckAtMs = 0;
 unsigned long lastRediscoveryAtMs = 0;
 unsigned long lastSubnetScanAtMs = 0;
 unsigned long lastEmailAttemptAtMs = 0;
-unsigned long offlineStartedAtMs = 0;
 unsigned long lastStateChangeAtMs = 0;
 unsigned long lastCameraAlertLedToggleAtMs = 0;
+unsigned long incidentStartedAtMs = 0;
+unsigned long recoveryIncidentDurationMs = 0;
+unsigned long lastCameraRebootAttemptAtMs = 0;
+unsigned long cameraRebootGraceStartedAtMs = 0;
+unsigned long cameraRebootWindowStartedAtMs = 0;
 
 uint32_t totalHealthChecks = 0;
 uint32_t successfulHealthChecks = 0;
@@ -119,14 +167,22 @@ uint32_t emailsSent = 0;
 uint32_t emailErrors = 0;
 uint32_t snapshotsServed = 0;
 uint32_t snapshotErrors = 0;
+uint32_t snapshotProbeRuns = 0;
+uint32_t snapshotProbeFailures = 0;
+uint32_t cameraRebootAttempts = 0;
+uint32_t cameraRebootAccepted = 0;
+uint32_t cameraRebootErrors = 0;
 uint32_t heapBeforeBluetoothReleaseBytes = 0;
 uint32_t heapAfterBluetoothReleaseBytes = 0;
 uint32_t bluetoothMemoryReleasedBytes = 0;
 uint8_t consecutiveFailures = 0;
 uint8_t consecutiveSuccesses = 0;
+uint8_t consecutiveControlFailures = 0;
+uint8_t snapshotTargetFailureStreak = 0;
+uint8_t cameraRebootAttemptsInWindow = 0;
 
-bool offlineAlertSent = false;
-bool pendingOfflineEmail = false;
+bool incidentAlertSent = false;
+bool pendingIncidentEmail = false;
 bool pendingRecoveryEmail = false;
 bool cameraAlertLedOn = false;
 bool cameraAlertLedBlinking = false;
@@ -142,7 +198,9 @@ String lastDiscoveryResult = "Ainda nao executada";
 String lastScanResult = "Ainda nao executada";
 String previousCameraIp;
 String lastSnapshotResult = "Ainda nao solicitada";
+String lastCameraRebootResult = "Ainda nao solicitado";
 unsigned long lastSnapshotResolveAttemptAtMs = 0;
+int lastSnapshotResolveStatusCode = 0;
 
 const char* stateName(CameraState state)
 {
@@ -155,11 +213,93 @@ const char* stateName(CameraState state)
             return "online";
         case CameraState::Degraded:
             return "degraded";
+        case CameraState::Recovering:
+            return "recovering";
         case CameraState::Offline:
             return "offline";
     }
 
     return "unknown";
+}
+
+const char* incidentName(IncidentKind kind)
+{
+    switch (kind) {
+        case IncidentKind::None:
+            return "none";
+        case IncidentKind::VideoUnavailable:
+            return "video_unavailable";
+        case IncidentKind::CameraOffline:
+            return "camera_offline";
+    }
+
+    return "unknown";
+}
+
+void beginOrEscalateIncident(IncidentKind kind)
+{
+    if (kind == IncidentKind::None) {
+        return;
+    }
+
+    if (activeIncident == IncidentKind::None) {
+        activeIncident = kind;
+        incidentStartedAtMs = millis();
+        incidentAlertSent = false;
+        pendingIncidentEmail = false;
+        return;
+    }
+
+    if (
+        activeIncident == IncidentKind::VideoUnavailable &&
+        kind == IncidentKind::CameraOffline
+    ) {
+        activeIncident = kind;
+
+        // A indisponibilidade total e uma escalada relevante. Se o alerta de
+        // video ja foi enviado, permite uma nova notificacao com o novo estado.
+        if (incidentAlertSent) {
+            incidentAlertSent = false;
+            pendingIncidentEmail = true;
+        }
+
+        return;
+    }
+
+    if (
+        activeIncident == IncidentKind::CameraOffline &&
+        kind == IncidentKind::VideoUnavailable &&
+        !incidentAlertSent
+    ) {
+        // Se o controle voltou antes de o alerta ser enviado, classifica o
+        // incidente pelo estado atual em vez de notificar falsamente "offline".
+        activeIncident = kind;
+    }
+}
+
+void queueIncidentAlert()
+{
+    if (activeIncident != IncidentKind::None && !incidentAlertSent) {
+        pendingIncidentEmail = true;
+    }
+}
+
+void resolveActiveIncident()
+{
+    if (activeIncident == IncidentKind::None) {
+        return;
+    }
+
+    if (incidentAlertSent) {
+        recoveryIncident = activeIncident;
+        recoveryIncidentDurationMs = millis() - incidentStartedAtMs;
+        pendingRecoveryEmail = true;
+    }
+
+    pendingIncidentEmail = false;
+    incidentAlertSent = false;
+    activeIncident = IncidentKind::None;
+    incidentStartedAtMs = 0;
 }
 
 void writeCameraAlertLed(bool on)
@@ -344,6 +484,132 @@ String currentTimestamp()
     return String(buffer);
 }
 
+bool cameraCredentialsConfigured()
+{
+    return strlen(CAMERA_ONVIF_USERNAME_VALUE) > 0;
+}
+
+bool clockSynchronized()
+{
+    return time(nullptr) >= 1700000000;
+}
+
+String makeWsseSecurityHeader()
+{
+    if (!cameraCredentialsConfigured() || !clockSynchronized()) {
+        return String();
+    }
+
+    uint8_t nonce[16];
+    esp_fill_random(nonce, sizeof(nonce));
+
+    const String created = currentTimestamp();
+    uint8_t digest[20];
+    mbedtls_sha1_context context;
+    mbedtls_sha1_init(&context);
+
+    bool digestOk = mbedtls_sha1_starts_ret(&context) == 0;
+    digestOk = digestOk &&
+        mbedtls_sha1_update_ret(&context, nonce, sizeof(nonce)) == 0;
+    digestOk = digestOk &&
+        mbedtls_sha1_update_ret(
+            &context,
+            reinterpret_cast<const unsigned char*>(created.c_str()),
+            created.length()
+        ) == 0;
+    digestOk = digestOk &&
+        mbedtls_sha1_update_ret(
+            &context,
+            reinterpret_cast<const unsigned char*>(CAMERA_ONVIF_PASSWORD_VALUE),
+            strlen(CAMERA_ONVIF_PASSWORD_VALUE)
+        ) == 0;
+    digestOk = digestOk && mbedtls_sha1_finish_ret(&context, digest) == 0;
+    mbedtls_sha1_free(&context);
+
+    if (!digestOk) {
+        return String();
+    }
+
+    unsigned char nonceBase64[32];
+    unsigned char digestBase64[40];
+    size_t nonceLength = 0;
+    size_t digestLength = 0;
+
+    if (
+        mbedtls_base64_encode(
+            nonceBase64,
+            sizeof(nonceBase64) - 1,
+            &nonceLength,
+            nonce,
+            sizeof(nonce)
+        ) != 0 ||
+        mbedtls_base64_encode(
+            digestBase64,
+            sizeof(digestBase64) - 1,
+            &digestLength,
+            digest,
+            sizeof(digest)
+        ) != 0
+    ) {
+        return String();
+    }
+
+    nonceBase64[nonceLength] = '\0';
+    digestBase64[digestLength] = '\0';
+
+    String header;
+    header.reserve(760);
+    header += "<s:Header><wsse:Security s:mustUnderstand=\"1\" ";
+    header += "xmlns:wsse=\"http://docs.oasis-open.org/wss/2004/01/";
+    header += "oasis-200401-wss-wssecurity-secext-1.0.xsd\" ";
+    header += "xmlns:wsu=\"http://docs.oasis-open.org/wss/2004/01/";
+    header += "oasis-200401-wss-wssecurity-utility-1.0.xsd\">";
+    header += "<wsse:UsernameToken><wsse:Username>";
+    header += htmlEscape(CAMERA_ONVIF_USERNAME_VALUE);
+    header += "</wsse:Username><wsse:Password Type=\"http://docs.oasis-open.org/";
+    header += "wss/2004/01/oasis-200401-wss-username-token-profile-1.0#";
+    header += "PasswordDigest\">";
+    header += reinterpret_cast<const char*>(digestBase64);
+    header += "</wsse:Password><wsse:Nonce EncodingType=\"http://docs.oasis-open.org/";
+    header += "wss/2004/01/oasis-200401-wss-soap-message-security-1.0#";
+    header += "Base64Binary\">";
+    header += reinterpret_cast<const char*>(nonceBase64);
+    header += "</wsse:Nonce><wsu:Created>";
+    header += created;
+    header += "</wsu:Created></wsse:UsernameToken></wsse:Security></s:Header>";
+    return header;
+}
+
+bool cameraRebootGraceActive()
+{
+    return
+        cameraRebootGraceStartedAtMs != 0 &&
+        millis() - cameraRebootGraceStartedAtMs < ONVIF_REBOOT_GRACE_MS;
+}
+
+unsigned long cameraRebootGraceRemainingMs()
+{
+    if (!cameraRebootGraceActive()) {
+        return 0;
+    }
+
+    return ONVIF_REBOOT_GRACE_MS -
+        (millis() - cameraRebootGraceStartedAtMs);
+}
+
+void refreshCameraRebootWindow()
+{
+    const unsigned long now = millis();
+
+    if (
+        cameraRebootWindowStartedAtMs == 0 ||
+        now - cameraRebootWindowStartedAtMs >= ONVIF_REBOOT_WINDOW_MS
+    ) {
+        cameraRebootWindowStartedAtMs = now;
+        cameraRebootAttemptsInWindow = 0;
+    }
+}
+
 String durationText(unsigned long durationMs)
 {
     const unsigned long totalSeconds = durationMs / 1000UL;
@@ -475,6 +741,321 @@ bool parseHttpUrl(const String& url, ParsedUrl& parsed)
     parsed.port = resource.port;
     parsed.path = resource.path;
     return true;
+}
+
+String extractDigestParameter(const String& challenge, const char* name)
+{
+    String normalized = challenge;
+    normalized.toLowerCase();
+
+    String marker = String(name);
+    marker.toLowerCase();
+    marker += '=';
+
+    const int markerPosition = normalized.indexOf(marker);
+
+    if (markerPosition < 0) {
+        return String();
+    }
+
+    int valueStart = markerPosition + marker.length();
+
+    while (
+        valueStart < static_cast<int>(challenge.length()) &&
+        isspace(static_cast<unsigned char>(challenge.charAt(valueStart)))
+    ) {
+        valueStart++;
+    }
+
+    if (valueStart >= static_cast<int>(challenge.length())) {
+        return String();
+    }
+
+    if (challenge.charAt(valueStart) == '"') {
+        valueStart++;
+        const int valueEnd = challenge.indexOf('"', valueStart);
+        return valueEnd >= 0
+            ? challenge.substring(valueStart, valueEnd)
+            : String();
+    }
+
+    int valueEnd = valueStart;
+
+    while (
+        valueEnd < static_cast<int>(challenge.length()) &&
+        challenge.charAt(valueEnd) != ',' &&
+        !isspace(static_cast<unsigned char>(challenge.charAt(valueEnd)))
+    ) {
+        valueEnd++;
+    }
+
+    String value = challenge.substring(valueStart, valueEnd);
+    value.trim();
+    return value;
+}
+
+bool digestQopSupportsAuth(const String& qopList)
+{
+    int tokenStart = 0;
+
+    while (tokenStart < static_cast<int>(qopList.length())) {
+        const int commaPosition = qopList.indexOf(',', tokenStart);
+        const int tokenEnd = commaPosition >= 0
+            ? commaPosition
+            : static_cast<int>(qopList.length());
+
+        String token = qopList.substring(tokenStart, tokenEnd);
+        token.trim();
+        token.toLowerCase();
+
+        if (token == "auth") {
+            return true;
+        }
+
+        if (commaPosition < 0) {
+            break;
+        }
+
+        tokenStart = commaPosition + 1;
+    }
+
+    return false;
+}
+
+bool parseDigestChallenge(
+    const String& authenticateHeader,
+    DigestChallenge& challenge
+)
+{
+    challenge = DigestChallenge{};
+
+    String normalized = authenticateHeader;
+    normalized.toLowerCase();
+    const int digestPosition = normalized.indexOf("digest");
+
+    if (digestPosition < 0) {
+        return false;
+    }
+
+    const String digestText = authenticateHeader.substring(digestPosition + 6);
+    challenge.realm = extractDigestParameter(digestText, "realm");
+    challenge.nonce = extractDigestParameter(digestText, "nonce");
+    challenge.qop = extractDigestParameter(digestText, "qop");
+    challenge.opaque = extractDigestParameter(digestText, "opaque");
+
+    const String algorithm = extractDigestParameter(digestText, "algorithm");
+
+    if (!algorithm.isEmpty()) {
+        challenge.algorithm = algorithm;
+    }
+
+    challenge.valid = !challenge.realm.isEmpty() && !challenge.nonce.isEmpty();
+    return challenge.valid;
+}
+
+String md5Hex(const String& input)
+{
+    MD5Builder md5;
+    md5.begin();
+    md5.add(input);
+    md5.calculate();
+    return md5.toString();
+}
+
+String httpQuotedEscape(const String& input)
+{
+    String escaped;
+    escaped.reserve(input.length() + 8);
+
+    for (size_t index = 0; index < input.length(); index++) {
+        const char value = input.charAt(index);
+
+        if (value == '\\' || value == '"') {
+            escaped += '\\';
+        }
+
+        escaped += value;
+    }
+
+    return escaped;
+}
+
+String makeDigestAuthorization(
+    const char* method,
+    const String& url,
+    const DigestChallenge& challenge
+)
+{
+    if (!cameraCredentialsConfigured() || !challenge.valid) {
+        return String();
+    }
+
+    ParsedHttpResource resource;
+
+    if (!parseHttpResourceUrl(url, resource)) {
+        return String();
+    }
+
+    char cnonceBuffer[33];
+    snprintf(
+        cnonceBuffer,
+        sizeof(cnonceBuffer),
+        "%08lx%08lx%08lx%08lx",
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random()),
+        static_cast<unsigned long>(esp_random())
+    );
+
+    const String cnonce = cnonceBuffer;
+    const String nonceCount = "00000001";
+
+    String ha1 = md5Hex(
+        String(CAMERA_ONVIF_USERNAME_VALUE) + ':' +
+        challenge.realm + ':' + CAMERA_ONVIF_PASSWORD_VALUE
+    );
+
+    String normalizedAlgorithm = challenge.algorithm;
+    normalizedAlgorithm.toLowerCase();
+
+    if (normalizedAlgorithm == "md5-sess") {
+        ha1 = md5Hex(ha1 + ':' + challenge.nonce + ':' + cnonce);
+    } else if (normalizedAlgorithm != "md5" && !normalizedAlgorithm.isEmpty()) {
+        return String();
+    }
+
+    const String ha2 = md5Hex(String(method) + ':' + resource.path);
+    String selectedQop;
+
+    if (!challenge.qop.isEmpty()) {
+        if (!digestQopSupportsAuth(challenge.qop)) {
+            // auth-int exige hash do corpo da requisicao e nao pode ser tratado
+            // como auth. E melhor rejeitar o desafio do que enviar um digest
+            // formalmente incorreto e mascarar a causa da falha.
+            return String();
+        }
+
+        selectedQop = "auth";
+    }
+
+    const String response = selectedQop.isEmpty()
+        ? md5Hex(ha1 + ':' + challenge.nonce + ':' + ha2)
+        : md5Hex(
+            ha1 + ':' + challenge.nonce + ':' + nonceCount + ':' +
+            cnonce + ':' + selectedQop + ':' + ha2
+        );
+
+    String authorization;
+    authorization.reserve(512);
+    authorization += "username=\"";
+    authorization += httpQuotedEscape(CAMERA_ONVIF_USERNAME_VALUE);
+    authorization += "\", realm=\"";
+    authorization += httpQuotedEscape(challenge.realm);
+    authorization += "\", nonce=\"";
+    authorization += httpQuotedEscape(challenge.nonce);
+    authorization += "\", uri=\"";
+    authorization += httpQuotedEscape(resource.path);
+    authorization += "\", response=\"";
+    authorization += response;
+    authorization += '"';
+
+    if (!challenge.algorithm.isEmpty()) {
+        authorization += ", algorithm=";
+        authorization += challenge.algorithm;
+    }
+
+    if (!selectedQop.isEmpty()) {
+        authorization += ", qop=";
+        authorization += selectedQop;
+        authorization += ", nc=";
+        authorization += nonceCount;
+        authorization += ", cnonce=\"";
+        authorization += cnonce;
+        authorization += '"';
+    }
+
+    if (!challenge.opaque.isEmpty()) {
+        authorization += ", opaque=\"";
+        authorization += httpQuotedEscape(challenge.opaque);
+        authorization += '"';
+    }
+
+    return authorization;
+}
+
+void applyCameraAuthorization(
+    HTTPClient& request,
+    const String& digestAuthorization
+)
+{
+    if (!digestAuthorization.isEmpty()) {
+        request.setAuthorizationType("Digest");
+        request.setAuthorization(digestAuthorization.c_str());
+        return;
+    }
+
+    if (cameraCredentialsConfigured()) {
+        request.setAuthorizationType("Basic");
+        request.setAuthorization(CAMERA_ONVIF_USERNAME_VALUE, CAMERA_ONVIF_PASSWORD_VALUE);
+    }
+}
+
+int openAuthenticatedCameraGet(
+    HTTPClient& request,
+    WiFiClient& client,
+    const String& url
+)
+{
+    const char* responseHeaders[] = {
+        "Content-Type",
+        "WWW-Authenticate"
+    };
+
+    request.setConnectTimeout(TCP_CONNECT_TIMEOUT_MS);
+    request.setTimeout(SNAPSHOT_HTTP_TIMEOUT_MS);
+    request.setReuse(false);
+    request.useHTTP10(true);
+    request.setUserAgent(
+        String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
+    );
+    request.collectHeaders(responseHeaders, 2);
+
+    const auto executeAttempt = [&](const String& digestAuthorization) {
+        if (!request.begin(client, url)) {
+            return -1;
+        }
+
+        request.addHeader("Accept", "image/jpeg, image/*;q=0.9, */*;q=0.1");
+        applyCameraAuthorization(request, digestAuthorization);
+        return request.GET();
+    };
+
+    int statusCode = executeAttempt(String());
+
+    if (statusCode != 401 || !cameraCredentialsConfigured()) {
+        return statusCode;
+    }
+
+    DigestChallenge challenge;
+    const String authenticateHeader = request.header("WWW-Authenticate");
+
+    if (!parseDigestChallenge(authenticateHeader, challenge)) {
+        return statusCode;
+    }
+
+    const String digestAuthorization = makeDigestAuthorization(
+        "GET",
+        url,
+        challenge
+    );
+
+    if (digestAuthorization.isEmpty()) {
+        return statusCode;
+    }
+
+    request.end();
+    client.stop();
+    return executeAttempt(digestAuthorization);
 }
 
 String makeOnvifUrl(
@@ -923,6 +1504,8 @@ const char* stateLabel(CameraState state)
             return "online";
         case CameraState::Degraded:
             return "instável";
+        case CameraState::Recovering:
+            return "recuperando";
         case CameraState::Offline:
             return "offline";
     }
@@ -998,6 +1581,14 @@ void appendDetailsTable(String& html)
         index++;
     };
 
+    String snapshotDescription = lastSnapshotProbe.detail;
+
+    if (lastSnapshotProbe.jpegValid) {
+        snapshotDescription =
+            String("JPEG válido · ") + String(lastSnapshotProbe.bytesRead) +
+            " bytes · " + String(lastSnapshotProbe.latencyMs) + " ms";
+    }
+
     row("Câmera", CAMERA_NAME);
     row("Estado", stateLabel(cameraState));
     row("Endereço IP", camera.valid ? camera.ip.toString() : "não localizado");
@@ -1005,9 +1596,12 @@ void appendDetailsTable(String& html)
         "Endpoint ONVIF",
         camera.onvifUrl.isEmpty() ? String("desconhecido") : camera.onvifUrl
     );
+    row("Teste de imagem", snapshotDescription);
     row("Teste ONVIF", describeProbe(lastOnvifProbe, "HTTP"));
     row("Teste RTSP", describeProbe(lastRtspProbe, "RTSP"));
-    row("Falhas consecutivas", String(consecutiveFailures));
+    row("Falhas de imagem consecutivas", String(consecutiveFailures));
+    row("Falhas de controle consecutivas", String(consecutiveControlFailures));
+    row("Recuperação ONVIF", lastCameraRebootResult);
     row(
         "Verificações",
         String(totalHealthChecks) + " no total · " +
@@ -1048,9 +1642,9 @@ String buildEmailHtml(
 {
     // String::changeBuffer cresce de 16 em 16 bytes e realoca a cada passo, entao
     // a reserva precisa cobrir o documento inteiro de uma vez. O corpo montado
-    // fica em torno de 7,3 KB com as 11 linhas de detalhe.
+    // fica em torno de 9 KB com as linhas adicionais de diagnóstico.
     String html;
-    html.reserve(8192);
+    html.reserve(10240);
 
     html += "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -1121,30 +1715,65 @@ String buildEmailHtml(
     return html;
 }
 
-bool sendOfflineAlert()
+bool sendIncidentAlert()
 {
-    String subject = "[Camera offline] ";
+    if (activeIncident == IncidentKind::None) {
+        pendingIncidentEmail = false;
+        return true;
+    }
+
+    const bool videoOnly =
+        activeIncident == IncidentKind::VideoUnavailable;
+
+    String subject = videoOnly
+        ? String("[Camera sem imagem] ")
+        : String("[Camera offline] ");
     subject += CAMERA_NAME;
 
-    String callout = "Falhas consecutivas: <strong>";
-    callout += consecutiveFailures;
-    callout += "</strong>. Nem o serviço ONVIF nem a porta RTSP responderam "
-               "aos últimos testes.";
+    String callout;
+    callout.reserve(640);
+
+    if (videoOnly) {
+        callout = "A câmera ainda responde aos serviços de controle, mas falhou "
+                  "em <strong>";
+        callout += consecutiveFailures;
+        callout += "</strong> verificações consecutivas de imagem. Último teste: ";
+        callout += htmlEscape(lastSnapshotProbe.detail);
+        callout += ".";
+    } else {
+        callout = "O ESP32 não conseguiu obter imagem nem confirmar resposta "
+                  "ONVIF/RTSP. Falhas consecutivas: imagem <strong>";
+        callout += consecutiveFailures;
+        callout += "</strong>, controle <strong>";
+        callout += consecutiveControlFailures;
+        callout += "</strong>.";
+    }
+
+    if (lastCameraRebootAttemptAtMs != 0) {
+        callout += "<br><br>Recuperação automática: ";
+        callout += htmlEscape(lastCameraRebootResult);
+        callout += ".";
+    }
 
     const String html = buildEmailHtml(
         EMAIL_THEME_ALERT,
-        "OFFLINE",
-        "A câmera parou de responder",
-        "O ESP32 confirmou a falha antes de avisar: o alerta só é enviado "
-        "depois de várias tentativas seguidas sem resposta.",
+        videoOnly ? "SEM IMAGEM" : "OFFLINE",
+        videoOnly
+            ? "A câmera parou de entregar imagens"
+            : "A câmera parou de responder",
+        videoOnly
+            ? "O serviço de controle continua acessível, porém o ESP32 não "
+              "recebeu um JPEG completo e válido nas últimas verificações."
+            : "A indisponibilidade foi confirmada por testes independentes de "
+              "imagem, ONVIF e RTSP.",
         callout
     );
 
     const bool sent = sendResendEmail(subject, html);
 
     if (sent) {
-        offlineAlertSent = true;
-        pendingOfflineEmail = false;
+        incidentAlertSent = true;
+        pendingIncidentEmail = false;
     }
 
     return sent;
@@ -1152,22 +1781,37 @@ bool sendOfflineAlert()
 
 bool sendRecoveryAlert()
 {
-    String subject = "[Camera recuperada] ";
+    if (recoveryIncident == IncidentKind::None) {
+        pendingRecoveryEmail = false;
+        return true;
+    }
+
+    const bool recoveredVideo =
+        recoveryIncident == IncidentKind::VideoUnavailable;
+
+    String subject = recoveredVideo
+        ? String("[Imagem recuperada] ")
+        : String("[Camera recuperada] ");
     subject += CAMERA_NAME;
 
-    String callout;
+    String callout = "Duração aproximada do incidente: <strong>";
+    callout += durationText(recoveryIncidentDurationMs);
+    callout += "</strong>. O teste atual recebeu um JPEG completo e válido.";
 
-    if (offlineStartedAtMs > 0) {
-        callout = "Tempo aproximado fora do ar: <strong>";
-        callout += durationText(millis() - offlineStartedAtMs);
-        callout += "</strong>.";
+    if (lastCameraRebootAttemptAtMs != 0) {
+        callout += "<br><br>Última recuperação ONVIF: ";
+        callout += htmlEscape(lastCameraRebootResult);
+        callout += ".";
     }
 
     const String html = buildEmailHtml(
         EMAIL_THEME_OK,
         "RECUPERADA",
-        "A câmera voltou a responder",
-        "O monitoramento normal foi retomado. Nenhuma ação é necessária.",
+        recoveredVideo
+            ? "O canal de imagem voltou a funcionar"
+            : "A câmera voltou a responder",
+        "Duas verificações consecutivas confirmaram a recuperação. O "
+        "monitoramento normal foi retomado.",
         callout
     );
 
@@ -1175,6 +1819,8 @@ bool sendRecoveryAlert()
 
     if (sent) {
         pendingRecoveryEmail = false;
+        recoveryIncident = IncidentKind::None;
+        recoveryIncidentDurationMs = 0;
     }
 
     return sent;
@@ -1735,61 +2381,117 @@ bool postOnvifSoap(
     const String& serviceUrl,
     const char* action,
     const String& body,
-    String& responseBody
+    String& responseBody,
+    bool requireResponseBody = true,
+    int* finalStatusCode = nullptr
 )
 {
+    responseBody = String();
+
+    const String wsseHeader = makeWsseSecurityHeader();
+    String envelope;
+    envelope.reserve(body.length() + wsseHeader.length() + 420);
+    envelope += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+    envelope += "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" ";
+    envelope += "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\" ";
+    envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">";
+    envelope += wsseHeader;
+    envelope += "<s:Body>";
+    envelope += body;
+    envelope += "</s:Body></s:Envelope>";
+
     WiFiClient client;
     HTTPClient request;
+    const char* responseHeaders[] = {"WWW-Authenticate"};
     request.setConnectTimeout(TCP_CONNECT_TIMEOUT_MS);
     request.setTimeout(SNAPSHOT_HTTP_TIMEOUT_MS);
     request.setReuse(false);
-
-    if (!request.begin(client, serviceUrl)) {
-        return false;
-    }
+    request.useHTTP10(true);
+    request.setUserAgent(
+        String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
+    );
+    request.collectHeaders(responseHeaders, 1);
 
     String contentType =
         "application/soap+xml; charset=utf-8; action=\"";
     contentType += action;
     contentType += '\"';
 
-    request.addHeader("Content-Type", contentType);
-    request.setUserAgent(
-        String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
-    );
+    const auto executeAttempt = [&](const String& digestAuthorization) {
+        if (!request.begin(client, serviceUrl)) {
+            return -1;
+        }
 
-    String envelope;
-    envelope.reserve(body.length() + 256);
-    envelope += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
-    envelope += "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" ";
-    envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">";
-    envelope += "<s:Body>";
-    envelope += body;
-    envelope += "</s:Body></s:Envelope>";
+        request.addHeader("Content-Type", contentType);
+        applyCameraAuthorization(request, digestAuthorization);
+        return request.POST(envelope);
+    };
 
-    const int statusCode = request.POST(envelope);
+    int statusCode = executeAttempt(String());
+
+    if (statusCode == 401 && cameraCredentialsConfigured()) {
+        DigestChallenge challenge;
+        const String authenticateHeader = request.header("WWW-Authenticate");
+
+        if (parseDigestChallenge(authenticateHeader, challenge)) {
+            const String digestAuthorization = makeDigestAuthorization(
+                "POST",
+                serviceUrl,
+                challenge
+            );
+
+            if (!digestAuthorization.isEmpty()) {
+                request.end();
+                client.stop();
+                statusCode = executeAttempt(digestAuthorization);
+            }
+        }
+    }
+
+    if (finalStatusCode != nullptr) {
+        *finalStatusCode = statusCode;
+    }
+
     const int responseSize = request.getSize();
+    const bool responseSizeAllowed =
+        responseSize < 0 ||
+        responseSize <= static_cast<int>(MAX_ONVIF_RESPONSE_SIZE);
+
+    if (statusCode > 0 && responseSizeAllowed) {
+        responseBody = request.getString();
+    }
+
+    request.end();
+
+    int faultStart = 0;
+    int faultEnd = 0;
+    const bool soapFault =
+        !responseBody.isEmpty() &&
+        findNextOpeningTag(
+            responseBody,
+            "Fault",
+            0,
+            faultStart,
+            faultEnd
+        );
 
     if (
         statusCode < 200 ||
         statusCode >= 300 ||
-        responseSize > static_cast<int>(MAX_ONVIF_RESPONSE_SIZE)
+        !responseSizeAllowed ||
+        responseBody.length() > MAX_ONVIF_RESPONSE_SIZE ||
+        soapFault
     ) {
-        request.end();
         return false;
     }
 
-    responseBody = request.getString();
-    request.end();
-
-    return
-        !responseBody.isEmpty() &&
-        responseBody.length() <= MAX_ONVIF_RESPONSE_SIZE;
+    return !requireResponseBody || !responseBody.isEmpty();
 }
 
 bool resolveSnapshotTarget()
 {
     lastSnapshotResolveAttemptAtMs = millis();
+    lastSnapshotResolveStatusCode = 0;
     invalidateSnapshotTarget();
 
     if (!camera.valid || WiFi.status() != WL_CONNECTED) {
@@ -1801,6 +2503,7 @@ bool resolveSnapshotTarget()
         !lastOnvifProbe.protocolResponded &&
         !resolveCameraOnvifEndpoint()
     ) {
+        lastSnapshotResolveStatusCode = lastOnvifProbe.statusCode;
         lastSnapshotResult = "Servico ONVIF nao localizado";
         return false;
     }
@@ -1810,7 +2513,7 @@ bool resolveSnapshotTarget()
     const String mediaUrl = makeOnvifUrl(
         camera.ip,
         camera.onvifPort,
-        "/onvif/media_service"
+        DEFAULT_ONVIF_MEDIA_PATH
     );
 
     String profileToken;
@@ -1818,16 +2521,22 @@ bool resolveSnapshotTarget()
 
     {
         String profilesXml;
+        int profilesStatusCode = 0;
 
         if (!postOnvifSoap(
             mediaUrl,
             "http://www.onvif.org/ver10/media/wsdl/GetProfiles",
             "<trt:GetProfiles/>",
-            profilesXml
+            profilesXml,
+            true,
+            &profilesStatusCode
         )) {
+            lastSnapshotResolveStatusCode = profilesStatusCode;
             lastSnapshotResult = "ONVIF nao retornou os perfis de midia";
             return false;
         }
+
+        lastSnapshotResolveStatusCode = profilesStatusCode;
 
         if (!selectSnapshotProfile(
             profilesXml,
@@ -1846,16 +2555,22 @@ bool resolveSnapshotTarget()
     snapshotRequest += "</trt:ProfileToken></trt:GetSnapshotUri>";
 
     String snapshotXml;
+    int snapshotStatusCode = 0;
 
     if (!postOnvifSoap(
         mediaUrl,
         "http://www.onvif.org/ver10/media/wsdl/GetSnapshotUri",
         snapshotRequest,
-        snapshotXml
+        snapshotXml,
+        true,
+        &snapshotStatusCode
     )) {
+        lastSnapshotResolveStatusCode = snapshotStatusCode;
         lastSnapshotResult = "ONVIF nao retornou o snapshot";
         return false;
     }
+
+    lastSnapshotResolveStatusCode = snapshotStatusCode;
 
     String snapshotUrl;
     int ignoredPosition = 0;
@@ -1898,9 +2613,394 @@ bool resolveSnapshotTarget()
     );
     snapshotTarget.profileToken = profileToken;
     snapshotTarget.profileName = profileName;
+    snapshotTargetFailureStreak = 0;
     lastSnapshotResult =
         currentTimestamp() + " - perfil " + snapshotTarget.profileName;
 
+    return true;
+}
+
+void noteSnapshotRequestFailure(int statusCode)
+{
+    if (snapshotTargetFailureStreak < 255) {
+        snapshotTargetFailureStreak++;
+    }
+
+    const bool permanentUriFailure = statusCode == 404 || statusCode == 410;
+    const bool authenticationFailure = statusCode == 401 || statusCode == 403;
+
+    if (
+        permanentUriFailure ||
+        (
+            !authenticationFailure &&
+            snapshotTargetFailureStreak >= SNAPSHOT_FAILURES_BEFORE_RERESOLVE
+        )
+    ) {
+        invalidateSnapshotTarget();
+        lastSnapshotResolveAttemptAtMs = millis();
+        snapshotTargetFailureStreak = 0;
+    }
+}
+
+bool probeCameraSnapshotJpeg()
+{
+    SnapshotProbe result;
+    result.attempted = true;
+    snapshotProbeRuns++;
+    const unsigned long startedAt = millis();
+
+    if (!snapshotTarget.valid) {
+        if (
+            lastSnapshotResolveAttemptAtMs != 0 &&
+            millis() - lastSnapshotResolveAttemptAtMs <
+                SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS
+        ) {
+            result.detail = "Aguardando nova tentativa de resolver o snapshot";
+        } else if (!resolveSnapshotTarget()) {
+            result.detail = lastSnapshotResult;
+        }
+    }
+
+    result.targetResolved = snapshotTarget.valid;
+
+    if (!snapshotTarget.valid) {
+        result.statusCode = lastSnapshotResolveStatusCode;
+        result.httpResponded = result.statusCode >= 100;
+        result.latencyMs = millis() - startedAt;
+        snapshotProbeFailures++;
+        lastSnapshotProbe = result;
+        return false;
+    }
+
+    WiFiClient cameraClient;
+    HTTPClient request;
+    const int statusCode = openAuthenticatedCameraGet(
+        request,
+        cameraClient,
+        snapshotTarget.url
+    );
+
+    result.statusCode = statusCode;
+    result.latencyMs = millis() - startedAt;
+    result.httpResponded = statusCode >= 100;
+
+    if (statusCode < 200 || statusCode >= 300) {
+        result.detail = statusCode < 0
+            ? String("Falha HTTP: ") + HTTPClient::errorToString(statusCode)
+            : String("Camera retornou HTTP ") + String(statusCode);
+        request.end();
+        noteSnapshotRequestFailure(statusCode);
+        snapshotProbeFailures++;
+        lastSnapshotResult = currentTimestamp() + " - " + result.detail;
+        lastSnapshotProbe = result;
+        return false;
+    }
+
+    const int contentLength = request.getSize();
+
+    if (
+        contentLength == 0 ||
+        (contentLength > 0 &&
+         contentLength < static_cast<int>(MIN_VALID_SNAPSHOT_SIZE_BYTES)) ||
+        contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)
+    ) {
+        result.detail = "Tamanho de snapshot invalido";
+        request.end();
+        noteSnapshotRequestFailure(statusCode);
+        snapshotProbeFailures++;
+        lastSnapshotResult = currentTimestamp() + " - " + result.detail;
+        lastSnapshotProbe = result;
+        return false;
+    }
+
+    WiFiClient* source = request.getStreamPtr();
+
+    if (source == nullptr) {
+        result.detail = "Fluxo HTTP do snapshot indisponivel";
+        request.end();
+        noteSnapshotRequestFailure(statusCode);
+        snapshotProbeFailures++;
+        lastSnapshotResult = currentTimestamp() + " - " + result.detail;
+        lastSnapshotProbe = result;
+        return false;
+    }
+
+    uint8_t buffer[SNAPSHOT_PROBE_BUFFER_SIZE];
+    unsigned long lastDataAtMs = millis();
+    uint8_t previousByte = 0;
+    uint8_t firstByte = 0;
+    uint8_t secondByte = 0;
+    bool jpegStarted = false;
+    size_t jpegEndOffset = 0;
+
+    while (result.bytesRead < MAX_SNAPSHOT_SIZE_BYTES) {
+        updateCameraAlertLed();
+        const size_t availableBytes = source->available();
+
+        if (availableBytes > 0) {
+            size_t bytesToRead = min(availableBytes, sizeof(buffer));
+            bytesToRead = min(
+                bytesToRead,
+                MAX_SNAPSHOT_SIZE_BYTES - result.bytesRead
+            );
+
+            if (contentLength > 0) {
+                const size_t expectedBytes =
+                    static_cast<size_t>(contentLength);
+                const size_t remainingBytes = expectedBytes > result.bytesRead
+                    ? expectedBytes - result.bytesRead
+                    : 0;
+                bytesToRead = min(bytesToRead, remainingBytes);
+            }
+
+            if (bytesToRead == 0) {
+                break;
+            }
+
+            const size_t bytesRead = source->readBytes(buffer, bytesToRead);
+
+            if (bytesRead == 0) {
+                break;
+            }
+
+            for (size_t index = 0; index < bytesRead; index++) {
+                const size_t absoluteIndex = result.bytesRead + index;
+                const uint8_t value = buffer[index];
+
+                if (absoluteIndex == 0) {
+                    firstByte = value;
+                } else if (absoluteIndex == 1) {
+                    secondByte = value;
+                    jpegStarted = firstByte == 0xFF && secondByte == 0xD8;
+                }
+
+                if (jpegStarted && previousByte == 0xFF && value == 0xD9) {
+                    jpegEndOffset = absoluteIndex + 1;
+                }
+
+                previousByte = value;
+            }
+
+            result.bytesRead += bytesRead;
+            lastDataAtMs = millis();
+
+            if (
+                contentLength < 0 &&
+                jpegEndOffset > 0 &&
+                result.bytesRead >= MIN_VALID_SNAPSHOT_SIZE_BYTES
+            ) {
+                break;
+            }
+
+            if (
+                contentLength > 0 &&
+                result.bytesRead >= static_cast<size_t>(contentLength)
+            ) {
+                break;
+            }
+
+            continue;
+        }
+
+        if (
+            !source->connected() ||
+            millis() - lastDataAtMs >= SNAPSHOT_HTTP_TIMEOUT_MS
+        ) {
+            break;
+        }
+
+        delay(1);
+    }
+
+    request.end();
+    result.latencyMs = millis() - startedAt;
+
+    const bool completeLength =
+        contentLength < 0 ||
+        result.bytesRead == static_cast<size_t>(contentLength);
+    const bool jpegEndNearTail =
+        jpegEndOffset > 0 &&
+        result.bytesRead >= jpegEndOffset &&
+        result.bytesRead - jpegEndOffset <= 16;
+
+    result.jpegValid =
+        jpegStarted &&
+        jpegEndNearTail &&
+        completeLength &&
+        result.bytesRead >= MIN_VALID_SNAPSHOT_SIZE_BYTES;
+
+    if (result.jpegValid) {
+        snapshotTargetFailureStreak = 0;
+        result.detail =
+            String("JPEG valido; ") + String(result.bytesRead) + " bytes";
+        lastSnapshotResult =
+            currentTimestamp() + " - " + result.detail + "; perfil " +
+            snapshotTarget.profileName;
+        lastSnapshotProbe = result;
+        return true;
+    }
+
+    if (!jpegStarted) {
+        result.detail = "Resposta nao iniciou com marcador JPEG FF D8";
+    } else if (!completeLength) {
+        result.detail =
+            String("Transferencia incompleta; recebidos ") +
+            String(result.bytesRead) + " de " + String(contentLength) +
+            " bytes";
+    } else if (jpegEndOffset == 0) {
+        result.detail = "Snapshot incompleto; marcador FF D9 nao recebido";
+    } else if (!jpegEndNearTail) {
+        result.detail = "Marcador JPEG FF D9 apareceu antes do fim da resposta";
+    } else {
+        result.detail = "Snapshot JPEG menor que o limite minimo";
+    }
+
+    noteSnapshotRequestFailure(statusCode);
+    snapshotProbeFailures++;
+    lastSnapshotResult = currentTimestamp() + " - " + result.detail;
+    lastSnapshotProbe = result;
+    return false;
+}
+
+bool snapshotFailureAllowsAutomaticReboot()
+{
+    switch (lastSnapshotProbe.statusCode) {
+        case 400:
+        case 401:
+        case 403:
+        case 404:
+        case 405:
+        case 410:
+        case 415:
+        case 501:
+            return false;
+        default:
+            break;
+    }
+
+    return
+        !containsIgnoreCase(lastSnapshotProbe.detail, "nenhum perfil") &&
+        !containsIgnoreCase(lastSnapshotProbe.detail, "uri de snapshot invalido") &&
+        !containsIgnoreCase(lastSnapshotProbe.detail, "https local ainda nao suportado");
+}
+
+bool requestCameraRebootOnvif()
+{
+    if (!ENABLE_ONVIF_AUTO_REBOOT || !camera.valid) {
+        return false;
+    }
+
+    refreshCameraRebootWindow();
+    const unsigned long now = millis();
+
+    if (cameraRebootGraceActive()) {
+        return false;
+    }
+
+    if (
+        lastCameraRebootAttemptAtMs != 0 &&
+        now - lastCameraRebootAttemptAtMs < ONVIF_REBOOT_COOLDOWN_MS
+    ) {
+        const unsigned long remainingMs =
+            ONVIF_REBOOT_COOLDOWN_MS -
+            (now - lastCameraRebootAttemptAtMs);
+        lastCameraRebootResult =
+            currentTimestamp() + " - novo reboot bloqueado por cooldown; faltam " +
+            durationText(remainingMs);
+        return false;
+    }
+
+    if (
+        cameraRebootAttemptsInWindow >=
+        MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW
+    ) {
+        lastCameraRebootResult =
+            currentTimestamp() + " - limite de tentativas atingido";
+        return false;
+    }
+
+    lastCameraRebootAttemptAtMs = now;
+    cameraRebootAttempts++;
+    cameraRebootAttemptsInWindow++;
+
+    String responseBody;
+    int statusCode = 0;
+    const bool accepted = postOnvifSoap(
+        camera.onvifUrl,
+        "http://www.onvif.org/ver10/device/wsdl/SystemReboot",
+        "<tds:SystemReboot/>",
+        responseBody,
+        false,
+        &statusCode
+    );
+
+    if (!accepted) {
+        cameraRebootErrors++;
+        lastCameraRebootResult = currentTimestamp() + " - rejeitado; ";
+
+        if (statusCode < 0) {
+            lastCameraRebootResult += HTTPClient::errorToString(statusCode);
+        } else {
+            lastCameraRebootResult += "HTTP ";
+            lastCameraRebootResult += statusCode;
+        }
+
+        String faultText;
+        int ignoredPosition = 0;
+        extractLocalTag(
+            responseBody,
+            "Text",
+            0,
+            faultText,
+            ignoredPosition
+        );
+
+        if (!faultText.isEmpty()) {
+            lastCameraRebootResult += "; ";
+            lastCameraRebootResult += faultText;
+        }
+
+        if (statusCode == 401 && !cameraCredentialsConfigured()) {
+            lastCameraRebootResult +=
+                "; configure CAMERA_ONVIF_USERNAME_VALUE e CAMERA_ONVIF_PASSWORD_VALUE";
+        }
+
+        Serial.println(lastCameraRebootResult);
+        return false;
+    }
+
+    cameraRebootAccepted++;
+    cameraRebootGraceStartedAtMs = now;
+    invalidateSnapshotTarget();
+    lastSnapshotResolveAttemptAtMs = now;
+    snapshotTargetFailureStreak = 0;
+    lastSnapshotResolveStatusCode = 0;
+    lastSnapshotProbe.jpegValid = false;
+    lastSnapshotProbe.detail = "Aguardando a camera reiniciar";
+
+    String rebootMessage;
+    int ignoredPosition = 0;
+    extractLocalTag(
+        responseBody,
+        "Message",
+        0,
+        rebootMessage,
+        ignoredPosition
+    );
+
+    lastCameraRebootResult =
+        currentTimestamp() + " - aceito; HTTP " + String(statusCode);
+
+    if (!rebootMessage.isEmpty()) {
+        lastCameraRebootResult += "; ";
+        lastCameraRebootResult += rebootMessage;
+    }
+
+    setState(
+        CameraState::Recovering,
+        "Reinicializacao ONVIF solicitada; aguardando a camera"
+    );
+    Serial.println(lastCameraRebootResult);
     return true;
 }
 
@@ -1935,75 +3035,133 @@ void serveCameraSnapshot()
 
     WiFiClient cameraClient;
     HTTPClient request;
-    request.setConnectTimeout(TCP_CONNECT_TIMEOUT_MS);
-    request.setTimeout(SNAPSHOT_HTTP_TIMEOUT_MS);
-    request.setReuse(false);
-    request.setUserAgent(
-        String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
+    const int statusCode = openAuthenticatedCameraGet(
+        request,
+        cameraClient,
+        snapshotTarget.url
     );
-
-    const char* snapshotHeaders[] = {"Content-Type"};
-    request.collectHeaders(snapshotHeaders, 1);
-
-    if (!request.begin(cameraClient, snapshotTarget.url)) {
-        invalidateSnapshotTarget();
-        sendSnapshotError(502, "camera_connection_failed");
-        return;
-    }
-
-    const int statusCode = request.GET();
-    String contentType = request.header("Content-Type");
-    contentType.toLowerCase();
     const int contentLength = request.getSize();
 
     if (
         statusCode < 200 ||
         statusCode >= 300 ||
-        contentType.indexOf("image/jpeg") < 0 ||
-        contentLength <= 0 ||
+        contentLength == 0 ||
+        (contentLength > 0 &&
+         contentLength < static_cast<int>(MIN_VALID_SNAPSHOT_SIZE_BYTES)) ||
         contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)
     ) {
         request.end();
-        invalidateSnapshotTarget();
-        lastSnapshotResolveAttemptAtMs = 0;
-        lastSnapshotResult =
-            currentTimestamp() + " - falha HTTP " + String(statusCode);
+        noteSnapshotRequestFailure(statusCode);
+        lastSnapshotResult = statusCode < 0
+            ? currentTimestamp() + " - " + HTTPClient::errorToString(statusCode)
+            : currentTimestamp() + " - falha HTTP " + String(statusCode);
         sendSnapshotError(502, "invalid_camera_response");
         return;
     }
 
     WiFiClient* source = request.getStreamPtr();
 
+    if (source == nullptr) {
+        request.end();
+        noteSnapshotRequestFailure(statusCode);
+        sendSnapshotError(502, "camera_stream_unavailable");
+        return;
+    }
+
+    uint8_t prefix[2] = {0, 0};
+    size_t prefixLength = 0;
+    unsigned long lastDataAtMs = millis();
+
+    while (prefixLength < sizeof(prefix)) {
+        const size_t availableBytes = source->available();
+
+        if (availableBytes > 0) {
+            const int value = source->read();
+
+            if (value < 0) {
+                break;
+            }
+
+            prefix[prefixLength++] = static_cast<uint8_t>(value);
+            lastDataAtMs = millis();
+            continue;
+        }
+
+        if (
+            !source->connected() ||
+            millis() - lastDataAtMs >= SNAPSHOT_HTTP_TIMEOUT_MS
+        ) {
+            break;
+        }
+
+        updateCameraAlertLed();
+        delay(1);
+    }
+
     if (
-        source == nullptr ||
-        (!source->connected() && source->available() == 0)
+        prefixLength != sizeof(prefix) ||
+        prefix[0] != 0xFF ||
+        prefix[1] != 0xD8
     ) {
         request.end();
-        invalidateSnapshotTarget();
-        sendSnapshotError(502, "camera_stream_unavailable");
+        noteSnapshotRequestFailure(statusCode);
+        lastSnapshotResult = "Resposta da camera nao e um JPEG valido";
+        sendSnapshotError(502, "invalid_jpeg_header");
         return;
     }
 
     httpServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     httpServer.sendHeader("Pragma", "no-cache");
     httpServer.sendHeader("X-Content-Type-Options", "nosniff");
-    httpServer.setContentLength(static_cast<size_t>(contentLength));
+
+    if (contentLength > 0) {
+        httpServer.setContentLength(static_cast<size_t>(contentLength));
+    } else {
+        httpServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    }
+
     httpServer.send(200, "image/jpeg", "");
+    httpServer.sendContent(
+        reinterpret_cast<const char*>(prefix),
+        sizeof(prefix)
+    );
 
     WiFiClient browserClient = httpServer.client();
     uint8_t relayBuffer[SNAPSHOT_RELAY_BUFFER_SIZE];
-    size_t remaining = static_cast<size_t>(contentLength);
-    unsigned long lastDataAtMs = millis();
+    size_t bytesRelayed = sizeof(prefix);
+    uint8_t previousByte = prefix[1];
+    size_t jpegEndOffset = 0;
+    bool browserDisconnected = false;
+    lastDataAtMs = millis();
 
-    while (remaining > 0 && browserClient.connected()) {
+    while (bytesRelayed < MAX_SNAPSHOT_SIZE_BYTES) {
         updateCameraAlertLed();
+
+        if (!browserClient.connected()) {
+            browserDisconnected = true;
+            break;
+        }
+
         const size_t availableBytes = source->available();
 
         if (availableBytes > 0) {
-            const size_t bytesToRead = min(
-                remaining,
-                min(availableBytes, sizeof(relayBuffer))
-            );
+            size_t bytesToRead = min(availableBytes, sizeof(relayBuffer));
+
+            if (contentLength > 0) {
+                const size_t remaining =
+                    static_cast<size_t>(contentLength) - bytesRelayed;
+                bytesToRead = min(bytesToRead, remaining);
+            } else {
+                bytesToRead = min(
+                    bytesToRead,
+                    MAX_SNAPSHOT_SIZE_BYTES - bytesRelayed
+                );
+            }
+
+            if (bytesToRead == 0) {
+                break;
+            }
+
             const size_t bytesRead = source->readBytes(
                 relayBuffer,
                 bytesToRead
@@ -2013,12 +3171,34 @@ void serveCameraSnapshot()
                 break;
             }
 
+            for (size_t index = 0; index < bytesRead; index++) {
+                const uint8_t value = relayBuffer[index];
+
+                if (previousByte == 0xFF && value == 0xD9) {
+                    jpegEndOffset = bytesRelayed + index + 1;
+                }
+
+                previousByte = value;
+            }
+
             httpServer.sendContent(
                 reinterpret_cast<const char*>(relayBuffer),
                 bytesRead
             );
-            remaining -= bytesRead;
+            bytesRelayed += bytesRead;
             lastDataAtMs = millis();
+
+            if (
+                contentLength > 0 &&
+                bytesRelayed >= static_cast<size_t>(contentLength)
+            ) {
+                break;
+            }
+
+            if (contentLength < 0 && jpegEndOffset > 0) {
+                break;
+            }
+
             continue;
         }
 
@@ -2034,14 +3214,41 @@ void serveCameraSnapshot()
 
     request.end();
 
-    if (remaining == 0) {
+    // Finaliza corretamente uma resposta HTTP em chunks quando a câmera não
+    // informou Content-Length.
+    if (contentLength < 0 && browserClient.connected()) {
+        httpServer.sendContent("");
+    }
+
+    const bool completeLength =
+        contentLength < 0 ||
+        bytesRelayed == static_cast<size_t>(contentLength);
+    const bool jpegEndNearTail =
+        jpegEndOffset > 0 &&
+        bytesRelayed >= jpegEndOffset &&
+        bytesRelayed - jpegEndOffset <= 16;
+    const bool validTransfer =
+        !browserDisconnected &&
+        completeLength &&
+        jpegEndNearTail &&
+        bytesRelayed >= MIN_VALID_SNAPSHOT_SIZE_BYTES;
+
+    if (validTransfer) {
         snapshotsServed++;
+        snapshotTargetFailureStreak = 0;
         lastSnapshotResult =
-            currentTimestamp() + " - quadro entregue; perfil " +
+            currentTimestamp() + " - quadro entregue; " +
+            String(bytesRelayed) + " bytes; perfil " +
             snapshotTarget.profileName;
     } else {
         snapshotErrors++;
-        lastSnapshotResult = "Transferencia do snapshot interrompida";
+
+        if (browserDisconnected) {
+            lastSnapshotResult = "Navegador encerrou a transferencia do snapshot";
+        } else {
+            noteSnapshotRequestFailure(statusCode);
+            lastSnapshotResult = "Transferencia do snapshot JPEG incompleta";
+        }
     }
 }
 
@@ -2236,9 +3443,11 @@ bool scanSubnetForCamera()
     return false;
 }
 
-bool cameraResponded()
+bool cameraControlResponded()
 {
     if (!camera.valid) {
+        lastOnvifProbe = ServiceProbe{};
+        lastRtspProbe = ServiceProbe{};
         return false;
     }
 
@@ -2246,7 +3455,9 @@ bool cameraResponded()
     httpServer.handleClient();
     lastRtspProbe = probeRtsp(camera.ip, camera.rtspPort);
 
-    return lastOnvifProbe.tcpConnected || lastRtspProbe.tcpConnected;
+    return
+        lastOnvifProbe.protocolResponded ||
+        lastRtspProbe.protocolResponded;
 }
 
 void runHealthCheck()
@@ -2254,9 +3465,15 @@ void runHealthCheck()
     lastHealthCheckAtMs = millis();
     totalHealthChecks++;
 
+    if (
+        cameraRebootGraceStartedAtMs != 0 &&
+        !cameraRebootGraceActive()
+    ) {
+        cameraRebootGraceStartedAtMs = 0;
+    }
+
     if (WiFi.status() != WL_CONNECTED) {
         failedHealthChecks++;
-        consecutiveFailures++;
         consecutiveSuccesses = 0;
         setState(CameraState::Degraded, "ESP32 perdeu a conexao Wi-Fi");
         return;
@@ -2266,30 +3483,29 @@ void runHealthCheck()
         discoverOnvifCamera();
     }
 
-    bool online = cameraResponded();
-
-    if (!online && cameraState != CameraState::Offline) {
-        setState(
-            CameraState::Degraded,
-            "Camera nao respondeu; tentando recuperar"
-        );
-        updateCameraAlertLed();
-    }
+    bool controlAvailable = cameraControlResponded();
+    const uint8_t nextControlFailure =
+        consecutiveControlFailures < 255
+            ? consecutiveControlFailures + 1
+            : consecutiveControlFailures;
 
     if (
-        !online &&
-        consecutiveFailures + 1 >= FAILURES_BEFORE_REDISCOVERY &&
+        !controlAvailable &&
+        !cameraRebootGraceActive() &&
+        nextControlFailure >= FAILURES_BEFORE_REDISCOVERY &&
         millis() - lastRediscoveryAtMs >= REDISCOVERY_INTERVAL_MS
     ) {
         const bool rediscovered = discoverOnvifCamera();
 
         if (rediscovered) {
-            online = cameraResponded();
+            controlAvailable = cameraControlResponded();
         }
     }
 
     if (
-        !online &&
+        !controlAvailable &&
+        !cameraRebootGraceActive() &&
+        nextControlFailure >= FAILURES_BEFORE_OFFLINE &&
         ENABLE_AUTOMATIC_SUBNET_SCAN &&
         (
             lastSubnetScanAtMs == 0 ||
@@ -2299,18 +3515,30 @@ void runHealthCheck()
         const bool foundByScan = scanSubnetForCamera();
 
         if (foundByScan) {
-            online = cameraResponded();
+            controlAvailable = cameraControlResponded();
         }
     }
 
-    if (online) {
+    const bool videoAvailable = probeCameraSnapshotJpeg();
+
+    if (videoAvailable) {
         successfulHealthChecks++;
         consecutiveFailures = 0;
-        consecutiveSuccesses++;
+        consecutiveControlFailures = 0;
+
+        if (consecutiveSuccesses < 255) {
+            consecutiveSuccesses++;
+        }
+
+        cameraRebootGraceStartedAtMs = 0;
 
         Serial.printf(
-            "CAMERA OK: %s | ONVIF tcp=%d http=%d code=%d | RTSP tcp=%d protocolo=%d code=%d\n",
+            "CAMERA OK: %s | JPEG=%u bytes %lums | "
+            "ONVIF tcp=%d http=%d code=%d | "
+            "RTSP tcp=%d protocolo=%d code=%d\n",
             camera.ip.toString().c_str(),
+            static_cast<unsigned>(lastSnapshotProbe.bytesRead),
+            static_cast<unsigned long>(lastSnapshotProbe.latencyMs),
             lastOnvifProbe.tcpConnected,
             lastOnvifProbe.protocolResponded,
             lastOnvifProbe.statusCode,
@@ -2320,52 +3548,119 @@ void runHealthCheck()
         );
 
         if (
-            cameraState == CameraState::Offline &&
-            consecutiveSuccesses >= SUCCESSES_BEFORE_RECOVERY
+            activeIncident != IncidentKind::None &&
+            consecutiveSuccesses < SUCCESSES_BEFORE_RECOVERY
         ) {
-            setState(CameraState::Online, "Camera recuperada");
-
-            if (offlineAlertSent) {
-                pendingRecoveryEmail = true;
-            }
-
-            offlineAlertSent = false;
-        } else if (cameraState != CameraState::Offline) {
-            setState(CameraState::Online, "Camera respondeu ao teste");
+            setState(
+                CameraState::Degraded,
+                "Imagem retornou; confirmando estabilidade"
+            );
+            return;
         }
 
+        const bool recovered = activeIncident != IncidentKind::None;
+        resolveActiveIncident();
+        setState(
+            CameraState::Online,
+            recovered
+                ? "Camera recuperada e JPEG validado"
+                : "Camera e canal de imagem responderam ao teste"
+        );
         return;
     }
 
     failedHealthChecks++;
     consecutiveSuccesses = 0;
 
+    if (cameraRebootGraceActive()) {
+        setState(
+            CameraState::Recovering,
+            String("Aguardando reinicializacao da camera; faltam cerca de ") +
+                String(cameraRebootGraceRemainingMs() / 1000UL) + "s"
+        );
+        return;
+    }
+
     if (consecutiveFailures < 255) {
         consecutiveFailures++;
     }
 
+    if (controlAvailable) {
+        consecutiveControlFailures = 0;
+        beginOrEscalateIncident(IncidentKind::VideoUnavailable);
+
+        Serial.printf(
+            "VIDEO FALHOU: tentativas=%u | IP=%s | HTTP=%d | %s\n",
+            consecutiveFailures,
+            camera.valid ? camera.ip.toString().c_str() : "desconhecido",
+            lastSnapshotProbe.statusCode,
+            lastSnapshotProbe.detail.c_str()
+        );
+
+        if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_ALERT) {
+            queueIncidentAlert();
+        }
+
+        if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_REBOOT) {
+            const bool rebootEligible =
+                lastOnvifProbe.protocolResponded &&
+                snapshotFailureAllowsAutomaticReboot();
+
+            if (rebootEligible && requestCameraRebootOnvif()) {
+                return;
+            }
+
+            if (ENABLE_ONVIF_AUTO_REBOOT && !rebootEligible) {
+                lastCameraRebootResult = currentTimestamp() +
+                    " - nao solicitado: ";
+
+                if (!lastOnvifProbe.protocolResponded) {
+                    lastCameraRebootResult +=
+                        "servico ONVIF sem resposta para receber SystemReboot";
+                } else {
+                    lastCameraRebootResult +=
+                        "a falha indica autenticacao, recurso nao suportado ou configuracao";
+                }
+            }
+        }
+
+        setState(
+            CameraState::Degraded,
+            String("Camera responde, mas a imagem falhou: ") +
+                lastSnapshotProbe.detail
+        );
+        return;
+    }
+
+    if (consecutiveControlFailures < 255) {
+        consecutiveControlFailures++;
+    }
+
+    beginOrEscalateIncident(IncidentKind::CameraOffline);
+
     Serial.printf(
-        "CAMERA FALHOU: tentativas consecutivas=%u | IP=%s\n",
+        "CAMERA SEM CONTROLE E SEM IMAGEM: video=%u controle=%u | IP=%s\n",
         consecutiveFailures,
+        consecutiveControlFailures,
         camera.valid ? camera.ip.toString().c_str() : "desconhecido"
     );
 
-    if (consecutiveFailures < FAILURES_BEFORE_OFFLINE) {
-        setState(CameraState::Degraded, "Camera nao respondeu; confirmando falha");
+    if (
+        consecutiveControlFailures < FAILURES_BEFORE_OFFLINE ||
+        millis() - bootAtMs < STARTUP_GRACE_MS
+    ) {
+        setState(
+            CameraState::Degraded,
+            "Camera nao respondeu; confirmando indisponibilidade"
+        );
         return;
     }
 
-    if (millis() - bootAtMs < STARTUP_GRACE_MS) {
-        setState(CameraState::Degraded, "Falha dentro do periodo de tolerancia inicial");
-        return;
-    }
-
-    if (cameraState != CameraState::Offline) {
-        offlineStartedAtMs = millis();
-        offlineAlertSent = false;
-        pendingOfflineEmail = true;
-        setState(CameraState::Offline, "Camera confirmada como indisponivel");
-    }
+    queueIncidentAlert();
+    setState(
+        CameraState::Offline,
+        "Camera confirmada como indisponivel e sem imagem"
+    );
 }
 
 String buildStatusJson()
@@ -2378,26 +3673,23 @@ String buildStatusJson()
     const uint32_t psramFreeBytes = ESP.getFreePsram();
     const uint32_t psramMinimumFreeBytes = ESP.getMinFreePsram();
     const uint32_t psramLargestBlockBytes = ESP.getMaxAllocPsram();
+    const unsigned long now = millis();
 
     String json;
-    json.reserve(2800);
+    json.reserve(4600);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
     json += FIRMWARE_VERSION;
-    json += "\",";
-    json += "\"state\":\"";
+    json += "\",\"state\":\"";
     json += stateName(cameraState);
-    json += "\",";
-    json += "\"lastEvent\":\"";
+    json += "\",\"lastEvent\":\"";
     json += jsonEscape(lastEvent);
-    json += "\",";
-    json += "\"uptimeSeconds\":";
-    json += millis() / 1000UL;
-    json += ",";
-    json += "\"stateSinceSeconds\":";
-    json += (millis() - lastStateChangeAtMs) / 1000UL;
-    json += ",";
+    json += "\",\"uptimeSeconds\":";
+    json += now / 1000UL;
+    json += ",\"stateSinceSeconds\":";
+    json += (now - lastStateChangeAtMs) / 1000UL;
+    json += ',';
 
     json += "\"resources\":{";
     json += "\"heap\":{";
@@ -2409,8 +3701,7 @@ String buildStatusJson()
     json += heapMinimumFreeBytes;
     json += ",\"largestBlockBytes\":";
     json += heapLargestBlockBytes;
-    json += "},";
-    json += "\"psram\":{";
+    json += "},\"psram\":{";
     json += "\"totalBytes\":";
     json += psramTotalBytes;
     json += ",\"freeBytes\":";
@@ -2419,16 +3710,22 @@ String buildStatusJson()
     json += psramMinimumFreeBytes;
     json += ",\"largestBlockBytes\":";
     json += psramLargestBlockBytes;
-    json += "},";
-    json += "\"flash\":{";
+    json += "},\"flash\":{";
     json += "\"chipBytes\":";
     json += ESP.getFlashChipSize();
     json += ",\"sketchBytes\":";
     json += ESP.getSketchSize();
     json += ",\"freeSketchBytes\":";
-    json += ESP.getFreeSketchSpace();
-    json += "},";
-    json += "\"chip\":{";
+    // getFreeSketchSpace() reflete o slot OTA seguinte, que nao existe neste
+    // esquema de particoes (somente "factory"), entao calculamos o espaco
+    // livre real dentro da propria particao do app em execucao.
+    {
+        const esp_partition_t *runningPartition = esp_ota_get_running_partition();
+        const uint32_t partitionBytes = runningPartition ? runningPartition->size : 0;
+        const uint32_t sketchBytes = ESP.getSketchSize();
+        json += (partitionBytes > sketchBytes) ? (partitionBytes - sketchBytes) : 0;
+    }
+    json += "},\"chip\":{";
     json += "\"model\":\"";
     json += ESP.getChipModel();
     json += "\",\"revision\":";
@@ -2510,14 +3807,76 @@ String buildStatusJson()
     json += "\"snapshot\":{";
     json += "\"ready\":";
     json += snapshotTarget.valid ? "true" : "false";
+    json += ",\"attempted\":";
+    json += lastSnapshotProbe.attempted ? "true" : "false";
+    json += ",\"targetResolved\":";
+    json += lastSnapshotProbe.targetResolved ? "true" : "false";
+    json += ",\"healthy\":";
+    json += lastSnapshotProbe.jpegValid ? "true" : "false";
+    json += ",\"httpResponded\":";
+    json += lastSnapshotProbe.httpResponded ? "true" : "false";
+    json += ",\"status\":";
+    json += lastSnapshotProbe.statusCode;
+    json += ",\"latencyMs\":";
+    json += lastSnapshotProbe.latencyMs;
+    json += ",\"bytesRead\":";
+    json += static_cast<unsigned long>(lastSnapshotProbe.bytesRead);
     json += ",\"profile\":\"";
     json += jsonEscape(snapshotTarget.profileName);
+    json += "\",\"detail\":\"";
+    json += jsonEscape(lastSnapshotProbe.detail);
     json += "\",\"served\":";
     json += snapshotsServed;
     json += ",\"errors\":";
     json += snapshotErrors;
+    json += ",\"probeRuns\":";
+    json += snapshotProbeRuns;
+    json += ",\"probeFailures\":";
+    json += snapshotProbeFailures;
     json += ",\"lastResult\":\"";
     json += jsonEscape(lastSnapshotResult);
+    json += "\"},";
+
+    json += "\"incident\":{";
+    json += "\"kind\":\"";
+    json += incidentName(activeIncident);
+    json += "\",\"active\":";
+    json += activeIncident != IncidentKind::None ? "true" : "false";
+    json += ",\"alertSent\":";
+    json += incidentAlertSent ? "true" : "false";
+    json += ",\"pendingAlert\":";
+    json += pendingIncidentEmail ? "true" : "false";
+    json += ",\"durationSeconds\":";
+    json += incidentStartedAtMs == 0
+        ? 0UL
+        : (now - incidentStartedAtMs) / 1000UL;
+    json += "},";
+
+    json += "\"recovery\":{";
+    json += "\"autoRebootEnabled\":";
+    json += ENABLE_ONVIF_AUTO_REBOOT ? "true" : "false";
+    json += ",\"credentialsConfigured\":";
+    json += cameraCredentialsConfigured() ? "true" : "false";
+    json += ",\"graceActive\":";
+    json += cameraRebootGraceActive() ? "true" : "false";
+    json += ",\"graceRemainingSeconds\":";
+    json += cameraRebootGraceRemainingMs() / 1000UL;
+    json += ",\"attempts\":";
+    json += cameraRebootAttempts;
+    json += ",\"accepted\":";
+    json += cameraRebootAccepted;
+    json += ",\"errors\":";
+    json += cameraRebootErrors;
+    json += ",\"attemptsInWindow\":";
+    json += cameraRebootAttemptsInWindow;
+    json += ",\"maxAttemptsInWindow\":";
+    json += MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW;
+    json += ",\"lastAttemptAgeSeconds\":";
+    json += lastCameraRebootAttemptAtMs == 0
+        ? 0UL
+        : (now - lastCameraRebootAttemptAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(lastCameraRebootResult);
     json += "\"},";
 
     json += "\"counters\":{";
@@ -2529,6 +3888,10 @@ String buildStatusJson()
     json += failedHealthChecks;
     json += ",\"consecutiveFailures\":";
     json += consecutiveFailures;
+    json += ",\"consecutiveImageFailures\":";
+    json += consecutiveFailures;
+    json += ",\"consecutiveControlFailures\":";
+    json += consecutiveControlFailures;
     json += ",\"consecutiveSuccesses\":";
     json += consecutiveSuccesses;
     json += ",\"discoveryRuns\":";
@@ -2640,8 +4003,8 @@ void processPendingEmails()
         return;
     }
 
-    if (pendingOfflineEmail) {
-        sendOfflineAlert();
+    if (pendingIncidentEmail) {
+        sendIncidentAlert();
         return;
     }
 

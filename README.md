@@ -1,191 +1,94 @@
-# ESP32 Camera Watchdog
+# ESP32 Camera Watchdog — firmware 0.4.0
 
-Firmware para uma ESP32 clássica monitorar uma câmera Wi-Fi ONVIF/RTSP e enviar alertas diretamente pelo Resend.
+Esta atualização corrige o falso estado **online** causado por portas TCP abertas sem vídeo. O watchdog agora baixa e valida periodicamente um JPEG real da câmera, diferencia falha de imagem de indisponibilidade total e pode solicitar uma reinicialização ONVIF automática.
 
-## O que esta versão faz
+## Arquivos para substituir
 
-- conecta a ESP32 ao Wi-Fi 2,4 GHz;
-- tenta localizar a câmera por ONVIF WS-Discovery;
-- mantém o último endpoint ONVIF salvo na NVS;
-- verifica a porta/serviço ONVIF;
-- verifica a porta/serviço RTSP;
-- redescobre a câmera caso o IP mude;
-- possui varredura opcional da sub-rede como fallback;
-- classifica o estado como `online`, `degraded` ou `offline`;
-- envia um e-mail quando a falha é confirmada;
-- envia outro e-mail quando a câmera volta;
-- pode avisar quando o IP da câmera muda;
-- oferece uma prévia JPEG ao vivo sem enviar as credenciais da câmera ao navegador;
-- pisca o LED integrado enquanto a câmera não está confirmada como online;
-- oferece painel web local somente para consulta, organizado como SPA nas abas
-  `Câmera`, `Prévia` e `Recursos`;
-- acompanha heap, firmware, flash, PSRAM, Wi-Fi e características do chip na
-  aba `Recursos`.
+Copie os arquivos desta pasta sobre o projeto atual:
 
-Esta versão não reinicia a câmera por ONVIF. O `SystemReboot` exige autenticação compatível com o firmware específico da câmera e será uma evolução separada.
-
-## 1. Configuração
-
-Edite `include/secrets.h`:
-
-```cpp
-constexpr char WIFI_SSID[] = "SUA_REDE_2.4G";
-constexpr char WIFI_PASSWORD[] = "SUA_SENHA";
-constexpr char RESEND_API_KEY[] = "re_xxxxxxxxx";
-constexpr char RESEND_FROM[] =
-    "Camera Watchdog <alertas@notify.seudominio.com>";
-constexpr char ALERT_EMAIL[] = "voce@exemplo.com";
+```text
+src/main.cpp
+include/app_config.h
+include/dashboard_page.h
+include/secrets.example.h
+platformio.ini
 ```
 
-No Resend, o domínio usado em `RESEND_FROM` precisa estar verificado.
+Mantenha o seu arquivo `include/secrets.h`; não o substitua pelo exemplo, pois ele contém as suas credenciais de Wi-Fi e Resend.
 
-Edite `include/app_config.h` quando necessário:
+O `platformio.ini` continua referenciando `partitions.csv`. Preserve o arquivo `partitions.csv` que já existe no seu projeto.
+
+## Credenciais ONVIF
+
+O firmware continua compilando mesmo que o seu `secrets.h` antigo não contenha credenciais da câmera. Para permitir snapshots autenticados e o comando `SystemReboot`, acrescente ao `include/secrets.h`:
 
 ```cpp
-constexpr char CAMERA_NAME[] = "Camera da garagem";
-constexpr char CAMERA_MATCH[] = "";
-constexpr char CAMERA_IP_HINT[] = "";
-constexpr char CAMERA_SNAPSHOT_PROFILE_MATCH[] = "sub";
-constexpr uint8_t CAMERA_ALERT_LED_PIN = 2;
-constexpr unsigned long CAMERA_ALERT_LED_BLINK_INTERVAL_MS = 1000UL;
-#define RELEASE_BLUETOOTH_MEMORY 1
+#define CAMERA_ONVIF_USERNAME_VALUE "admin"
+#define CAMERA_ONVIF_PASSWORD_VALUE "senha-da-camera"
 ```
 
-`CAMERA_MATCH` pode conter parte do UUID, Scope ou XAddr exibido no monitor serial. Ele é útil quando existe mais de uma câmera ONVIF na rede.
+Use o usuário administrador configurado para ONVIF na câmera. Ele pode ser diferente da conta usada no aplicativo iCSee.
 
-O LED integrado pisca sem usar `delay()` enquanto o estado for `starting`,
-`discovering`, `degraded` ou `offline`. Ele é apagado somente no estado
-`online`. Depois de uma indisponibilidade confirmada, isso exige duas respostas
-consecutivas da câmera, seguindo a mesma regra usada pelo alerta de recuperação.
+O cliente tenta, conforme a resposta da câmera:
 
-Com `RELEASE_BLUETOOTH_MEMORY` ativo, o firmware devolve ao heap, antes de
-inicializar o Wi-Fi, a memória reservada para Bluetooth Classic e BLE. Essa
-liberação vale até o próximo reinício e impede o uso de Bluetooth durante o
-mesmo ciclo de execução. Desative a opção se Bluetooth for necessário no
-futuro. A quantidade efetivamente recuperada fica disponível no diagnóstico
-JSON do painel em `bluetoothMemory`.
+- WS-Security UsernameToken com `PasswordDigest` nas mensagens SOAP;
+- HTTP Basic;
+- HTTP Digest com algoritmo MD5 e `qop=auth`.
 
-Na placa testada com Arduino-ESP32 2.0.17, o core já liberava 36.680 bytes do
-controlador antes de `setup()`. A chamada completa liberou 40.692 bytes no
-boot, portanto o ganho líquido medido com o watchdog em execução foi de cerca
-de 4 KB. Esses valores podem mudar com a versão do core e sua configuração.
+As credenciais não são devolvidas pela API local nem exibidas no painel.
 
-## 2. Compilar
+## Comportamento padrão
 
-No PowerShell, dentro da pasta do projeto:
+- Teste completo de ONVIF, RTSP e JPEG a cada 30 segundos.
+- Um teste de imagem somente passa quando recebe um JPEG com início `FF D8`, final `FF D9` e tamanho mínimo válido.
+- Uma porta TCP aberta, sozinha, não classifica mais a câmera como online.
+- Após três falhas consecutivas de imagem, o firmware gera o alerta e tenta `ONVIF SystemReboot` quando o serviço ONVIF está respondendo e a falha aparenta ser operacional.
+- Erros claros de autenticação, recurso não suportado ou configuração não disparam reboot automático.
+- Depois de um reboot aceito, aguarda 90 segundos antes de considerar nova falha.
+- Há cooldown de 15 minutos entre reinicializações.
+- O limite é de três tentativas por janela de 24 horas de uptime do ESP32.
+- A prévia web solicita um quadro aproximadamente a cada 2,5 segundos, em vez de pressionar continuamente o encoder da câmera.
+- Quando um quadro falha, a imagem anterior é ocultada para não parecer que a prévia continua atualizada.
 
-```powershell
+Todos esses valores podem ser alterados em `include/app_config.h`.
+
+## Estados exibidos
+
+- `Online`: um JPEG completo foi validado.
+- `Instável`: a câmera está sendo confirmada, ou responde ao controle mas não entrega imagem.
+- `Recuperando`: o comando ONVIF de reinicialização foi aceito e o ESP32 está aguardando o boot da câmera.
+- `Offline`: imagem, ONVIF e RTSP permaneceram indisponíveis após as confirmações configuradas.
+
+O painel agora mostra o resultado do último teste JPEG, bytes recebidos, latência, falhas consecutivas e histórico da recuperação automática.
+
+## Compilar e enviar
+
+No terminal do projeto:
+
+```bash
 pio run
+pio run --target upload
+pio device monitor
 ```
 
-## 3. Gravar na ESP32
+No VS Code também é possível usar os comandos **PlatformIO: Build**, **Upload** e **Monitor**.
 
-```powershell
-pio run --target upload --upload-port COM5
-```
-
-Troque `COM5` quando o Windows atribuir outra porta.
-
-## 4. Abrir o monitor serial
-
-```powershell
-pio device monitor --port COM5 --baud 115200
-```
-
-## 5. Abrir o painel
-
-O monitor informa o endereço recebido por DHCP, por exemplo:
+As mensagens principais do monitor serial são:
 
 ```text
-Painel: http://192.168.1.15
-Painel mDNS: http://camera-watchdog.local
+CAMERA OK: ... JPEG=... bytes
+VIDEO FALHOU: ...
+SystemReboot aceito
+SystemReboot rejeitado
+CAMERA SEM CONTROLE E SEM IMAGEM: ...
 ```
 
-O painel é uma SPA somente para consulta. As abas `Câmera`, `Prévia` e
-`Recursos` ficam disponíveis no cabeçalho e são alternadas sem recarregar a
-página.
+## Limitações
 
-Na aba `Prévia`, o ESP32 apresenta a imagem ao vivo. Ele consulta os perfis de
-mídia e o endereço de snapshot por ONVIF, mantém o endereço completo somente
-na RAM e repassa cada JPEG ao navegador. Usuário e senha eventualmente
-retornados pela câmera não são incluídos no HTML nem na API de status. As abas
-`Câmera` e `Recursos` não solicitam imagens da câmera.
+`SystemReboot` depende da implementação ONVIF da câmera e normalmente exige usuário administrador. Alguns firmwares baratos implementam consulta ONVIF, mas não implementam reinicialização remota.
 
-A aba `Recursos` acompanha o heap atual, o menor heap desde o boot, o maior
-bloco alocável, uma estimativa de fragmentação, o tamanho do firmware, o espaço
-livre na partição da aplicação, a flash física, a PSRAM e o Wi-Fi. Ela também
-mostra modelo, revisão, núcleos e frequência do chip. O histórico de heap e
-sinal Wi-Fi mantém até três minutos apenas na sessão atual do navegador e não
-grava dados no ESP32.
+Quando o serviço ONVIF também trava, nenhum comando de rede consegue recuperar o equipamento. Nesse cenário, o fallback efetivo continua sendo um power-cycle por relé ou MOSFET, com o ESP32 alimentado separadamente da câmera. Esse controle elétrico não foi incluído nesta versão porque depende da tensão, corrente, fonte e circuito usados na instalação.
 
-`CAMERA_SNAPSHOT_PROFILE_MATCH` seleciona preferencialmente um perfil cujo
-nome contenha o trecho configurado. O perfil secundário costuma reduzir o uso
-de rede e a latência. Se não houver correspondência, o primeiro perfil ONVIF é
-usado.
+## Validação realizada
 
-A prévia é atualizada quadro a quadro somente enquanto sua própria aba está
-ativa. Ao trocar de página da SPA ou ocultar a aba do navegador, o carregamento
-de novos quadros é interrompido. Ela não decodifica H.264/H.265, não possui
-áudio e não substitui um player RTSP, WebRTC ou um NVR.
-
-## Como a falha é confirmada
-
-A cada 10 segundos o firmware testa ONVIF e RTSP. Por padrão:
-
-- após três falhas, tenta redescobrir a câmera;
-- após seis falhas, considera a câmera offline;
-- envia somente um alerta de falha;
-- exige dois testes bem-sucedidos para declarar recuperação;
-- envia somente um alerta de recuperação.
-
-Os valores ficam em `include/app_config.h`.
-
-## Descoberta e varredura
-
-O WS-Discovery usa multicast ONVIF. Alguns repetidores bloqueiam multicast. Nesse caso, a varredura fallback procura uma máquina com:
-
-1. porta RTSP 554 aberta;
-2. uma das portas ONVIF configuradas aberta.
-
-A varredura automática é limitada a 254 hosts e não roda continuamente. Ela pode levar dezenas de segundos.
-
-## Resend e TLS
-
-Para facilitar o protótipo, o código usa `WiFiClientSecure::setInsecure()`. O tráfego continua criptografado, mas o certificado do servidor não é validado. Não use essa configuração em um produto comercial.
-
-## Observação sobre o firmware MicroDNS anterior
-
-Este firmware não executa servidor DNS. Antes de gravá-lo, restaure o DNS do Windows caso o computador ainda esteja usando a ESP32 como DNS:
-
-```powershell
-Set-DnsClientServerAddress `
-    -InterfaceAlias "Wi-Fi" `
-    -ResetServerAddresses
-
-Clear-DnsClientCache
-```
-
-## Diagnóstico inicial
-
-Uma câmera saudável pode responder assim:
-
-```text
-CAMERA OK: 192.168.1.50 | ONVIF tcp=1 http=1 code=401 | RTSP tcp=1 protocolo=1 code=200
-```
-
-HTTP `401` no teste ONVIF não significa falha: significa que o serviço está acessível e exigiu autenticação.
-
-## Limitações do MVP
-
-- IPv4 apenas;
-- ONVIF HTTPS local não é monitorado;
-- não autentica no ONVIF;
-- não decodifica nem valida o fluxo RTSP completo;
-- a prévia depende de a câmera permitir `GetProfiles` e `GetSnapshotUri` por
-  ONVIF com a autenticação atualmente suportada;
-- a prévia JPEG não possui a fluidez de um stream WebRTC/HLS;
-- não reinicia a câmera;
-- a varredura TCP pode selecionar outro servidor RTSP se houver mais de um na rede;
-- o painel não possui autenticação; qualquer pessoa na rede local que acesse o
-  ESP32 também pode visualizar a prévia;
-- a chave do Resend fica no firmware conforme a escolha deste protótipo pessoal.
+Os arquivos foram verificados com análise sintática C++11 usando interfaces equivalentes às APIs do Arduino-ESP32, conferência das APIs usadas no core 2.0.17, verificação sintática do JavaScript do painel e checagem de integridade dos arquivos do pacote. A compilação final e o teste do comando ONVIF precisam ser feitos na sua placa e na sua câmera, pois dependem do firmware específico do equipamento.

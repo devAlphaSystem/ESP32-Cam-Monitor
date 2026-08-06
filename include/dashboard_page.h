@@ -100,7 +100,8 @@ cursor:pointer;backdrop-filter:blur(5px);transition:.16s ease}
 body.fs-locked{overflow:hidden}
 
 /* metricas */
-.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 0}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 0}
+.grid.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;box-shadow:var(--shadow)}
 .card-h{display:flex;align-items:center;gap:7px;color:var(--dim);font-size:11.5px;
 font-weight:650;letter-spacing:.07em;text-transform:uppercase}
@@ -161,7 +162,7 @@ pre{margin:0;padding:0 16px 16px;white-space:pre-wrap;overflow-wrap:anywhere;
 font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--muted)}
 footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim)}
 
-@media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1180px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){
 main{padding:14px 12px 36px}
 .top-tools{width:100%;justify-content:space-between}
@@ -170,6 +171,7 @@ main{padding:14px 12px 36px}
 .hero-name{font-size:23px}
 .gauge{width:96px;height:96px;margin:0}
 .grid{grid-template-columns:1fr;gap:10px}
+.grid.grid-3{grid-template-columns:1fr}
 .row dt{flex:1 1 100%}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -221,6 +223,11 @@ main{padding:14px 12px 36px}
     <div class="card-m" id="m-rtsp">—</div>
   </article>
   <article class="card">
+    <div class="card-h">Imagem JPEG<i class="pip" id="p-image"></i></div>
+    <div class="card-v" id="v-image">—</div>
+    <div class="card-m" id="m-image">—</div>
+  </article>
+  <article class="card">
     <div class="card-h">Verificações</div>
     <div class="card-v" id="v-checks">—</div>
     <div class="card-m" id="m-checks">—</div>
@@ -232,6 +239,8 @@ main{padding:14px 12px 36px}
   <dl class="log">
     <div class="row"><dt>Último evento</dt><dd id="l-event">—</dd></div>
     <div class="row"><dt>Endpoint ONVIF</dt><dd id="l-url">—</dd></div>
+    <div class="row"><dt>Último JPEG</dt><dd id="l-image">—</dd></div>
+    <div class="row"><dt>Recuperação automática</dt><dd id="l-reboot">—</dd></div>
     <div class="row"><dt>Descoberta ONVIF</dt><dd id="l-disc">—</dd></div>
     <div class="row"><dt>Varredura de rede</dt><dd id="l-scan">—</dd></div>
     <div class="row"><dt>Envio de e-mail</dt><dd id="l-mail">—</dd></div>
@@ -277,7 +286,7 @@ main{padding:14px 12px 36px}
     </div>
   </section>
 
-  <div class="grid">
+  <div class="grid grid-3">
     <article class="card">
       <div class="card-h">Heap livre<i class="pip" id="p-rheap"></i></div>
       <div class="card-v" id="r-heap">—</div>
@@ -340,6 +349,7 @@ const $ = id => document.getElementById(id);
 const PALETTE = {
   online:    ['Online',      'var(--ok)',   'rgba(52,211,153,.13)', 'rgba(52,211,153,.28)'],
   degraded:  ['Instável',    'var(--warn)', 'rgba(251,191,36,.13)', 'rgba(251,191,36,.28)'],
+  recovering:['Recuperando', 'var(--info)', 'rgba(96,165,250,.13)', 'rgba(96,165,250,.28)'],
   offline:   ['Offline',     'var(--bad)',  'rgba(248,113,113,.13)','rgba(248,113,113,.28)'],
   discovering:['Procurando', 'var(--info)', 'rgba(96,165,250,.13)', 'rgba(96,165,250,.28)'],
   starting:  ['Iniciando',   'var(--info)', 'rgba(96,165,250,.13)', 'rgba(96,165,250,.28)']
@@ -481,14 +491,49 @@ function setProbe(prefix, tcp, spoke, code, latency, protocol) {
   }
 }
 
+function setImageProbe(snapshot, recovery) {
+  const value = $('v-image'), meta = $('m-image');
+
+  if (recovery && recovery.graceActive) {
+    value.textContent = 'reiniciando';
+    value.className = 'card-v warn';
+    pip('p-image', 'warn');
+    meta.textContent = 'aguardando a câmera por mais ' + duration(recovery.graceRemainingSeconds);
+    return;
+  }
+
+  if (!snapshot || !snapshot.attempted) {
+    value.textContent = 'aguardando';
+    value.className = 'card-v info';
+    pip('p-image', 'info');
+    meta.textContent = 'o primeiro JPEG ainda não foi testado';
+    return;
+  }
+
+  if (snapshot.healthy) {
+    value.textContent = 'JPEG válido';
+    value.className = 'card-v ok';
+    pip('p-image', 'ok');
+    meta.textContent = formatBytes(snapshot.bytesRead) + ' em ' + snapshot.latencyMs
+      + ' ms' + (snapshot.profile ? ' · perfil ' + snapshot.profile : '');
+    return;
+  }
+
+  value.textContent = snapshot.httpResponded ? 'sem imagem' : 'indisponível';
+  value.className = 'card-v bad';
+  pip('p-image', 'bad');
+  meta.textContent = snapshot.detail || 'nenhum JPEG completo foi recebido';
+}
+
 let lastOk = 0;
 let cameraKnown = false;
+let cameraRecovering = false;
 let feedLoading = false;
 let feedFailures = 0;
 let feedTimer;
 let feedRequestedAtMs = 0;
-const FEED_MIN_INTERVAL_MS = 300;   // piso de seguranca para nao sobrecarregar o loop do ESP32
-const FEED_TARGET_CYCLE_MS = 600;   // meta de intervalo total (busca + espera) entre quadros
+const FEED_MIN_INTERVAL_MS = 1500;  // reduz carga sobre cameras simples
+const FEED_TARGET_CYCLE_MS = 2500; // intervalo total entre quadros
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
@@ -501,6 +546,14 @@ function scheduleFeed(delay) {
 
 function loadFeed() {
   if (document.hidden || activeView !== 'feed' || feedLoading) return;
+  if (cameraRecovering) {
+    $('cameraFeed').classList.remove('ready');
+    $('feedState').classList.remove('hidden');
+    $('feedState').textContent = 'A câmera está reiniciando; a prévia será retomada automaticamente…';
+    $('feedStamp').textContent = 'recuperação automática em andamento';
+    scheduleFeed(5000);
+    return;
+  }
   if (!cameraKnown) {
     $('feedState').classList.remove('hidden');
     $('feedState').textContent = 'Aguardando a câmera ser localizada…';
@@ -523,6 +576,7 @@ function loadFeed() {
   frame.onerror = () => {
     feedLoading = false;
     feedFailures++;
+    frame.classList.remove('ready');
     $('feedState').classList.remove('hidden');
     $('feedState').textContent = 'Não foi possível atualizar a imagem; tentando novamente…';
     $('feedStamp').textContent = 'prévia temporariamente indisponível';
@@ -598,11 +652,15 @@ function render(d) {
     ? 'IP <b>' + d.camera.ip + '</b> · RTSP <b>' + d.camera.rtspPort + '</b> · ESP32 em <b>' + d.wifi.ip + '</b>'
     : 'Câmera ainda não localizada na rede · ESP32 em <b>' + d.wifi.ip + '</b>';
   cameraKnown = d.camera.known;
+  cameraRecovering = Boolean(d.recovery && d.recovery.graceActive);
 
   if (d.snapshot) {
-    $('feedMeta').textContent = d.snapshot.ready
-      ? 'Perfil ' + (d.snapshot.profile || 'ONVIF') + ' · ' + d.snapshot.served + ' quadros entregues'
-      : 'Preparando o perfil JPEG protegido pelo ESP32';
+    $('feedMeta').textContent = d.snapshot.healthy
+      ? 'Perfil ' + (d.snapshot.profile || 'ONVIF') + ' · último teste com '
+        + formatBytes(d.snapshot.bytesRead) + ' · ' + d.snapshot.served + ' quadros entregues'
+      : d.recovery && d.recovery.graceActive
+        ? 'A câmera está reiniciando; a prévia será retomada automaticamente'
+        : 'Imagem indisponível · ' + (d.snapshot.detail || 'aguardando novo teste');
   }
 
   if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
@@ -615,6 +673,7 @@ function render(d) {
   const p = d.probes;
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
   setProbe('rtsp', p.rtspTcp, p.rtspProtocol, p.rtspStatus, p.rtspLatencyMs, 'RTSP');
+  setImageProbe(d.snapshot, d.recovery);
 
   const rssi = d.wifi.rssi;
   const level = !d.wifi.connected ? 0 : rssi >= -60 ? 4 : rssi >= -70 ? 3 : rssi >= -80 ? 2 : 1;
@@ -630,12 +689,13 @@ function render(d) {
     : plural(c.consecutiveSuccesses, 'sucesso seguido', 'sucessos seguidos');
   $('v-checks').textContent = c.totalChecks;
   $('m-checks').textContent = plural(c.failedChecks, 'falha no total', 'falhas no total') + ' · '
-    + currentSequence + ' · '
-    + plural(c.discoveryRuns, 'descoberta', 'descobertas') + ' · '
-    + plural(c.subnetScanRuns, 'varredura', 'varreduras');
+    + currentSequence;
 
   $('l-event').textContent = d.lastEvent;
   $('l-url').textContent = d.camera.onvifUrl || 'desconhecido';
+  $('l-image').textContent = d.snapshot.lastResult || d.snapshot.detail || 'ainda não testado';
+  $('l-reboot').textContent = d.recovery.lastResult
+    + (d.recovery.graceActive ? ' · aguardando ' + duration(d.recovery.graceRemainingSeconds) : '');
   $('l-disc').textContent = d.lastDiscovery;
   $('l-scan').textContent = d.lastSubnetScan;
   $('l-mail').innerHTML = (d.resendConfigured
@@ -685,11 +745,13 @@ function activateView(name, updateHash) {
   document.title = viewTitle + ' · Camera Watchdog';
 
   if (nextView === 'feed') {
-    $('feedState').textContent = cameraKnown
-      ? 'Atualizando a imagem…'
-      : 'Aguardando a câmera ser localizada…';
+    $('feedState').textContent = cameraRecovering
+      ? 'A câmera está reiniciando…'
+      : cameraKnown ? 'Atualizando a imagem…' : 'Aguardando a câmera ser localizada…';
     $('feedState').classList.remove('hidden');
-    $('feedStamp').textContent = 'aguardando imagem';
+    $('feedStamp').textContent = cameraRecovering
+      ? 'recuperação automática em andamento'
+      : 'aguardando imagem';
     scheduleFeed(0);
   } else {
     if (isNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
