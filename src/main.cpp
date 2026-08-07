@@ -7,6 +7,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiUdp.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <esp_bt.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
@@ -19,6 +22,8 @@
 #include <esp32-hal-bt.h>
 #endif
 #include "dashboard_page.h"
+#include "live_player_script.h"
+#include "live_stream_relay.h"
 #include "secrets.h"
 
 #ifndef CAMERA_ONVIF_USERNAME_VALUE
@@ -29,6 +34,14 @@
 #define CAMERA_ONVIF_PASSWORD_VALUE ""
 #endif
 
+#ifndef CAMERA_RTSP_USERNAME_VALUE
+#define CAMERA_RTSP_USERNAME_VALUE CAMERA_ONVIF_USERNAME_VALUE
+#endif
+
+#ifndef CAMERA_RTSP_PASSWORD_VALUE
+#define CAMERA_RTSP_PASSWORD_VALUE CAMERA_ONVIF_PASSWORD_VALUE
+#endif
+
 #ifndef DASHBOARD_ADMIN_PASSWORD_VALUE
 #define DASHBOARD_ADMIN_PASSWORD_VALUE ""
 #endif
@@ -36,7 +49,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.5.1";
+constexpr char FIRMWARE_VERSION[] = "0.6.2";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -302,6 +315,7 @@ struct SnapshotTarget {
     String profileName;
 };
 
+
 struct SnapshotProbe {
     bool attempted = false;
     bool targetResolved = false;
@@ -406,6 +420,14 @@ unsigned long lastSnapshotResolveAttemptAtMs = 0;
 int lastSnapshotResolveStatusCode = 0;
 
 void saveCameraTarget();
+void invalidateLiveProfiles();
+void publishLiveProfilesFromXml(
+    const String& profilesXml,
+    const String& mediaUrl,
+    const IPAddress& cameraIp
+);
+void appendLiveStatusJson(String& json);
+void configureLiveRelay();
 
 uint32_t settingsChecksum(const RuntimeSettings& values)
 {
@@ -746,16 +768,14 @@ void loadRuntimeSettings()
         : 0;
     preferences.end();
 
-    String validationError;
-    const bool valid =
+    const bool storedBlobValid =
         bytesRead == sizeof(blob) &&
         blob.magic == SETTINGS_MAGIC &&
         blob.schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION &&
         blob.payloadSize == sizeof(RuntimeSettings) &&
-        blob.checksum == settingsChecksum(blob.values) &&
-        validateRuntimeSettings(blob.values, validationError);
+        blob.checksum == settingsChecksum(blob.values);
 
-    if (!valid) {
+    if (!storedBlobValid) {
         lastSettingsResult = storedSize == 0
             ? "Usando valores de fabrica"
             : "Configuracao salva invalida; valores de fabrica restaurados";
@@ -763,9 +783,49 @@ void loadRuntimeSettings()
         return;
     }
 
+    bool previewLimitMigrated = false;
+
+    if (blob.values.feedMinIntervalMs < FEED_MIN_INTERVAL_MIN_MS) {
+        blob.values.feedMinIntervalMs = FEED_MIN_INTERVAL_MIN_MS;
+        previewLimitMigrated = true;
+    }
+
+    if (blob.values.feedTargetCycleMs < FEED_TARGET_CYCLE_MIN_MS) {
+        blob.values.feedTargetCycleMs = FEED_TARGET_CYCLE_MIN_MS;
+        previewLimitMigrated = true;
+    }
+
+    if (blob.values.feedTargetCycleMs < blob.values.feedMinIntervalMs) {
+        blob.values.feedTargetCycleMs = blob.values.feedMinIntervalMs;
+        previewLimitMigrated = true;
+    }
+
+    String validationError;
+
+    if (!validateRuntimeSettings(blob.values, validationError)) {
+        lastSettingsResult =
+            "Configuracao salva invalida; valores de fabrica restaurados";
+        Serial.printf(
+            "%s: %s.\n",
+            lastSettingsResult.c_str(),
+            validationError.c_str()
+        );
+        return;
+    }
+
     settings = blob.values;
     settingsLoadedFromNvs = true;
-    lastSettingsResult = "Configuracoes carregadas da NVS";
+
+    if (previewLimitMigrated) {
+        const bool migratedSaved = saveRuntimeSettingsToNvs(settings);
+        lastSettingsResult = migratedSaved
+            ? "Configuracoes carregadas; previa ajustada ao limite de 1 FPS"
+            : "Configuracoes carregadas; ajuste de 1 FPS nao persistido";
+    } else {
+        lastSettingsResult = "Configuracoes carregadas da NVS";
+    }
+
+    Serial.println(lastSettingsResult);
     Serial.printf(
         "Configuracoes NVS: ciclo=%lus; alerta=%u; reboot=%u; auto=%s.\n",
         static_cast<unsigned long>(HEALTH_CHECK_INTERVAL_MS / 1000UL),
@@ -2008,6 +2068,7 @@ void invalidateSnapshotTarget()
     snapshotTarget = SnapshotTarget{};
 }
 
+
 void applyRuntimeSettings(const RuntimeSettings& previous)
 {
     if (
@@ -2017,6 +2078,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
         ) != 0
     ) {
         invalidateSnapshotTarget();
+        invalidateLiveProfiles();
         lastSnapshotResolveAttemptAtMs = 0;
         lastSnapshotResolveStatusCode = 0;
         snapshotTargetFailureStreak = 0;
@@ -2026,6 +2088,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
 
     if (previous.cameraRtspPort != settings.cameraRtspPort) {
         camera.rtspPort = settings.cameraRtspPort;
+        invalidateLiveProfiles();
 
         if (camera.valid) {
             saveCameraTarget();
@@ -2802,6 +2865,7 @@ bool applyBestDiscoveredCandidate()
     const String oldIp = camera.valid ? camera.ip.toString() : "";
     camera = discovered[bestIndex].target;
     invalidateSnapshotTarget();
+    invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = 0;
     saveCameraTarget();
 
@@ -3036,6 +3100,7 @@ bool resolveCameraOnvifEndpoint()
         camera.onvifUrl = candidate.onvifUrl;
         lastOnvifProbe = candidateProbe;
         invalidateSnapshotTarget();
+        invalidateLiveProfiles();
         lastSnapshotResolveAttemptAtMs = 0;
         saveCameraTarget();
 
@@ -3067,7 +3132,8 @@ bool postOnvifSoap(
     envelope += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
     envelope += "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" ";
     envelope += "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\" ";
-    envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">";
+    envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\" ";
+    envelope += "xmlns:tt=\"http://www.onvif.org/ver10/schema\">";
     envelope += wsseHeader;
     envelope += "<s:Body>";
     envelope += body;
@@ -3161,6 +3227,8 @@ bool postOnvifSoap(
     return !requireResponseBody || !responseBody.isEmpty();
 }
 
+#include "live_catalog.h"
+
 bool resolveSnapshotTarget()
 {
     lastSnapshotResolveAttemptAtMs = millis();
@@ -3210,6 +3278,7 @@ bool resolveSnapshotTarget()
         }
 
         lastSnapshotResolveStatusCode = profilesStatusCode;
+        publishLiveProfilesFromXml(profilesXml, mediaUrl, camera.ip);
 
         if (!selectSnapshotProfile(
             profilesXml,
@@ -3648,6 +3717,7 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     cameraRebootAccepted++;
     cameraRebootGraceStartedAtMs = now;
     invalidateSnapshotTarget();
+    invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = now;
     snapshotTargetFailureStreak = 0;
     lastSnapshotResolveStatusCode = 0;
@@ -4094,6 +4164,7 @@ bool scanSubnetForCamera()
             camera.scopes = "Localizada por varredura RTSP/ONVIF";
             lastOnvifProbe = candidateProbe;
             invalidateSnapshotTarget();
+            invalidateLiveProfiles();
             lastSnapshotResolveAttemptAtMs = 0;
             saveCameraTarget();
 
@@ -4350,7 +4421,7 @@ String buildStatusJson()
     const unsigned long now = millis();
 
     String json;
-    json.reserve(5600);
+    json.reserve(9200);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -4508,6 +4579,8 @@ String buildStatusJson()
     json += jsonEscape(lastSnapshotResult);
     json += "\"},";
 
+    appendLiveStatusJson(json);
+
     json += "\"incident\":{";
     json += "\"kind\":\"";
     json += incidentName(activeIncident);
@@ -4588,6 +4661,7 @@ String buildStatusJson()
     json += FEED_MIN_INTERVAL_MS;
     json += ",\"feedTargetCycleMs\":";
     json += FEED_TARGET_CYCLE_MS;
+    json += ",\"previewMaximumFps\":1";
     json += ",\"statusRefreshIntervalMs\":";
     json += STATUS_REFRESH_INTERVAL_MS;
     json += "},\"settings\":{";
@@ -5206,6 +5280,8 @@ void handleAdminAction(AdminAction action)
 void configureHttpServer()
 {
     httpServer.on("/", HTTP_GET, [] {
+        httpServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        httpServer.sendHeader("Pragma", "no-cache");
         httpServer.send_P(200, "text/html; charset=utf-8", DASHBOARD_PAGE);
     });
 
@@ -5214,6 +5290,16 @@ void configureHttpServer()
             200,
             "application/json; charset=utf-8",
             buildStatusJson()
+        );
+    });
+
+    httpServer.on("/assets/live-player.js", HTTP_GET, [] {
+        httpServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        httpServer.sendHeader("Pragma", "no-cache");
+        httpServer.send_P(
+            200,
+            "application/javascript; charset=utf-8",
+            LIVE_PLAYER_SCRIPT
         );
     });
 
@@ -5303,6 +5389,7 @@ bool connectToWiFi()
 
     if (MDNS.begin(HOSTNAME)) {
         MDNS.addService("http", "tcp", HTTP_SERVER_PORT);
+        MDNS.addService("camera-live", "tcp", LIVE_STREAM_PORT);
         Serial.printf("mDNS: http://%s.local\n", HOSTNAME);
     }
 
@@ -5463,8 +5550,15 @@ void setup()
         resolveSnapshotTarget();
     }
 
+    configureLiveRelay();
+
     Serial.printf("Painel: http://%s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Painel mDNS: http://%s.local\n", HOSTNAME);
+    Serial.printf(
+        "Ao vivo integrado: http://%s:%u\n",
+        WiFi.localIP().toString().c_str(),
+        LIVE_STREAM_PORT
+    );
 
     runHealthCheck();
 }

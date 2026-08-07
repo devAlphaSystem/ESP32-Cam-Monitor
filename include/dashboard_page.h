@@ -97,6 +97,34 @@ cursor:pointer;backdrop-filter:blur(5px);transition:.16s ease}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
 
+/* transmissao ao vivo integrada */
+.live-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.live-player-card{min-width:0}
+.live-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;min-height:280px;
+background:#05070a;overflow:hidden}
+.live-stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,#17202c 0,#05070a 66%)}
+.live-stage video{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .18s ease}
+.live-stage video.ready{opacity:1}
+.live-stage:fullscreen,.live-stage:-webkit-full-screen,.live-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
+.live-stage:fullscreen,.live-stage:-webkit-full-screen{width:100%;height:100%}
+.live-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
+.live-stage:fullscreen::before,.live-stage:-webkit-full-screen::before,.live-stage.fs-fallback::before{display:none}
+.live-stage:fullscreen video,.live-stage:-webkit-full-screen video,.live-stage.fs-fallback video{width:100%;height:100%;object-fit:contain}
+.live-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;
+padding:13px 15px;border-top:1px solid var(--line);background:rgba(255,255,255,.012)}
+.live-toolbar .form-result{flex:1 1 260px;text-align:right}
+.live-config{margin:0;min-width:0}
+.live-config .settings-card-h{margin-bottom:15px}
+.live-info{display:grid;gap:9px;padding:12px 13px;border:1px solid var(--line);border-radius:9px;
+background:rgba(255,255,255,.018)}
+.live-info-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:11.5px}
+.live-info-row span{color:var(--dim)}
+.live-info-row b{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:right;overflow-wrap:anywhere}
+.live-kpis{display:grid;grid-template-columns:1fr;gap:8px}
+.live-kpi{padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.018)}
+.live-kpi span{display:block;color:var(--dim);font-size:9.8px;letter-spacing:.06em;text-transform:uppercase}
+.live-kpi b{display:block;margin-top:3px;color:var(--text);font:600 15px/1.3 var(--mono);overflow-wrap:anywhere}
+
 /* metricas */
 .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 0}
 .grid.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -163,18 +191,18 @@ padding-bottom:14px;border-bottom:1px solid var(--line)}
 .field label{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;
 color:var(--muted);font-size:12.5px;font-weight:620}
 .field label span{color:var(--dim);font-size:10.5px;font-weight:500;white-space:nowrap}
-.field input[type="text"],.field input[type="password"],.field input[type="number"]{width:100%;height:42px;
+.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{width:100%;height:42px;
 border:1px solid var(--line2);border-radius:9px;background:#0e141d;color:var(--text);padding:0 11px;
 font:13px/1.2 var(--mono);outline:none;transition:.16s ease}
-.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.11)}
+.field input:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.11)}
 .field input:disabled{opacity:.55;cursor:not-allowed}
 .field small{display:block;margin-top:5px;color:var(--dim);font-size:10.8px;line-height:1.45}
 .checkline{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);
 border-radius:9px;background:rgba(255,255,255,.018)}
 .checkline input{width:17px;height:17px;margin:2px 0 0;accent-color:var(--ok);flex:none}
-.checkline label{margin:0;color:var(--muted);font-size:12.5px;cursor:pointer}
+.checkline label{display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin:0;color:var(--muted);font-size:12.5px;cursor:pointer}
 .checkline label b{display:block;color:var(--text);font-size:12.5px;font-weight:620}
-.checkline label span{display:block;margin-top:2px;color:var(--dim);font-size:10.8px;line-height:1.4}
+.checkline label span{display:block;margin-top:0;color:var(--dim);font-size:10.8px;line-height:1.4;white-space:normal}
 .estimate-box{padding:12px 13px;border:1px solid rgba(96,165,250,.24);border-radius:9px;
 background:rgba(96,165,250,.065);color:var(--muted);font-size:12px}
 .estimate-box b{color:var(--info)}
@@ -233,6 +261,7 @@ footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim)}
 .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .grid.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
 .action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.live-layout{grid-template-columns:1fr}
 }
 @media(max-width:560px){
 main{padding:14px 12px 36px}
@@ -249,8 +278,10 @@ main{padding:14px 12px 36px}
 .settings-savebar{align-items:stretch}
 .settings-savebar .form-result{text-align:left}
 .button-row{width:100%}.button-row .btn{flex:1 1 auto}
+.live-toolbar .form-result{text-align:left}
 .settings-kpi{width:100%;text-align:left}
 .settings-tab{padding-inline:12px}
+.viewer-stage,.live-stage{min-height:0}
 .row dt{flex:1 1 100%}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -268,6 +299,7 @@ main{padding:14px 12px 36px}
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false">Prévia</button>
+      <button class="tab" id="liveTab" type="button" role="tab" data-view="stream" aria-controls="liveView" aria-selected="false">Ao Vivo</button>
       <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
       <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false">Configurações</button>
       <button class="tab" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false">Ações</button>
@@ -337,11 +369,11 @@ main{padding:14px 12px 36px}
 <div id="feedView" role="tabpanel" aria-labelledby="feedTab" data-view-panel="feed" hidden>
   <section class="viewer" aria-labelledby="viewerTitle">
     <div class="viewer-h">
-      <h2 id="viewerTitle">Prévia ao vivo</h2>
-      <p id="feedMeta">Quadros JPEG protegidos pelo ESP32, sem expor credenciais da câmera</p>
+      <h2 id="viewerTitle">Prévia de diagnóstico</h2>
+      <p id="feedMeta">Quadros JPEG protegidos pelo ESP32 · máximo de 1 FPS · sem expor credenciais</p>
     </div>
     <div class="viewer-stage">
-      <img id="cameraFeed" alt="Imagem ao vivo da câmera monitorada" decoding="async">
+      <img id="cameraFeed" alt="Prévia JPEG da câmera monitorada" decoding="async">
       <div class="feed-state" id="feedState">Carregando o primeiro quadro da câmera…</div>
       <div class="feed-stamp" id="feedStamp">aguardando imagem</div>
       <button type="button" class="feed-fs-btn" id="feedFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
@@ -350,6 +382,63 @@ main{padding:14px 12px 36px}
       </button>
     </div>
   </section>
+</div>
+
+<div id="liveView" role="tabpanel" aria-labelledby="liveTab" data-view-panel="stream" hidden>
+  <div class="live-layout">
+    <section class="viewer live-player-card" aria-labelledby="liveViewerTitle">
+      <div class="viewer-h">
+        <h2 id="liveViewerTitle">Ao vivo pelo ESP32</h2>
+        <p id="liveMeta">RTSP/RTP H.264 da câmera → ESP32 → vídeo no navegador</p>
+      </div>
+      <div class="live-stage" id="liveStage">
+        <video id="liveVideo" aria-label="Transmissão ao vivo da câmera" autoplay muted playsinline controls preload="none"></video>
+        <div class="feed-state" id="liveState">Aguardando os perfis ONVIF da câmera…</div>
+        <div class="feed-stamp" id="liveStamp">relay parado</div>
+        <button type="button" class="feed-fs-btn" id="liveFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
+          <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
+          <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
+        </button>
+      </div>
+      <div class="live-toolbar">
+        <div class="button-row">
+          <button class="btn primary" id="liveStart" type="button" disabled>Iniciar</button>
+          <button class="btn" id="liveReload" type="button" disabled>Reconectar</button>
+          <button class="btn" id="liveStop" type="button" disabled>Parar</button>
+        </div>
+        <div class="form-result" id="livePlayerStatus">Aguardando o catálogo ONVIF.</div>
+      </div>
+    </section>
+
+    <aside class="settings-card live-config" aria-labelledby="liveConfigTitle">
+      <div class="settings-card-h"><div><h2 id="liveConfigTitle">Relay integrado</h2><p>Sem gateway, servidor ou configuração externa.</p></div></div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="liveProfile">Perfil de vídeo ONVIF</label>
+          <select id="liveProfile" disabled><option>aguardando perfis…</option></select>
+          <small>Selecione um perfil H.264. O perfil recomendado segue o filtro da prévia. O relay atende um navegador por vez.</small>
+        </div>
+        <div class="field">
+          <div class="checkline">
+            <input id="liveAutostart" type="checkbox" checked>
+            <label for="liveAutostart"><b>Iniciar ao abrir a aba</b><span>O RTSP e a resposta HTTP são encerrados ao sair da aba ou ocultar a página.</span></label>
+          </div>
+        </div>
+        <div class="live-info">
+          <div class="live-info-row"><span>Câmera</span><b id="liveCameraAddress">—</b></div>
+          <div class="live-info-row"><span>Relay HTTP do ESP32</span><b id="liveSocketAddress">—</b></div>
+          <div class="live-info-row"><span>Estado do relay</span><b id="liveRelayState">aguardando</b></div>
+          <div class="live-info-row"><span>Codec ativo</span><b id="liveCodecState">—</b></div>
+        </div>
+        <div class="live-kpis">
+          <div class="live-kpi"><span>FPS no navegador</span><b id="liveFpsValue">—</b></div>
+          <div class="live-kpi"><span>Bitrate recebido</span><b id="liveBitrateValue">—</b></div>
+          <div class="live-kpi"><span>Pacotes RTP</span><b id="liveLossValue">0</b></div>
+          <div class="live-kpi"><span>Correções / descartes RTP</span><b id="liveBrowserDropValue">0 / 0</b></div>
+        </div>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <div id="resourcesView" role="tabpanel" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
@@ -454,8 +543,8 @@ main{padding:14px 12px 36px}
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="sub"><small>Vazio usa o primeiro perfil; “sub” normalmente reduz a carga.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
-          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.05" max="10" step="0.05" required><small>Padrão: 1,5 s.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.2" max="30" step="0.1" required><small>Padrão: 2,5 s; nunca pode ser menor que o intervalo mínimo.</small></div>
+          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo e padrão: 1 s; a prévia nunca solicita mais de um JPEG por segundo.</small></div>
+          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Mínimo e padrão: 1 s, limitando a prévia a no máximo 1 FPS.</small></div>
           <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
         </div>
       </section>
@@ -560,6 +649,7 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
+<script src="/assets/live-player.js?v=0.6.2"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -576,14 +666,15 @@ function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
   if (location.hash === '#resources') return 'resources';
+  if (location.hash === '#stream') return 'stream';
   if (location.hash === '#feed') return 'feed';
   return 'camera';
 }
 
 let activeView = viewFromHash();
 let activeSettingsSection = 'identification';
-let feedMinimumIntervalMs = 1500;
-let feedTargetCycleMs = 2500;
+let feedMinimumIntervalMs = 1000;
+let feedTargetCycleMs = 1000;
 let statusRefreshIntervalMs = 3000;
 let statusRefreshTimer;
 let settingsLoaded = false;
@@ -757,6 +848,7 @@ function setImageProbe(snapshot, recovery) {
   meta.textContent = snapshot.detail || 'nenhum JPEG completo foi recebido';
 }
 
+
 let lastOk = 0;
 let cameraKnown = false;
 let cameraRecovering = false;
@@ -847,7 +939,6 @@ function toggleFullscreen() {
     exitFallbackFullscreen();
     return;
   }
-
   const request = feedStage.requestFullscreen || feedStage.webkitRequestFullscreen;
   if (!request) {
     feedStage.classList.add('fs-fallback');
@@ -869,6 +960,415 @@ document.addEventListener('webkitfullscreenchange', updateFsButton);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
 });
+
+const LIVE_PREFERENCES_KEY = 'camera-watchdog.live.integrated.v1';
+const liveVideo = $('liveVideo');
+const liveStage = $('liveStage');
+const liveFsBtn = $('liveFsBtn');
+
+let liveProfiles = [];
+let liveProfileSignature = '';
+let liveStreamPort = 81;
+let livePlayer = null;
+let liveShouldRun = false;
+let liveReconnectTimer = null;
+let liveReconnectAttempt = 0;
+let liveLastStatus = null;
+let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0 };
+let liveMarkerCompatibilityNotified = false;
+let livePreferences = { autostart: true, profileIndex: null };
+
+function loadLivePreferences() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(LIVE_PREFERENCES_KEY) || 'null');
+    if (stored && typeof stored === 'object') {
+      livePreferences.autostart = stored.autostart !== false;
+      livePreferences.profileIndex = stored.profileIndex != null && Number.isInteger(Number(stored.profileIndex))
+        ? Number(stored.profileIndex)
+        : null;
+    }
+  } catch (_) {}
+  $('liveAutostart').checked = livePreferences.autostart;
+}
+
+function saveLivePreferences() {
+  livePreferences.autostart = $('liveAutostart').checked;
+  const selected = Number($('liveProfile').value);
+  livePreferences.profileIndex = Number.isInteger(selected) ? selected : null;
+  try { localStorage.setItem(LIVE_PREFERENCES_KEY, JSON.stringify(livePreferences)); } catch (_) {}
+}
+
+function setLivePlayerStatus(message, tone) {
+  const target = $('livePlayerStatus');
+  target.textContent = message;
+  target.className = 'form-result' + (tone ? ' ' + tone : '');
+}
+
+function setLiveOverlay(message, hidden) {
+  $('liveState').textContent = message || '';
+  $('liveState').classList.toggle('hidden', Boolean(hidden));
+}
+
+function liveBrowserHasMse() {
+  if (
+    typeof MediaSource !== 'function' ||
+    typeof fetch !== 'function' ||
+    typeof ReadableStream !== 'function' ||
+    typeof AbortController !== 'function' ||
+    typeof TextDecoder !== 'function'
+  ) return false;
+  try {
+    return MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
+  } catch (_) {
+    return false;
+  }
+}
+
+function updateLiveBrowserSupport() {
+  const target = $('liveBrowserSupport');
+  const supported = liveBrowserHasMse() && typeof CameraWatchdogLivePlayer === 'function';
+  if (target) {
+    target.className = 'live-browser-state ' + (supported ? 'ok' : 'bad');
+    target.textContent = supported
+      ? 'MSE, H.264 e leitura HTTP incremental disponíveis. O player também corrige marcadores RTP por NAL usados por algumas câmeras.'
+      : 'Este navegador não oferece todos os recursos exigidos: MSE/H.264, fetch incremental, AbortController e TextDecoder.';
+  }
+  return supported;
+}
+
+function selectedLiveProfileIndex() {
+  const index = Number($('liveProfile').value);
+  return Number.isInteger(index) && index >= 0 ? index : -1;
+}
+
+function liveHostForUrl() {
+  const host = location.hostname || location.host.split(':')[0];
+  return host.includes(':') && !host.startsWith('[') ? '[' + host + ']' : host;
+}
+
+function liveStreamUrl(profileIndex) {
+  return 'http://' + liveHostForUrl() + ':' + liveStreamPort
+    + '/stream?profile=' + encodeURIComponent(profileIndex);
+}
+
+function clearLiveReconnectTimer() {
+  clearTimeout(liveReconnectTimer);
+  liveReconnectTimer = null;
+}
+
+function scheduleLiveReconnect() {
+  clearLiveReconnectTimer();
+  if (!liveShouldRun || activeView !== 'stream' || document.hidden) return;
+  const delay = Math.min(10000, 1000 * Math.pow(2, Math.min(liveReconnectAttempt, 3)));
+  liveReconnectAttempt++;
+  setLivePlayerStatus('Transmissão encerrada; nova tentativa em ' + Math.round(delay / 1000) + ' s…', 'warn');
+  liveReconnectTimer = setTimeout(() => {
+    liveReconnectTimer = null;
+    if (liveShouldRun && activeView === 'stream' && !document.hidden) openLiveStream();
+  }, delay);
+}
+
+function ensureLivePlayer() {
+  if (livePlayer) return livePlayer;
+  livePlayer = new CameraWatchdogLivePlayer({
+    video: liveVideo,
+    onStatus(message) {
+      if (!message) return;
+      const state = message.state || '';
+      const detail = message.detail || state || 'Atualizando transmissão…';
+      if (state === 'playing') {
+        const dimensions = message.width && message.height
+          ? message.width + '×' + message.height
+          : 'resolução pelo SPS';
+        const fps = message.declaredFps ? ' · ' + message.declaredFps + ' FPS declarados' : '';
+        $('liveCodecState').textContent = (message.codec || message.encoding || 'H.264')
+          + ' · ' + dimensions + fps;
+        setLiveOverlay('RTSP conectado; aguardando o próximo quadro-chave H.264…', false);
+        setLivePlayerStatus(detail, 'ok');
+      } else if (state === 'connecting') {
+        setLivePlayerStatus(detail, 'warn');
+      } else if (state === 'stopped') {
+        setLivePlayerStatus(detail, '');
+      } else if (state === 'error') {
+        setLivePlayerStatus(detail, 'bad');
+        setLiveOverlay(detail, false);
+      } else {
+        setLivePlayerStatus(detail, state ? 'warn' : '');
+      }
+    },
+    onStats(stats) {
+      liveBrowserStats = stats;
+      const corrections = Number(stats.markerCorrections || 0);
+      const dropped = Number(stats.dropped || 0);
+      $('liveFpsValue').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS';
+      $('liveBitrateValue').textContent = Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps';
+      $('liveLossValue').textContent = Number(stats.packets || 0).toLocaleString('pt-BR');
+      $('liveBrowserDropValue').textContent = corrections.toLocaleString('pt-BR')
+        + ' corr. · ' + dropped.toLocaleString('pt-BR') + ' desc.';
+      if (corrections > 0 && !liveMarkerCompatibilityNotified) {
+        liveMarkerCompatibilityNotified = true;
+        setLivePlayerStatus('Vídeo ativo; marcadores RTP por NAL da câmera foram corrigidos automaticamente.', 'ok');
+      }
+      if (liveVideo.classList.contains('ready')) {
+        $('liveStamp').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS · '
+          + Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps';
+      }
+    },
+    onVideoInfo(info) {
+      liveReconnectAttempt = 0;
+      $('liveCodecState').textContent = info.codec + ' · ' + info.width + '×' + info.height;
+      setLiveOverlay('Segmento H.264 aceito; aguardando o primeiro quadro decodificado…', false);
+      setLivePlayerStatus('Inicializando o decodificador H.264 do navegador.', 'warn');
+    },
+    onPlaybackReady() {
+      liveReconnectAttempt = 0;
+      liveVideo.classList.add('ready');
+      setLiveOverlay('', true);
+      setLivePlayerStatus(
+        liveMarkerCompatibilityNotified
+          ? 'Vídeo H.264 ativo com correção automática dos marcadores RTP da câmera.'
+          : 'Vídeo H.264 sendo reproduzido pelo navegador.',
+        'ok'
+      );
+      try {
+        const playAttempt = liveVideo.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(function () {});
+      } catch (_) {}
+    },
+    onError(error) {
+      liveVideo.classList.remove('ready');
+      setLivePlayerStatus(error.message || String(error), 'bad');
+      setLiveOverlay('A transmissão foi interrompida: ' + (error.message || String(error)), false);
+      if (liveShouldRun) scheduleLiveReconnect();
+    }
+  });
+  return livePlayer;
+}
+
+function openLiveStream() {
+  clearLiveReconnectTimer();
+  if (!liveShouldRun || activeView !== 'stream' || document.hidden) return;
+  const profileIndex = selectedLiveProfileIndex();
+  if (profileIndex < 0) {
+    setLiveOverlay('A câmera ainda não forneceu um perfil H.264 compatível.', false);
+    setLivePlayerStatus('Aguardando catálogo ONVIF com perfil H.264.', 'warn');
+    return;
+  }
+  if (!updateLiveBrowserSupport()) {
+    setLiveOverlay('H.264 por Media Source Extensions não está disponível neste navegador.', false);
+    setLivePlayerStatus('Navegador sem suporte ao player integrado.', 'bad');
+    return;
+  }
+
+  liveVideo.classList.remove('ready');
+  liveMarkerCompatibilityNotified = false;
+  setLiveOverlay('Conectando ao relay HTTP integrado do ESP32…', false);
+  setLivePlayerStatus('Abrindo o relay na porta ' + liveStreamPort + '…', 'warn');
+  $('liveStart').disabled = true;
+  $('liveReload').disabled = false;
+  $('liveStop').disabled = false;
+  const startPromise = ensureLivePlayer().start(liveStreamUrl(profileIndex));
+  Promise.resolve(startPromise).catch(error => {
+    liveVideo.classList.remove('ready');
+    setLivePlayerStatus(error.message || String(error), 'bad');
+    setLiveOverlay(error.message || String(error), false);
+    scheduleLiveReconnect();
+  });
+}
+
+function startLivePlayer() {
+  if (activeView !== 'stream') return;
+  liveShouldRun = true;
+  liveReconnectAttempt = 0;
+  openLiveStream();
+}
+
+function stopLivePlayer(userInitiated) {
+  liveShouldRun = false;
+  clearLiveReconnectTimer();
+  if (livePlayer) livePlayer.stop(false);
+  liveVideo.classList.remove('ready');
+  $('liveStart').disabled = liveProfiles.length === 0;
+  $('liveReload').disabled = liveProfiles.length === 0;
+  $('liveStop').disabled = true;
+  $('liveStamp').textContent = 'relay parado';
+  liveMarkerCompatibilityNotified = false;
+  liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0 };
+  $('liveBrowserDropValue').textContent = '0 corr. · 0 desc.';
+  if (userInitiated) {
+    $('liveAutostart').checked = false;
+    saveLivePreferences();
+    setLiveOverlay('Transmissão interrompida.', false);
+    setLivePlayerStatus('Relay RTSP/HTTP parado.', '');
+  }
+}
+
+function liveProfileLabel(profile) {
+  const dimensions = profile.width && profile.height
+    ? profile.width + '×' + profile.height
+    : 'resolução desconhecida';
+  const fps = profile.fps ? ' · ' + profile.fps + ' FPS' : '';
+  const bitrate = profile.bitrateKbps ? ' · ' + profile.bitrateKbps + ' kbps' : '';
+  const recommended = profile.preferred ? ' · recomendado' : '';
+  return profile.name + ' · ' + profile.encoding + ' · ' + dimensions + fps + bitrate + recommended;
+}
+
+function renderLiveStatus(live, camera) {
+  if (!live) return;
+  liveLastStatus = live;
+  liveStreamPort = Number(live.streamPort) || Number(live.relay && live.relay.port) || 81;
+  $('liveCameraAddress').textContent = camera && camera.known
+    ? camera.ip + ':' + camera.rtspPort
+    : 'não localizada';
+  $('liveSocketAddress').textContent = 'http://' + liveHostForUrl() + ':' + liveStreamPort + '/stream';
+
+  const relay = live.relay || {};
+  const relayState = !relay.started
+    ? 'não iniciado'
+    : relay.clientActive
+      ? 'transmitindo'
+      : relay.running ? 'aguardando navegador' : 'parado';
+  $('liveRelayState').textContent = relayState
+    + (relay.lastError ? ' · ' + relay.lastError : '');
+
+  const compatibleProfiles = Array.isArray(live.profiles)
+    ? live.profiles.filter(profile => profile.relayCompatible)
+    : [];
+  const signature = compatibleProfiles.map(profile => [
+    profile.index, profile.name, profile.encoding, profile.width, profile.height,
+    profile.fps, profile.bitrateKbps, profile.preferred
+  ].join(':')).join('|');
+
+  if (signature !== liveProfileSignature) {
+    liveProfileSignature = signature;
+    liveProfiles = compatibleProfiles;
+    const select = $('liveProfile');
+    const previous = Number(select.value);
+    select.innerHTML = '';
+    compatibleProfiles.forEach(profile => {
+      const option = document.createElement('option');
+      option.value = profile.index;
+      option.textContent = liveProfileLabel(profile);
+      select.appendChild(option);
+    });
+    const saved = livePreferences.profileIndex;
+    const selected = compatibleProfiles.find(profile => profile.index === saved)
+      || compatibleProfiles.find(profile => profile.index === previous)
+      || compatibleProfiles.find(profile => profile.preferred)
+      || compatibleProfiles[0];
+    if (selected) select.value = String(selected.index);
+    select.disabled = compatibleProfiles.length === 0;
+    $('liveStart').disabled = compatibleProfiles.length === 0 || Boolean(livePlayer && livePlayer.running);
+    $('liveReload').disabled = compatibleProfiles.length === 0;
+    if (!compatibleProfiles.length) {
+      const option = document.createElement('option');
+      option.textContent = live.available
+        ? 'nenhum perfil H.264 compatível'
+        : 'aguardando perfis…';
+      select.appendChild(option);
+      setLiveOverlay(
+        live.available
+          ? 'A câmera não informou um perfil H.264 compatível com o relay integrado.'
+          : 'Aguardando os perfis ONVIF da câmera…',
+        false
+      );
+    }
+  }
+
+  if (relay.clientActive && livePlayer && livePlayer.running) {
+    if (liveVideo.classList.contains('ready')) {
+      setLivePlayerStatus(
+        liveMarkerCompatibilityNotified
+          ? 'Vídeo ativo; compatibilidade RTP aplicada automaticamente.'
+          : 'Relay HTTP, sessão RTSP e reprodução H.264 ativos.',
+        'ok'
+      );
+    }
+  } else if (relay.lastError && !liveReconnectTimer) {
+    setLivePlayerStatus(relay.lastError, 'warn');
+  }
+
+  if (
+    activeView === 'stream' &&
+    $('liveAutostart').checked &&
+    compatibleProfiles.length &&
+    !(livePlayer && livePlayer.running) &&
+    !liveReconnectTimer
+  ) {
+    liveShouldRun = true;
+    setTimeout(openLiveStream, 0);
+  }
+}
+
+$('liveStart').addEventListener('click', startLivePlayer);
+$('liveReload').addEventListener('click', () => {
+  liveShouldRun = true;
+  liveReconnectAttempt = 0;
+  openLiveStream();
+});
+$('liveStop').addEventListener('click', () => stopLivePlayer(true));
+$('liveProfile').addEventListener('change', () => {
+  saveLivePreferences();
+  if (liveShouldRun && activeView === 'stream') openLiveStream();
+});
+$('liveAutostart').addEventListener('change', () => {
+  saveLivePreferences();
+  if (!$('liveAutostart').checked && liveShouldRun) stopLivePlayer(false);
+  else if ($('liveAutostart').checked && activeView === 'stream') startLivePlayer();
+});
+
+function isLiveNativeFullscreen() {
+  return document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage;
+}
+
+function updateLiveFsButton() {
+  const active = isLiveNativeFullscreen() || liveStage.classList.contains('fs-fallback');
+  liveFsBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  liveFsBtn.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ver em tela cheia');
+  liveFsBtn.title = active ? 'Sair da tela cheia' : 'Tela cheia';
+  liveFsBtn.querySelector('.ic-expand').hidden = active;
+  liveFsBtn.querySelector('.ic-collapse').hidden = !active;
+}
+
+function exitLiveFallbackFullscreen() {
+  liveStage.classList.remove('fs-fallback');
+  document.body.classList.remove('fs-locked');
+  updateLiveFsButton();
+}
+
+function toggleLiveFullscreen() {
+  if (isLiveNativeFullscreen()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    return;
+  }
+  if (liveStage.classList.contains('fs-fallback')) {
+    exitLiveFallbackFullscreen();
+    return;
+  }
+  const request = liveStage.requestFullscreen || liveStage.webkitRequestFullscreen;
+  if (!request) {
+    liveStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateLiveFsButton();
+    return;
+  }
+  Promise.resolve(request.call(liveStage)).catch(() => {
+    liveStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateLiveFsButton();
+  });
+}
+
+liveFsBtn.addEventListener('click', toggleLiveFullscreen);
+liveVideo.addEventListener('dblclick', toggleLiveFullscreen);
+document.addEventListener('fullscreenchange', updateLiveFsButton);
+document.addEventListener('webkitfullscreenchange', updateLiveFsButton);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && liveStage.classList.contains('fs-fallback')) exitLiveFallbackFullscreen();
+});
+
+loadLivePreferences();
+updateLiveBrowserSupport();
 
 function activateSettingsSection(name, focusTab) {
   const available = [...document.querySelectorAll('[data-settings-section-panel]')];
@@ -1246,12 +1746,15 @@ function render(d) {
   }
 
   if (d.snapshot) {
+    const previewFps = d.ui && d.ui.previewMaximumFps ? d.ui.previewMaximumFps : 1;
     $('feedMeta').textContent = d.snapshot.healthy
-      ? 'Perfil ' + (d.snapshot.profile || 'ONVIF') + ' · último teste com '
-        + formatBytes(d.snapshot.bytesRead) + ' · ' + d.snapshot.served + ' quadros entregues'
+      ? 'Máximo ' + previewFps + ' FPS · perfil ' + (d.snapshot.profile || 'ONVIF')
+        + ' · último teste com ' + formatBytes(d.snapshot.bytesRead)
+        + ' · ' + d.snapshot.served + ' quadros entregues'
       : d.recovery && d.recovery.graceActive
-        ? 'A câmera está reiniciando; a prévia será retomada automaticamente'
-        : 'Imagem indisponível · ' + (d.snapshot.detail || 'aguardando novo teste');
+        ? 'Máximo ' + previewFps + ' FPS · a câmera está reiniciando; a prévia será retomada automaticamente'
+        : 'Máximo ' + previewFps + ' FPS · imagem indisponível · '
+          + (d.snapshot.detail || 'aguardando novo teste');
   }
 
   if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
@@ -1262,6 +1765,7 @@ function render(d) {
   $('availValue').textContent = c.totalChecks ? rate.toFixed(rate >= 99.95 ? 0 : 1) + '%' : '—';
 
   const p = d.probes;
+  renderLiveStatus(d.live, d.camera);
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
   setProbe('rtsp', p.rtspTcp, p.rtspProtocol, p.rtspStatus, p.rtspLatencyMs, 'RTSP');
   setImageProbe(d.snapshot, d.recovery);
@@ -1330,7 +1834,7 @@ setInterval(() => {
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = ['actions', 'settings', 'resources', 'feed'].includes(name)
+  const nextView = ['actions', 'settings', 'resources', 'stream', 'feed'].includes(name)
     ? name
     : 'camera';
   activeView = nextView;
@@ -1346,7 +1850,9 @@ function activateView(name, updateHash) {
       ? 'Configurações'
       : nextView === 'resources'
         ? 'Recursos'
-        : nextView === 'feed' ? 'Prévia' : 'Câmera';
+        : nextView === 'stream'
+          ? 'Ao Vivo'
+          : nextView === 'feed' ? 'Prévia' : 'Câmera';
   document.title = viewTitle + ' · Camera Watchdog';
 
   if (nextView === 'settings' || nextView === 'actions') loadSettings(false);
@@ -1374,6 +1880,16 @@ function activateView(name, updateHash) {
     feedFailures = 0;
   }
 
+  if (nextView === 'stream') {
+    updateLiveBrowserSupport();
+    if ($('liveAutostart').checked) startLivePlayer();
+    else stopLivePlayer(false);
+  } else {
+    if (isLiveNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    if (liveStage.classList.contains('fs-fallback')) exitLiveFallbackFullscreen();
+    stopLivePlayer(false);
+  }
+
   const nextHash = '#' + nextView;
   if (updateHash && location.hash !== nextHash) location.hash = nextHash;
 }
@@ -1391,14 +1907,17 @@ document.addEventListener('visibilitychange', () => {
     clearTimeout(feedTimer);
     clearTimeout(statusRefreshTimer);
     feedTimer = null;
+    if (activeView === 'stream') stopLivePlayer(false);
     return;
   }
 
   refresh();
   if (activeView === 'feed') scheduleFeed(0);
+  if (activeView === 'stream' && $('liveAutostart').checked) startLivePlayer();
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
 });
 
+stopLivePlayer(false);
 activateSettingsSection(activeSettingsSection, false);
 activateView(activeView, false);
 refresh();
