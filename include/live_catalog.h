@@ -264,27 +264,31 @@ size_t collectLiveProfiles(
     }
 
     int preferredIndex = -1;
+    uint32_t preferredPixels = UINT32_MAX;
+    uint32_t preferredBitrate = UINT32_MAX;
 
     for (size_t index = 0; index < count; index++) {
+        if (normalizedLiveEncoding(profiles[index].encoding) != "H264") {
+            continue;
+        }
+
+        const uint32_t pixels =
+            profiles[index].width > 0 && profiles[index].height > 0
+                ? static_cast<uint32_t>(profiles[index].width) *
+                    profiles[index].height
+                : UINT32_MAX;
+        const uint32_t bitrate = profiles[index].bitrateKbps > 0
+            ? profiles[index].bitrateKbps
+            : UINT32_MAX;
+
         if (
-            liveEncodingCompatible(profiles[index].encoding) &&
-            !String(CAMERA_SNAPSHOT_PROFILE_MATCH).isEmpty() &&
-            containsIgnoreCase(
-                profiles[index].name,
-                CAMERA_SNAPSHOT_PROFILE_MATCH
-            )
+            preferredIndex < 0 ||
+            pixels < preferredPixels ||
+            (pixels == preferredPixels && bitrate < preferredBitrate)
         ) {
             preferredIndex = static_cast<int>(index);
-            break;
-        }
-    }
-
-    if (preferredIndex < 0) {
-        for (size_t index = 0; index < count; index++) {
-            if (normalizedLiveEncoding(profiles[index].encoding) == "H264") {
-                preferredIndex = static_cast<int>(index);
-                break;
-            }
+            preferredPixels = pixels;
+            preferredBitrate = bitrate;
         }
     }
 
@@ -601,6 +605,12 @@ void appendLiveStatusJson(String& json)
 
     LiveRelayStats relayStats;
     liveStreamRelay.snapshotStats(relayStats);
+    const unsigned long mediaPacketAgeMs = relayStats.lastMediaPacketAtMs == 0
+        ? 0
+        : millis() - relayStats.lastMediaPacketAtMs;
+    const bool mediaRecentlyDelivered =
+        relayStats.lastMediaPacketAtMs != 0 &&
+        mediaPacketAgeMs <= LIVE_MEDIA_HEALTH_EVIDENCE_MS;
 
     LiveProfileStatusSnapshot profiles[MAX_LIVE_PROFILES];
     size_t profileCount = 0;
@@ -653,6 +663,14 @@ void appendLiveStatusJson(String& json)
     json += relayStats.running ? "true" : "false";
     json += ",\"clientActive\":";
     json += relayStats.clientActive ? "true" : "false";
+    json += ",\"mediaActive\":";
+    json += relayStats.mediaActive ? "true" : "false";
+    json += ",\"mediaRecentlyDelivered\":";
+    json += mediaRecentlyDelivered ? "true" : "false";
+    json += ",\"lastMediaPacketAgeSeconds\":";
+    json += relayStats.lastMediaPacketAtMs == 0
+        ? 0UL
+        : mediaPacketAgeMs / 1000UL;
     json += ",\"port\":";
     json += relayStats.port;
     json += ",\"sessions\":";
@@ -717,6 +735,12 @@ void configureLiveRelay()
         return;
     }
 
+    if (!ensureCameraIoMutex()) {
+        liveRelayStartResult = "Heap insuficiente para criar o mutex de I/O da camera";
+        Serial.println(liveRelayStartResult);
+        return;
+    }
+
     snprintf(
         liveRelayUserAgent,
         sizeof(liveRelayUserAgent),
@@ -727,6 +751,7 @@ void configureLiveRelay()
     liveRelayStarted = liveStreamRelay.begin(
         LIVE_STREAM_PORT,
         provideLiveStreamDescriptor,
+        cameraIoMutex,
         CAMERA_RTSP_USERNAME_VALUE,
         CAMERA_RTSP_PASSWORD_VALUE,
         liveRelayUserAgent

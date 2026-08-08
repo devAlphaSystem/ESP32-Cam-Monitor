@@ -1582,7 +1582,9 @@ RelaySessionResult relayRtspToBrowser(
     const LiveStreamDescriptor& descriptor,
     const char* username,
     const char* password,
-    const char* userAgent
+    const char* userAgent,
+    LiveRelayStats& relayStats,
+    portMUX_TYPE& statsMux
 )
 {
     RelaySessionResult result;
@@ -1837,6 +1839,12 @@ RelaySessionResult relayRtspToBrowser(
 
             result.packets++;
             result.bytes += length;
+            const uint32_t relayedAtMs = millis();
+
+            portENTER_CRITICAL(&statsMux);
+            relayStats.mediaActive = true;
+            relayStats.lastMediaPacketAtMs = relayedAtMs;
+            portEXIT_CRITICAL(&statsMux);
             continue;
         }
 
@@ -1868,6 +1876,7 @@ LiveStreamRelay::LiveStreamRelay() = default;
 bool LiveStreamRelay::begin(
     uint16_t port,
     LiveStreamDescriptorProvider descriptorProvider,
+    SemaphoreHandle_t cameraIoMutex,
     const char* username,
     const char* password,
     const char* userAgent
@@ -1876,6 +1885,7 @@ bool LiveStreamRelay::begin(
     if (
         port == 0 ||
         descriptorProvider == nullptr ||
+        cameraIoMutex == nullptr ||
         taskHandle_ != nullptr
     ) {
         return false;
@@ -1883,6 +1893,7 @@ bool LiveStreamRelay::begin(
 
     port_ = port;
     descriptorProvider_ = descriptorProvider;
+    cameraIoMutex_ = cameraIoMutex;
     username_ = username;
     password_ = password;
     userAgent_ = userAgent;
@@ -2024,7 +2035,17 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     LiveStreamDescriptor descriptor;
     String descriptorError;
 
+    if (xSemaphoreTakeRecursive(cameraIoMutex_, 0) != pdTRUE) {
+        sendHttpJson(
+            browserClient,
+            503,
+            "{\"ok\":false,\"error\":\"camera_busy\",\"detail\":\"Verificacao da camera em andamento\"}"
+        );
+        return;
+    }
+
     if (!descriptorProvider_(profileIndex, descriptor, descriptorError)) {
+        xSemaphoreGiveRecursive(cameraIoMutex_);
         String json = "{\"ok\":false,\"error\":\"profile_unavailable\",\"detail\":\"";
         json += jsonEscapeLocal(descriptorError);
         json += "\"}";
@@ -2033,11 +2054,13 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     }
 
     if (!sendStreamHeaders(browserClient)) {
+        xSemaphoreGiveRecursive(cameraIoMutex_);
         return;
     }
 
     portENTER_CRITICAL(&statsMux_);
     stats_.clientActive = true;
+    stats_.mediaActive = false;
     stats_.sessions++;
     portEXIT_CRITICAL(&statsMux_);
 
@@ -2055,7 +2078,9 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
         descriptor,
         username_,
         password_,
-        userAgent_
+        userAgent_,
+        stats_,
+        statsMux_
     );
 
     if (!result.error.isEmpty() && browserClient.connected()) {
@@ -2078,6 +2103,7 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
 
     portENTER_CRITICAL(&statsMux_);
     stats_.clientActive = false;
+    stats_.mediaActive = false;
     stats_.packetsRelayed += result.packets;
     stats_.bytesRelayed += result.bytes;
     stats_.oversizedPackets += result.oversizedPackets;
@@ -2091,4 +2117,5 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     }
 
     portEXIT_CRITICAL(&statsMux_);
+    xSemaphoreGiveRecursive(cameraIoMutex_);
 }

@@ -319,7 +319,7 @@ main{padding:14px 12px 36px}
   <div>
     <div class="gauge">
       <div class="arc" id="arc"></div>
-      <div class="hole"><div><b id="availValue">—</b><br><span>uptime</span></div></div>
+      <div class="hole"><div><b id="availValue">—</b><br><span>sucesso</span></div></div>
     </div>
   </div>
 </section>
@@ -541,10 +541,10 @@ main{padding:14px 12px 36px}
         <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, perfil JPEG e ritmo do painel.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
-          <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="sub"><small>Vazio usa o primeiro perfil; “sub” normalmente reduz a carga.</small></div>
+          <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
-          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo e padrão: 1 s; a prévia nunca solicita mais de um JPEG por segundo.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Mínimo e padrão: 1 s, limitando a prévia a no máximo 1 FPS.</small></div>
+          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo permitido: 1 s; padrão estável: 2 s.</small></div>
+          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Padrão: 2 s, limitando a prévia a 0,5 FPS.</small></div>
           <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
         </div>
       </section>
@@ -552,12 +552,12 @@ main{padding:14px 12px 36px}
       <section class="settings-card settings-panel" id="settingsMonitoringPanel" role="tabpanel" aria-labelledby="settingsMonitoringTab" data-settings-section-panel="monitoring" hidden>
         <div class="settings-card-h"><div><h2>Monitoramento</h2><p>Confirmação de falhas e recuperações.</p></div></div>
         <div class="form-grid">
-          <div class="field"><label for="cfgHealthCheckInterval">Intervalo entre verificações <span>10–3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Padrão: 30 s.</small></div>
-          <div class="field"><label for="cfgStartupGrace">Tolerância após ligar <span>0–600 s</span></label><input id="cfgStartupGrace" type="number" min="0" max="600" step="1" required><small>Padrão: 45 s.</small></div>
+          <div class="field"><label for="cfgHealthCheckInterval">Intervalo entre verificações <span>10–3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Padrão: 15 s.</small></div>
+          <div class="field"><label for="cfgStartupGrace">Tolerância após ligar <span>0–600 s</span></label><input id="cfgStartupGrace" type="number" min="0" max="600" step="1" required><small>Padrão: 90 s; também protege contra reboot durante a partida.</small></div>
           <div class="field"><label for="cfgFailuresBeforeRediscovery">Falhas para redescobrir <span>1–20</span></label><input id="cfgFailuresBeforeRediscovery" type="number" min="1" max="20" step="1" required><small>Padrão: 2.</small></div>
           <div class="field"><label for="cfgFailuresBeforeOffline">Falhas para declarar offline <span>1–20</span></label><input id="cfgFailuresBeforeOffline" type="number" min="1" max="20" step="1" required><small>Padrão: 3; deve ser igual ou maior que a redescoberta.</small></div>
           <div class="field"><label for="cfgSuccessesBeforeRecovery">Sucessos para confirmar recuperação <span>1–10</span></label><input id="cfgSuccessesBeforeRecovery" type="number" min="1" max="10" step="1" required><small>Padrão: 2.</small></div>
-          <div class="field"><label for="cfgVideoFailuresBeforeAlert">Falhas JPEG para alerta <span>1–20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Padrão: 3.</small></div>
+          <div class="field"><label for="cfgVideoFailuresBeforeAlert">Falhas JPEG para alerta <span>1–20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Padrão: 2.</small></div>
           <div class="field"><label for="cfgVideoFailuresBeforeReboot">Falhas JPEG para reboot <span>1–20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Padrão: 3; não pode anteceder o alerta.</small></div>
           <div class="estimate-box">Com estes valores: alerta de imagem em aproximadamente <b id="estimateAlert">—</b>, reboot em <b id="estimateReboot">—</b> e offline em <b id="estimateOffline">—</b>.</div>
         </div>
@@ -567,10 +567,10 @@ main{padding:14px 12px 36px}
         <div class="settings-card-h"><div><h2>Recuperação automática</h2><p>Limites contra ciclos de reinicialização.</p></div></div>
         <div class="form-grid">
           <div class="field"><div class="checkline"><input id="cfgAutoReboot" type="checkbox"><label for="cfgAutoReboot"><b>Permitir ONVIF SystemReboot automático</b><span>O reboot manual continua respeitando cooldown e limite da janela.</span></label></div></div>
-          <div class="field"><label for="cfgRebootGrace">Tolerância após reboot <span>30–600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Padrão: 90 s.</small></div>
-          <div class="field"><label for="cfgRebootCooldown">Cooldown entre reboots <span>5–1440 min</span></label><input id="cfgRebootCooldown" type="number" min="5" max="1440" step="1" required><small>Padrão: 15 min.</small></div>
-          <div class="field"><label for="cfgRebootWindow">Janela de contabilização <span>1–168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Padrão: 24 h; deve ser maior ou igual ao cooldown.</small></div>
-          <div class="field"><label for="cfgMaxReboots">Máximo de reboots na janela <span>1–20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Padrão: 3.</small></div>
+          <div class="field"><label for="cfgRebootGrace">Tolerância após reboot <span>30–600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Padrão: 60 s sem sondas, protegendo a partida da câmera.</small></div>
+          <div class="field"><label for="cfgRebootCooldown">Cooldown entre reboots <span>2–1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Padrão: 5 min.</small></div>
+          <div class="field"><label for="cfgRebootWindow">Janela de contabilização <span>1–168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Padrão: 1 h; somente comandos ONVIF aceitos consomem a cota.</small></div>
+          <div class="field"><label for="cfgMaxReboots">Máximo de reboots na janela <span>1–20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Padrão: 12 comandos aceitos; no máximo um a cada 5 min.</small></div>
         </div>
       </section>
 
@@ -582,7 +582,7 @@ main{padding:14px 12px 36px}
           <div class="field"><div class="checkline"><input id="cfgEmailIpChange" type="checkbox"><label for="cfgEmailIpChange"><b>Avisar quando a câmera mudar de IP</b><span>Aplicado somente quando os alertas por e-mail estiverem ativos.</span></label></div></div>
           <div class="field"><label for="cfgWifiTimeout">Timeout inicial do Wi-Fi <span>5–120 s</span></label><input id="cfgWifiTimeout" type="number" min="5" max="120" step="1" required><small>Usado no próximo boot.</small></div>
           <div class="field"><label for="cfgDiscoveryTimeout">Tempo do WS-Discovery <span>1–15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Padrão: 3,5 s.</small></div>
-          <div class="field"><label for="cfgRediscoveryInterval">Intervalo entre redescobertas <span>30–3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Padrão: 60 s.</small></div>
+          <div class="field"><label for="cfgRediscoveryInterval">Intervalo entre redescobertas <span>30–3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Padrão: 30 s.</small></div>
           <div class="field"><label for="cfgSubnetScanInterval">Intervalo entre varreduras <span>1–1440 min</span></label><input id="cfgSubnetScanInterval" type="number" min="1" max="1440" step="1" required><small>Padrão: 5 min.</small></div>
           <div class="field"><label for="cfgEmailRetry">Repetição de tentativa de e-mail <span>30–3600 s</span></label><input id="cfgEmailRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 60 s.</small></div>
         </div>
@@ -592,10 +592,10 @@ main{padding:14px 12px 36px}
         <div class="settings-card-h"><div><h2>Comunicação</h2><p>Timeouts e nova resolução do snapshot.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgTcpTimeout">Conexão TCP <span>200–5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Padrão: 900 ms.</small></div>
-          <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão: 1500 ms.</small></div>
+          <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão estável: 3000 ms.</small></div>
           <div class="field"><label for="cfgScanTimeout">Conexão durante varredura <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Padrão: 90 ms.</small></div>
-          <div class="field"><label for="cfgSnapshotTimeout">Timeout do JPEG <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Padrão: 7 s.</small></div>
-          <div class="field"><label for="cfgSnapshotResolveRetry">Nova resolução do URI <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Padrão: 30 s.</small></div>
+          <div class="field"><label for="cfgSnapshotTimeout">Timeout do JPEG <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Padrão: 5 s.</small></div>
+          <div class="field"><label for="cfgSnapshotResolveRetry">Nova resolução do URI <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Padrão: 15 s.</small></div>
           <div class="field"><label for="cfgSnapshotFailuresReresolve">Falhas antes de resolver o URI <span>1–10</span></label><input id="cfgSnapshotFailuresReresolve" type="number" min="1" max="10" step="1" required><small>Padrão: 2.</small></div>
         </div>
       </section>
@@ -649,7 +649,7 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
-<script src="/assets/live-player.js?v=0.6.2"></script>
+<script src="/assets/live-player.js?v=0.7.0"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -673,8 +673,8 @@ function viewFromHash() {
 
 let activeView = viewFromHash();
 let activeSettingsSection = 'identification';
-let feedMinimumIntervalMs = 1000;
-let feedTargetCycleMs = 1000;
+let feedMinimumIntervalMs = 2000;
+let feedTargetCycleMs = 2000;
 let statusRefreshIntervalMs = 3000;
 let statusRefreshTimer;
 let settingsLoaded = false;
@@ -735,7 +735,9 @@ function renderResources(d) {
   $('resourcesState').textContent = toneValues[0];
   $('resourcesChip').textContent = resources.chip.model + ' rev. ' + resources.chip.revision;
   $('resourcesMeta').textContent = resources.chip.cores + ' núcleos · '
-    + resources.chip.cpuFrequencyMHz + ' MHz · ligado há ' + duration(d.uptimeSeconds);
+    + resources.chip.cpuFrequencyMHz + ' MHz · último reset: '
+    + (resources.chip.resetReason || 'desconhecido') + ' · ligado há '
+    + duration(d.uptimeSeconds);
   $('resourcesArc').style.setProperty('--p', heapPercent);
   $('resourcesHeapPercent').textContent = Math.round(heapPercent) + '%';
 
@@ -830,6 +832,14 @@ function setImageProbe(snapshot, recovery) {
     value.className = 'card-v info';
     pip('p-image', 'info');
     meta.textContent = 'o primeiro JPEG ainda não foi testado';
+    return;
+  }
+
+  if (!snapshot.conclusive) {
+    value.textContent = 'teste adiado';
+    value.className = 'card-v info';
+    pip('p-image', 'info');
+    meta.textContent = snapshot.detail || 'aguardando uma amostra JPEG conclusiva';
     return;
   }
 
@@ -1225,8 +1235,9 @@ function renderLiveStatus(live, camera) {
   const relay = live.relay || {};
   const relayState = !relay.started
     ? 'não iniciado'
-    : relay.clientActive
+    : relay.mediaActive
       ? 'transmitindo'
+      : relay.clientActive ? 'conectando à câmera'
       : relay.running ? 'aguardando navegador' : 'parado';
   $('liveRelayState').textContent = relayState
     + (relay.lastError ? ' · ' + relay.lastError : '');
@@ -1517,7 +1528,8 @@ function populateSettings(payload) {
   $('settingsSource').textContent = payload.source === 'nvs'
     ? 'configurações salvas na NVS'
     : 'valores padrão de fábrica';
-  $('settingsMeta').textContent = 'esquema ' + payload.schemaVersion + ' · revisão ' + payload.revision
+  $('settingsMeta').textContent = 'esquema ' + payload.schemaVersion
+    + ' · padrões ' + (payload.defaultsRevision || 0) + ' · revisão ' + payload.revision
     + ' · ' + (payload.lastResult || 'configurações carregadas');
 
   feedMinimumIntervalMs = Number(values.feedMinIntervalMs) || feedMinimumIntervalMs;
@@ -1753,6 +1765,8 @@ function render(d) {
         + ' · ' + d.snapshot.served + ' quadros entregues'
       : d.recovery && d.recovery.graceActive
         ? 'Máximo ' + previewFps + ' FPS · a câmera está reiniciando; a prévia será retomada automaticamente'
+        : !d.snapshot.conclusive
+          ? 'Máximo ' + previewFps + ' FPS · teste JPEG aguardando nova amostra conclusiva'
         : 'Máximo ' + previewFps + ' FPS · imagem indisponível · '
           + (d.snapshot.detail || 'aguardando novo teste');
   }
@@ -1779,11 +1793,14 @@ function render(d) {
   $('m-wifi').textContent = d.wifi.connected ? d.wifi.ssid + ' · gateway ' + d.wifi.gateway : 'tentando reconectar';
   pip('p-wifi', level >= 3 ? 'ok' : level === 2 ? 'warn' : 'bad');
 
-  const currentSequence = c.consecutiveFailures
-    ? plural(c.consecutiveFailures, 'falha consecutiva', 'falhas consecutivas')
-    : plural(c.consecutiveSuccesses, 'sucesso seguido', 'sucessos seguidos');
+  const currentSequence = c.consecutiveInconclusiveChecks
+    ? plural(c.consecutiveInconclusiveChecks, 'teste inconclusivo seguido', 'testes inconclusivos seguidos')
+    : c.consecutiveFailures
+      ? plural(c.consecutiveFailures, 'falha consecutiva', 'falhas consecutivas')
+      : plural(c.consecutiveSuccesses, 'sucesso seguido', 'sucessos seguidos');
   $('v-checks').textContent = c.totalChecks;
   $('m-checks').textContent = plural(c.failedChecks, 'falha no total', 'falhas no total') + ' · '
+    + (c.inconclusiveChecks ? plural(c.inconclusiveChecks, 'inconclusiva', 'inconclusivas') + ' · ' : '')
     + currentSequence;
 
   $('l-event').textContent = d.lastEvent;
@@ -1793,10 +1810,16 @@ function render(d) {
     + (d.recovery.graceActive ? ' · aguardando ' + duration(d.recovery.graceRemainingSeconds) : '');
   $('l-disc').textContent = d.lastDiscovery;
   $('l-scan').textContent = d.lastSubnetScan;
-  $('l-mail').innerHTML = (d.resendConfigured
-    ? '<span class="tag ok">Resend ativo</span> '
-    : '<span class="tag bad">Resend não configurado</span> ')
-    + (c.emailsSent + ' enviados, ' + c.emailErrors + ' erros — ') + d.lastEmailResult;
+  const mailResult = $('l-mail');
+  const mailTag = document.createElement('span');
+  mailTag.className = 'tag ' + (d.resendConfigured ? 'ok' : 'bad');
+  mailTag.textContent = d.resendConfigured ? 'Resend ativo' : 'Resend não configurado';
+  mailResult.replaceChildren(
+    mailTag,
+    document.createTextNode(
+      ' ' + c.emailsSent + ' enviados, ' + c.emailErrors + ' erros — ' + d.lastEmailResult
+    )
+  );
 
   $('raw').textContent = JSON.stringify(d, null, 2);
   $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + d.firmwareVersion
