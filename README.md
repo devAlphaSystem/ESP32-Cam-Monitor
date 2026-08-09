@@ -1,16 +1,19 @@
-# ESP32 Camera Watchdog 0.7.0
+# ESP32 Camera Watchdog 0.8.2
 
 Firmware para ESP32 que monitora uma câmera IP ONVIF/RTSP, oferece painel web local, valida snapshots JPEG, retransmite vídeo H.264 para o navegador e tenta recuperar automaticamente a câmera com `ONVIF SystemReboot`.
 
-A versão `0.7.0` reformula o monitoramento e a recuperação. Ela separa falha de snapshot de indisponibilidade total de vídeo, evita sobrecarregar câmeras instáveis e substitui o limitador antigo de três reboots por dia por uma política compatível com recuperação contínua.
+A versão `0.8.2` prioriza a reprodução real: reduz as sondas RTSP quando uma evidência recente já validou a câmera, alterna automaticamente entre perfis H.264 e só solicita quadro-chave depois que a sessão entrega o primeiro pacote RTP.
 
 ## Recursos
 
 - descoberta ONVIF por WS-Discovery e varredura opcional da sub-rede;
+- catálogo dinâmico por `GetServices`, com validação dos endpoints no IP da câmera;
+- inventário de capacidades, identificação, scopes e tópicos de eventos ONVIF;
 - persistência da câmera e das configurações na NVS;
 - sondas ONVIF, RTSP e JPEG com telemetria de latência;
 - seleção automática de perfil JPEG e failover entre perfis;
 - relay HTTP/RTP de vídeo H.264 para reprodução MSE/fMP4 no navegador;
+- solicitação best-effort de quadro-chave com `SetSynchronizationPoint` após o primeiro RTP;
 - reconhecimento de pacotes RTP reais como evidência de vídeo ativo;
 - recuperação automática por `ONVIF SystemReboot`;
 - cooldown e limite de comandos de reboot aceitos;
@@ -20,26 +23,33 @@ A versão `0.7.0` reformula o monitoramento e a recuperação. Ela separa falha 
 - LED local de estado no GPIO 2;
 - diagnóstico JSON com heap, flash, Wi-Fi, câmera, relay, incidentes, contadores e motivo do último reset do ESP32.
 
-## O que mudou na versão 0.7.0
+## O que mudou na versão 0.8.2
 
-- ciclo de saúde reduzido de 30 para 15 segundos;
-- perfil de snapshot padrão alterado de `sub` para `snap`;
-- perfis JPEG passam a ter prioridade real;
-- o perfil H.264 de menor carga é escolhido separadamente para o vídeo ao vivo;
-- falhas HTTP 500 acionam failover de perfil antes do reboot;
-- espera de backoff não é mais contabilizada como falha JPEG;
-- timeouts de `GetProfiles` e `GetSnapshotUri`, inclusive corpo HTTP 200 interrompido, passam a ser recuperáveis após repetição;
-- a prévia do navegador não altera mais os contadores internos do monitor;
-- sessão RTP ativa evita sondas e reboots paralelos;
-- relay, monitor, prévia e ações usam exclusão mútua de I/O da câmera;
-- somente comandos `SystemReboot` aceitos consomem a cota da janela;
-- a graça pós-reboot não executa sondas nem incrementa falhas;
-- falha de Wi-Fi durante o boot não impede a inicialização posterior do painel;
-- migração dirigida atualiza os antigos valores padrão salvos na NVS;
-- respostas ONVIF e Resend são lidas com limite de memória;
-- o painel não injeta mais o corpo remoto do Resend via `innerHTML`;
-- o diagnóstico informa `resources.chip.resetReason` e `resetReasonCode`;
-- versão do firmware e cache do player atualizados para `0.7.0`.
+- o player alterna automaticamente para outro perfil H.264 quando o selecionado não entrega mídia;
+- receber apenas SDP não zera mais o backoff: a reconexão só é considerada estável depois que o navegador reproduz vídeo;
+- um canário RTP bem-sucedido adia novas sondas por 60 segundos quando não existe incidente;
+- a Prévia passa a usar intervalo de fábrica de 5 segundos, reduzindo em 60% os GETs em relação ao padrão anterior de 2 segundos;
+- `SetSynchronizationPoint` só é enviado depois do primeiro pacote RTP, evitando bloquear uma sessão ainda sem mídia;
+
+Mantém também as correções conservadoras introduzidas na versão 0.8.1:
+
+- `GetServices(true)` substitui o caminho de mídia fixo quando a câmera anuncia seus serviços;
+- XAddr só é aceito em HTTP, sem credenciais embutidas e no mesmo IP já selecionado;
+- `GetDeviceInformation`, `GetScopes`, `GetSystemDateAndTime` e `GetEventProperties` são consultados uma vez por alvo;
+- `SetSynchronizationPoint` é solicitado após o primeiro RTP, com timeout de 0,5 s por tentativa; uma nova sessão pode solicitá-lo novamente após 5 s de um sucesso, enquanto uma falha aplica backoff de 5 min; o resultado nunca encerra a sessão;
+- RTP entregue nos últimos 30 segundos continua sendo evidência de saúde durante reconexões;
+- dois ciclos de RTP saudável encerram também um incidente anterior de snapshot;
+- uma Prévia entregue recentemente substitui a sonda JPEG duplicada do health-check;
+- fechamento da aba passa a ser telemetria neutra (`clientAborts`), não erro da câmera;
+- reboot automático exige falha JPEG e três varreduras completas em que todos os perfis H.264 compatíveis aceitam `PLAY`, recebem ao menos 0,5 s de observação e não entregam RTP;
+- o canário distribui os perfis entre ciclos e limita a contenção total do canal da câmera a 6 s por verificação;
+- o limitador de reboots usa uma janela móvel baseada apenas em comandos aceitos;
+- sequências conclusivas são zeradas quando um reboot é aceito;
+- ciclos inconclusivos preservam o último estado definitivo quando ainda não existe incidente;
+- o LED pisca por incidente confirmado, offline, recuperação ou perda de Wi-Fi, não por contenção transitória;
+- horários humanos usam automaticamente o timezone do navegador; UTC permanece no JSON e no WS-Security;
+- o diagnóstico expõe catálogo ONVIF, tópicos, sincronização, origem da última evidência de saúde e motivo do LED;
+- versão do firmware e cache do player atualizados para `0.8.2`.
 
 ## Requisitos
 
@@ -146,12 +156,13 @@ A cada ciclo, o firmware executa esta sequência:
 
 1. verifica Wi-Fi e o período de graça pós-reboot;
 2. consulta o relay;
-3. considera sucesso quando uma sessão ativa entregou RTP recentemente;
-4. impede I/O concorrente entre relay, health-check, prévia e ações manuais;
-5. verifica os protocolos ONVIF e RTSP;
-6. resolve o perfil e o URI de snapshot quando necessário;
-7. baixa e valida um JPEG completo;
-8. atualiza contadores, incidente, alerta e recuperação.
+3. considera sucesso quando o relay entregou RTP nos últimos 30 segundos;
+4. reutiliza um JPEG completo entregue recentemente pela Prévia;
+5. impede I/O concorrente entre relay, health-check, prévia e ações manuais;
+6. verifica ONVIF e a URI RTSP real com `DESCRIBE` quando disponível;
+7. resolve o perfil e o URI de snapshot quando necessário;
+8. baixa e valida um JPEG completo quando ainda falta evidência recente;
+9. atualiza contadores, incidente, alerta e recuperação.
 
 Os incidentes são separados:
 
@@ -182,7 +193,7 @@ Uma espera de retry, um catálogo ocupado ou uma resolução adiada é inconclus
 | Falhas antes de trocar o perfil | 2 |
 | Ciclo padrão da prévia | 2 s, até 0,5 FPS |
 
-O alerta normalmente ocorre após cerca de 30 segundos de falhas conclusivas. Dependendo do failover de perfil, o primeiro reboot pode ocorrer aproximadamente entre 45 e 60 segundos depois do início da falha, respeitando a graça inicial e o cooldown.
+O alerta normalmente ocorre após cerca de 30 segundos de falhas conclusivas. Um reboot só fica elegível quando o snapshot falha e três varreduras completas do canário RTP confirmam silêncio em todos os perfis H.264 compatíveis, além do failover de perfil, da graça inicial e do cooldown.
 
 ## Failover de snapshot
 
@@ -211,7 +222,8 @@ Regras importantes:
 - tentativas rejeitadas aplicam cooldown para evitar martelamento;
 - a cota não é apagada apenas porque a câmera voltou por alguns segundos;
 - durante a graça pós-reboot não são realizadas sondas;
-- RTP ativo impede reboot automático;
+- RTP recente ou recebido pelo canário independente impede reboot automático;
+- falha isolada do snapshot nunca autoriza `SystemReboot`;
 - autenticação, HTTP 4xx, recurso não suportado e configuração inválida não são tratados como falhas recuperáveis da câmera.
 
 ### Limitação física
@@ -225,19 +237,19 @@ Se a câmera travar completamente e deixar de responder pela rede, o ESP32 não 
 As configurações editadas no painel são validadas e gravadas no namespace NVS `camcfg`.
 
 - esquema persistido: `1`;
-- revisão dos defaults: `1`;
+- revisão dos defaults: `2`;
 - chave principal: `runtime`;
 - chave da revisão de defaults: `defaults_rev`.
 
-Na primeira inicialização da versão 0.7.0, valores que ainda forem exatamente iguais aos antigos defaults são migrados. Valores personalizados diferentes dos defaults antigos são preservados.
+Na primeira inicialização da versão 0.8.2, intervalos da Prévia que ainda forem exatamente iguais aos defaults anteriores são migrados para 5 segundos. Valores personalizados diferentes dos defaults antigos são preservados.
 
 O diagnóstico esperado depois da migração contém:
 
 ```json
 {
-  "firmwareVersion": "0.7.0",
+  "firmwareVersion": "0.8.2",
   "settings": {
-    "defaultsRevision": 1,
+    "defaultsRevision": 2,
     "source": "nvs",
     "lastResult": "Configuracoes carregadas; novos padroes de conectividade aplicados"
   }
@@ -273,9 +285,11 @@ Os campos mais úteis de `/api/status` são:
 - `firmwareVersion` e `settings.defaultsRevision`;
 - `resources.heap`, `resources.flash` e `resources.chip.resetReason`;
 - `wifi.rssi`, IP e gateway;
-- `probes.onvif*` e `probes.rtsp*`;
-- `snapshot.conclusive`, `resolutionTransportFailure`, `profileFailoverPending`, `status` e `detail`;
-- `live.relay.mediaActive`, `mediaRecentlyDelivered`, pacotes e bytes;
+- `probes.onvif*`, `probes.rtsp*` e `mediaCanary`;
+- `onvif.services`, `capabilities`, `deviceInfo` e `events`;
+- `snapshot.conclusive`, `cameraHttpRequests`, `clientAborts`, `healthEvidenceUses`, `bytesRelayed` e `detail`;
+- `healthEvidence.source` e `healthEvidence.ageSeconds`, que registram a última decisão positiva do monitor;
+- `live.relay.mediaActive`, `mediaRecentlyDelivered`, sincronização, pacotes e bytes;
 - `incident.kind` e duração;
 - `recovery.attemptsInWindow`, `maxAttemptsInWindow`, graça e último resultado;
 - contadores de sucesso, falha, inconclusivos e sequências atuais.
@@ -356,13 +370,15 @@ Ao alterar `live_player.js`, mantenha o conteúdo correspondente em `live_player
 
 1. compile o ambiente `esp32dev`;
 2. grave o firmware e abra o monitor serial em 115200 baud;
-3. confirme `firmwareVersion: 0.7.0` em `/api/status`;
+3. confirme `firmwareVersion: 0.8.2` em `/api/status`;
 4. confirme a migração NVS em `settings.lastResult`;
 5. abra a Prévia e o Ao Vivo separadamente;
-6. valide que `mediaActive` fica verdadeiro enquanto há pacotes RTP;
-7. simule falha do endpoint JPEG e observe o failover;
-8. confirme que um reboot aceito inicia 60 segundos de graça silenciosa;
-9. confira o motivo do reset do ESP32 após reinicializações inesperadas.
+6. valide `onvif.serviceCount`, tópicos de eventos e endpoints normalizados;
+7. confirme que `mediaActive` fica verdadeiro enquanto há pacotes RTP;
+8. confirme um `syncAccepted` depois do primeiro RTP ou uma falha best-effort sem interromper o vídeo;
+9. simule falha do endpoint JPEG e observe o failover sem reboot quando RTSP continuar acessível;
+10. confirme que um reboot aceito inicia 60 segundos de graça silenciosa;
+11. confira o motivo do reset do ESP32 após reinicializações inesperadas.
 
 ## Licença
 

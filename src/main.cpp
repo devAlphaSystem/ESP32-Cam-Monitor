@@ -49,7 +49,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.7.0";
+constexpr char FIRMWARE_VERSION[] = "0.8.2";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -57,6 +57,8 @@ constexpr char SETTINGS_NVS_KEY[] = "runtime";
 constexpr char SETTINGS_DEFAULTS_REVISION_KEY[] = "defaults_rev";
 constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
 constexpr unsigned long ADMIN_RESTART_DELAY_MS = 1200UL;
+constexpr unsigned long ONVIF_CATALOG_FALLBACK_RETRY_MS =
+    5UL * 60UL * 1000UL;
 
 const IPAddress WS_DISCOVERY_MULTICAST(239, 255, 255, 250);
 
@@ -89,6 +91,29 @@ enum class AdminAction {
     CameraReboot,
     ResetRebootLimiter,
     RestartEsp32
+};
+
+enum class OnvifMetadataStage {
+    DeviceInformation,
+    Scopes,
+    SystemTime,
+    EventProperties,
+    Complete
+};
+
+enum class MediaCanaryOutcome {
+    MediaReceived,
+    AllProfilesSilentAfterPlay,
+    SweepPending,
+    Inconclusive
+};
+
+enum class HealthEvidenceSource {
+    None,
+    SnapshotJpeg,
+    PreviewJpeg,
+    RelayRtp,
+    MediaCanaryRtp
 };
 
 struct RuntimeSettings {
@@ -297,9 +322,74 @@ struct CameraTarget {
     String scopes;
 };
 
+struct OnvifServiceEndpoint {
+    bool available = false;
+    String url;
+    uint16_t majorVersion = 0;
+    uint16_t minorVersion = 0;
+};
+
+struct OnvifServiceCatalog {
+    bool resolved = false;
+    bool usedMediaFallback = false;
+    bool usernameToken = false;
+    bool httpDigest = false;
+    bool mediaSnapshotUri = false;
+    bool mediaRtpRtspTcp = false;
+    bool media2RtspStreaming = false;
+    bool eventsPullPoint = false;
+    bool ptzStatus = false;
+    bool imagingStabilizationAdvertised = false;
+    bool analyticsRules = false;
+    bool analyticsModules = false;
+    uint16_t serviceCount = 0;
+    uint32_t attempts = 0;
+    uint32_t successes = 0;
+    uint32_t failures = 0;
+    uint32_t rejectedEndpoints = 0;
+    uint32_t lastLatencyMs = 0;
+    unsigned long resolvedAtMs = 0;
+    int lastStatusCode = 0;
+    String lastResult = "Ainda nao consultado";
+    OnvifServiceEndpoint device;
+    OnvifServiceEndpoint media1;
+    OnvifServiceEndpoint media2;
+    OnvifServiceEndpoint events;
+    OnvifServiceEndpoint ptz;
+    OnvifServiceEndpoint imaging;
+    OnvifServiceEndpoint analytics;
+    OnvifServiceEndpoint deviceIo;
+};
+
+struct OnvifDeviceMetadata {
+    bool loaded = false;
+    bool scopesLoaded = false;
+    bool timeLoaded = false;
+    bool eventPropertiesLoaded = false;
+    bool profileStreaming = false;
+    bool profileT = false;
+    bool motionEvents = false;
+    bool tamperEvents = false;
+    bool signalLossEvents = false;
+    bool imageQualityEvents = false;
+    uint16_t scopeCount = 0;
+    uint16_t eventTopicCount = 0;
+    uint16_t eventDescriptionCount = 0;
+    uint32_t requests = 0;
+    uint32_t failures = 0;
+    unsigned long loadedAtMs = 0;
+    String manufacturer;
+    String model;
+    String firmware;
+    String dateTimeType;
+    String timeZone;
+    String lastResult = "Ainda nao consultado";
+};
+
 struct ServiceProbe {
     bool tcpConnected = false;
     bool protocolResponded = false;
+    bool mediaRouteTested = false;
     int statusCode = 0;
     uint32_t latencyMs = 0;
 };
@@ -392,8 +482,13 @@ String lastAdminActionResult = "Nenhuma acao administrativa executada";
 unsigned long espRestartRequestedAtMs = 0;
 
 CameraTarget camera;
+OnvifServiceCatalog onvifServices;
+OnvifDeviceMetadata onvifMetadata;
+OnvifMetadataStage onvifMetadataStage =
+    OnvifMetadataStage::DeviceInformation;
 SnapshotTarget snapshotTarget;
 SnapshotProbe lastSnapshotProbe;
+LiveMediaProbeResult lastMediaCanaryProbe;
 ServiceProbe lastOnvifProbe;
 ServiceProbe lastRtspProbe;
 CameraState cameraState = CameraState::Starting;
@@ -427,8 +522,20 @@ uint32_t emailsSent = 0;
 uint32_t emailErrors = 0;
 uint32_t snapshotsServed = 0;
 uint32_t snapshotErrors = 0;
+uint32_t previewCameraFetches = 0;
+uint32_t previewBusyResponses = 0;
+uint64_t previewBytesRelayed = 0;
+uint32_t cameraJpegHttpRequests = 0;
 uint32_t snapshotProbeRuns = 0;
 uint32_t snapshotProbeFailures = 0;
+uint32_t mediaCanaryCycles = 0;
+uint32_t mediaCanaryRuns = 0;
+uint32_t mediaCanarySuccesses = 0;
+uint32_t mediaCanaryFailures = 0;
+uint32_t mediaCanaryInconclusive = 0;
+uint32_t mediaCanarySweepPending = 0;
+uint32_t previewClientAborts = 0;
+uint32_t previewHealthEvidenceUses = 0;
 uint32_t cameraRebootAttempts = 0;
 uint32_t cameraRebootAccepted = 0;
 uint32_t cameraRebootErrors = 0;
@@ -440,8 +547,13 @@ uint8_t consecutiveSuccesses = 0;
 uint8_t consecutiveControlFailures = 0;
 uint8_t consecutiveInconclusiveChecks = 0;
 uint8_t consecutiveMediaServiceFailures = 0;
+uint8_t consecutiveIndependentMediaFailures = 0;
 uint8_t snapshotTargetFailureStreak = 0;
 uint8_t cameraRebootAttemptsInWindow = 0;
+uint8_t onvifMetadataStageFailureStreak = 0;
+unsigned long cameraRebootAcceptedAtMs[
+    MAX_ONVIF_REBOOT_ATTEMPTS_MAX
+] = {0};
 
 bool incidentAlertSent = false;
 bool pendingIncidentEmail = false;
@@ -466,12 +578,39 @@ String lastSnapshotResult = "Ainda nao solicitada";
 String lastCameraRebootResult = "Ainda nao solicitado";
 String snapshotProfileTokenToSkip;
 unsigned long lastSnapshotResolveAttemptAtMs = 0;
+unsigned long lastBrowserSnapshotDeliveredAtMs = 0;
+unsigned long lastRelayMediaEvidenceConsumedAtMs = 0;
+unsigned long lastHealthEvidenceAtMs = 0;
+unsigned long lastOnvifMetadataRequestAtMs = 0;
+unsigned long lastMediaCanaryAtMs = 0;
+size_t lastMediaCanaryProfileIndex = 0;
+size_t mediaCanaryNextProfileOffset = 0;
+uint8_t lastMediaCanaryProfilesTested = 0;
+uint16_t mediaCanarySilentProfilesMask = 0;
+unsigned long mediaCanarySilentProfileAtMs[MAX_LIVE_PROFILES] = {0};
+static_assert(
+    MAX_LIVE_PROFILES <= 16,
+    "Mascara do canario RTP suporta no maximo 16 perfis"
+);
+uint32_t lastBrowserSnapshotBytes = 0;
+uint32_t lastBrowserSnapshotLatencyMs = 0;
 int lastSnapshotResolveStatusCode = 0;
 bool lastSnapshotResolveTransportFailure = false;
 bool snapshotProfileFailoverPending = false;
+bool lastOnvifMetadataRequestFailed = false;
+HealthEvidenceSource lastHealthEvidenceSource = HealthEvidenceSource::None;
 
 void saveCameraTarget();
+void invalidateOnvifServiceCatalog();
+bool resolveOnvifServiceCatalog(bool forceRefresh = false);
+void refreshOnvifDeviceMetadata();
+bool requestLiveSynchronizationPoint(
+    const char* profileToken,
+    String& result
+);
 void invalidateLiveProfiles();
+void clearMediaCanaryFailureEvidence();
+void resetMediaCanaryFailureEvidence();
 void publishLiveProfilesFromXml(
     const String& profilesXml,
     const String& mediaUrl,
@@ -800,6 +939,8 @@ bool migrateLegacyConnectivityDefaults(RuntimeSettings& values)
     MIGRATE_LEGACY_DEFAULT(snapshotResolveRetryIntervalMs, 30000UL);
     MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 1000UL);
     MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 1000UL);
+    MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 2000UL);
+    MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 2000UL);
 
 #undef MIGRATE_LEGACY_DEFAULT
 
@@ -1075,6 +1216,24 @@ const char* incidentName(IncidentKind kind)
     return "unknown";
 }
 
+const char* healthEvidenceSourceName(HealthEvidenceSource source)
+{
+    switch (source) {
+        case HealthEvidenceSource::None:
+            return "none";
+        case HealthEvidenceSource::SnapshotJpeg:
+            return "snapshot_jpeg";
+        case HealthEvidenceSource::PreviewJpeg:
+            return "preview_jpeg";
+        case HealthEvidenceSource::RelayRtp:
+            return "relay_rtp";
+        case HealthEvidenceSource::MediaCanaryRtp:
+            return "media_canary_rtp";
+    }
+
+    return "unknown";
+}
+
 void beginOrEscalateIncident(IncidentKind kind)
 {
     if (kind == IncidentKind::None) {
@@ -1083,6 +1242,7 @@ void beginOrEscalateIncident(IncidentKind kind)
 
     if (activeIncident == IncidentKind::None) {
         activeIncident = kind;
+        consecutiveSuccesses = 0;
         incidentStartedAtMs = millis();
         incidentAlertSent = false;
         pendingIncidentEmail = false;
@@ -1094,6 +1254,7 @@ void beginOrEscalateIncident(IncidentKind kind)
         kind == IncidentKind::CameraOffline
     ) {
         activeIncident = kind;
+        consecutiveSuccesses = 0;
 
         if (incidentAlertSent) {
             incidentAlertSent = false;
@@ -1109,6 +1270,7 @@ void beginOrEscalateIncident(IncidentKind kind)
         !incidentAlertSent
     ) {
         activeIncident = kind;
+        consecutiveSuccesses = 0;
     }
 }
 
@@ -1169,7 +1331,11 @@ void updateCameraAlertLed()
         return;
     }
 
-    const bool shouldBlink = cameraState != CameraState::Online;
+    const bool shouldBlink =
+        WiFi.status() != WL_CONNECTED ||
+        cameraState == CameraState::Offline ||
+        cameraState == CameraState::Recovering ||
+        activeIncident != IncidentKind::None;
 
     if (!shouldBlink) {
         cameraAlertLedBlinking = false;
@@ -1448,14 +1614,35 @@ unsigned long cameraRebootGraceRemainingMs()
 void refreshCameraRebootWindow()
 {
     const unsigned long now = millis();
+    uint8_t activeCount = 0;
 
-    if (
-        cameraRebootWindowStartedAtMs == 0 ||
-        now - cameraRebootWindowStartedAtMs >= ONVIF_REBOOT_WINDOW_MS
+    for (
+        uint8_t index = 0;
+        index < cameraRebootAttemptsInWindow;
+        index++
     ) {
-        cameraRebootWindowStartedAtMs = now;
-        cameraRebootAttemptsInWindow = 0;
+        const unsigned long acceptedAtMs = cameraRebootAcceptedAtMs[index];
+
+        if (
+            acceptedAtMs != 0 &&
+            now - acceptedAtMs < ONVIF_REBOOT_WINDOW_MS
+        ) {
+            cameraRebootAcceptedAtMs[activeCount++] = acceptedAtMs;
+        }
     }
+
+    for (
+        uint8_t index = activeCount;
+        index < MAX_ONVIF_REBOOT_ATTEMPTS_MAX;
+        index++
+    ) {
+        cameraRebootAcceptedAtMs[index] = 0;
+    }
+
+    cameraRebootAttemptsInWindow = activeCount;
+    cameraRebootWindowStartedAtMs = activeCount > 0
+        ? cameraRebootAcceptedAtMs[0]
+        : 0;
 }
 
 String durationText(unsigned long durationMs)
@@ -1870,6 +2057,7 @@ int openAuthenticatedCameraGet(
             return -1;
         }
 
+        cameraJpegHttpRequests++;
         request.addHeader("Accept", "image/jpeg, image/*;q=0.9, */*;q=0.1");
         applyCameraAuthorization(request, digestAuthorization);
         return request.GET();
@@ -2154,6 +2342,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
         consecutiveSuccesses = 0;
         consecutiveInconclusiveChecks = 0;
         consecutiveMediaServiceFailures = 0;
+        consecutiveIndependentMediaFailures = 0;
         lastSnapshotProbe = SnapshotProbe{};
         lastSnapshotResult = "Perfil alterado; aguardando novo teste JPEG";
     }
@@ -2161,6 +2350,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
     if (previous.cameraRtspPort != settings.cameraRtspPort) {
         camera.rtspPort = settings.cameraRtspPort;
         invalidateLiveProfiles();
+        consecutiveIndependentMediaFailures = 0;
 
         if (camera.valid) {
             saveCameraTarget();
@@ -3083,6 +3273,7 @@ bool applyBestDiscoveredCandidate()
     const String oldIp = camera.valid ? camera.ip.toString() : "";
     camera = discovered[bestIndex].target;
     invalidateSnapshotTarget();
+    invalidateOnvifServiceCatalog();
     resetSnapshotProfileFailover();
     invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = 0;
@@ -3091,6 +3282,7 @@ bool applyBestDiscoveredCandidate()
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
+    consecutiveIndependentMediaFailures = 0;
     snapshotTargetFailureStreak = 0;
     saveCameraTarget();
 
@@ -3326,6 +3518,7 @@ bool resolveCameraOnvifEndpoint()
         camera.onvifUrl = candidate.onvifUrl;
         lastOnvifProbe = candidateProbe;
         invalidateSnapshotTarget();
+        invalidateOnvifServiceCatalog();
         resetSnapshotProfileFailover();
         invalidateLiveProfiles();
         lastSnapshotResolveAttemptAtMs = 0;
@@ -3349,7 +3542,8 @@ bool postOnvifSoap(
     String& responseBody,
     bool requireResponseBody = true,
     int* finalStatusCode = nullptr,
-    bool* transportFailure = nullptr
+    bool* transportFailure = nullptr,
+    uint32_t timeoutMs = SERVICE_RESPONSE_TIMEOUT_MS
 )
 {
     responseBody = String();
@@ -3365,6 +3559,12 @@ bool postOnvifSoap(
     envelope += "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" ";
     envelope += "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\" ";
     envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\" ";
+    envelope += "xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\" ";
+    envelope += "xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\" ";
+    envelope += "xmlns:tptz=\"http://www.onvif.org/ver20/ptz/wsdl\" ";
+    envelope += "xmlns:timg=\"http://www.onvif.org/ver20/imaging/wsdl\" ";
+    envelope += "xmlns:tan=\"http://www.onvif.org/ver20/analytics/wsdl\" ";
+    envelope += "xmlns:tmd=\"http://www.onvif.org/ver10/deviceIO/wsdl\" ";
     envelope += "xmlns:tt=\"http://www.onvif.org/ver10/schema\">";
     envelope += wsseHeader;
     envelope += "<s:Body>";
@@ -3374,8 +3574,8 @@ bool postOnvifSoap(
     WiFiClient client;
     HTTPClient request;
     const char* responseHeaders[] = {"WWW-Authenticate"};
-    request.setConnectTimeout(TCP_CONNECT_TIMEOUT_MS);
-    request.setTimeout(SERVICE_RESPONSE_TIMEOUT_MS);
+    request.setConnectTimeout(min(TCP_CONNECT_TIMEOUT_MS, timeoutMs));
+    request.setTimeout(timeoutMs);
     request.setReuse(false);
     request.useHTTP10(true);
     request.setUserAgent(
@@ -3471,7 +3671,792 @@ bool postOnvifSoap(
         (responseRead && !responseBody.isEmpty());
 }
 
+void invalidateOnvifServiceCatalog()
+{
+    onvifServices = OnvifServiceCatalog{};
+    onvifMetadata = OnvifDeviceMetadata{};
+    onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
+    onvifMetadataStageFailureStreak = 0;
+    lastOnvifMetadataRequestAtMs = 0;
+    lastOnvifMetadataRequestFailed = false;
+    lastBrowserSnapshotDeliveredAtMs = 0;
+    lastBrowserSnapshotBytes = 0;
+    lastBrowserSnapshotLatencyMs = 0;
+    lastMediaCanaryProbe = LiveMediaProbeResult{};
+    lastMediaCanaryAtMs = 0;
+    lastMediaCanaryProfileIndex = 0;
+    lastMediaCanaryProfilesTested = 0;
+    lastHealthEvidenceSource = HealthEvidenceSource::None;
+    lastHealthEvidenceAtMs = 0;
+}
+
+String limitedOnvifText(String value, size_t maximumLength = 120)
+{
+    value = xmlUnescape(value);
+    value.trim();
+
+    if (value.length() > maximumLength) {
+        value.remove(maximumLength);
+    }
+
+    return value;
+}
+
+bool normalizeAdvertisedOnvifUrl(
+    const String& advertisedUrl,
+    String& normalizedUrl
+)
+{
+    ParsedHttpResource parsed;
+
+    if (
+        !camera.valid ||
+        !parseHttpResourceUrl(advertisedUrl, parsed) ||
+        parsed.secure
+    ) {
+        return false;
+    }
+
+    IPAddress advertisedIp;
+
+    if (!advertisedIp.fromString(parsed.host.c_str())) {
+        return false;
+    }
+
+    const bool unspecifiedAddress =
+        advertisedIp[0] == 0 &&
+        advertisedIp[1] == 0 &&
+        advertisedIp[2] == 0 &&
+        advertisedIp[3] == 0;
+
+    if (!unspecifiedAddress && advertisedIp != camera.ip) {
+        return false;
+    }
+
+    normalizedUrl = makeOnvifUrl(camera.ip, parsed.port, parsed.path);
+    return true;
+}
+
+OnvifServiceEndpoint* endpointForOnvifNamespace(const String& serviceNamespace)
+{
+    if (serviceNamespace == "http://www.onvif.org/ver10/device/wsdl") {
+        return &onvifServices.device;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver10/media/wsdl") {
+        return &onvifServices.media1;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver20/media/wsdl") {
+        return &onvifServices.media2;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver10/events/wsdl") {
+        return &onvifServices.events;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl") {
+        return &onvifServices.ptz;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver20/imaging/wsdl") {
+        return &onvifServices.imaging;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver20/analytics/wsdl") {
+        return &onvifServices.analytics;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver10/deviceIO/wsdl") {
+        return &onvifServices.deviceIo;
+    }
+
+    return nullptr;
+}
+
+bool onvifCapabilityIsTrue(const String& serviceXml, const char* name)
+{
+    const String doubleQuoted = String(name) + "=\"true\"";
+    const String singleQuoted = String(name) + "='true'";
+    const String doubleQuotedOne = String(name) + "=\"1\"";
+    const String singleQuotedOne = String(name) + "='1'";
+
+    if (
+        containsIgnoreCase(serviceXml, doubleQuoted) ||
+        containsIgnoreCase(serviceXml, singleQuoted) ||
+        serviceXml.indexOf(doubleQuotedOne) >= 0 ||
+        serviceXml.indexOf(singleQuotedOne) >= 0
+    ) {
+        return true;
+    }
+
+    String value;
+    int ignored = 0;
+
+    if (!extractLocalTag(serviceXml, name, 0, value, ignored)) {
+        return false;
+    }
+
+    value.trim();
+    return value == "1" || containsIgnoreCase(value, "true");
+}
+
+uint16_t onvifUnsignedTag(const String& xml, const char* name)
+{
+    String value;
+    int ignored = 0;
+
+    if (!extractLocalTag(xml, name, 0, value, ignored)) {
+        return 0;
+    }
+
+    const long parsed = value.toInt();
+    return parsed > 0 && parsed <= 65535
+        ? static_cast<uint16_t>(parsed)
+        : 0;
+}
+
+void collectOnvifServiceCapabilities(
+    const String& serviceNamespace,
+    const String& serviceXml
+)
+{
+    if (serviceNamespace == "http://www.onvif.org/ver10/device/wsdl") {
+        onvifServices.usernameToken = onvifCapabilityIsTrue(
+            serviceXml,
+            "UsernameToken"
+        );
+        onvifServices.httpDigest = onvifCapabilityIsTrue(
+            serviceXml,
+            "HttpDigest"
+        );
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver10/media/wsdl"
+    ) {
+        onvifServices.mediaSnapshotUri = onvifCapabilityIsTrue(
+            serviceXml,
+            "SnapshotUri"
+        );
+        onvifServices.mediaRtpRtspTcp = onvifCapabilityIsTrue(
+            serviceXml,
+            "RTP_RTSP_TCP"
+        );
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver20/media/wsdl"
+    ) {
+        onvifServices.media2RtspStreaming = onvifCapabilityIsTrue(
+            serviceXml,
+            "RTSPStreaming"
+        );
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver10/events/wsdl"
+    ) {
+        onvifServices.eventsPullPoint = onvifCapabilityIsTrue(
+            serviceXml,
+            "WSPullPointSupport"
+        );
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl"
+    ) {
+        onvifServices.ptzStatus = onvifCapabilityIsTrue(
+            serviceXml,
+            "MoveStatus"
+        ) || onvifCapabilityIsTrue(serviceXml, "StatusPosition");
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver20/imaging/wsdl"
+    ) {
+        onvifServices.imagingStabilizationAdvertised = onvifCapabilityIsTrue(
+            serviceXml,
+            "ImageStabilization"
+        );
+    } else if (
+        serviceNamespace == "http://www.onvif.org/ver20/analytics/wsdl"
+    ) {
+        onvifServices.analyticsRules = onvifCapabilityIsTrue(
+            serviceXml,
+            "RuleSupport"
+        );
+        onvifServices.analyticsModules = onvifCapabilityIsTrue(
+            serviceXml,
+            "AnalyticsModuleSupport"
+        );
+    }
+}
+
+bool parseOnvifServices(const String& servicesXml)
+{
+    int serviceStart = 0;
+    int serviceOpenEnd = 0;
+    int searchPosition = 0;
+
+    while (findNextOpeningTag(
+        servicesXml,
+        "Service",
+        searchPosition,
+        serviceStart,
+        serviceOpenEnd
+    )) {
+        int nextServiceStart = 0;
+        int nextServiceOpenEnd = 0;
+        const bool hasNextService = findNextOpeningTag(
+            servicesXml,
+            "Service",
+            serviceOpenEnd + 1,
+            nextServiceStart,
+            nextServiceOpenEnd
+        );
+        const int serviceEnd = hasNextService
+            ? nextServiceStart
+            : servicesXml.length();
+        const String serviceXml = servicesXml.substring(
+            serviceStart,
+            serviceEnd
+        );
+        String serviceNamespace;
+        String advertisedUrl;
+        int ignored = 0;
+
+        if (
+            extractLocalTag(
+                serviceXml,
+                "Namespace",
+                0,
+                serviceNamespace,
+                ignored
+            ) &&
+            extractLocalTag(
+                serviceXml,
+                "XAddr",
+                0,
+                advertisedUrl,
+                ignored
+            )
+        ) {
+            serviceNamespace = limitedOnvifText(serviceNamespace, 96);
+            advertisedUrl = limitedOnvifText(advertisedUrl, 512);
+            OnvifServiceEndpoint* endpoint = endpointForOnvifNamespace(
+                serviceNamespace
+            );
+
+            if (endpoint != nullptr && !endpoint->available) {
+                String normalizedUrl;
+
+                if (normalizeAdvertisedOnvifUrl(
+                    advertisedUrl,
+                    normalizedUrl
+                )) {
+                    endpoint->available = true;
+                    endpoint->url = normalizedUrl;
+                    endpoint->majorVersion = onvifUnsignedTag(
+                        serviceXml,
+                        "Major"
+                    );
+                    endpoint->minorVersion = onvifUnsignedTag(
+                        serviceXml,
+                        "Minor"
+                    );
+                    onvifServices.serviceCount++;
+                    collectOnvifServiceCapabilities(
+                        serviceNamespace,
+                        serviceXml
+                    );
+                } else {
+                    onvifServices.rejectedEndpoints++;
+                }
+            }
+        }
+
+        if (!hasNextService) {
+            break;
+        }
+
+        searchPosition = nextServiceStart;
+    }
+
+    return onvifServices.serviceCount > 0;
+}
+
+bool resolveOnvifServiceCatalog(bool forceRefresh)
+{
+    if (onvifServices.resolved && !forceRefresh) {
+        const bool fallbackRetryDue =
+            onvifServices.usedMediaFallback &&
+            millis() - onvifServices.resolvedAtMs >=
+                ONVIF_CATALOG_FALLBACK_RETRY_MS;
+
+        if (!fallbackRetryDue) {
+            return onvifServices.media1.available;
+        }
+
+    }
+
+    const uint32_t previousAttempts = onvifServices.attempts;
+    const uint32_t previousSuccesses = onvifServices.successes;
+    const uint32_t previousFailures = onvifServices.failures;
+    const bool previousUsedMediaFallback =
+        onvifServices.usedMediaFallback;
+    onvifServices = OnvifServiceCatalog{};
+    onvifServices.attempts = previousAttempts + 1;
+    onvifServices.successes = previousSuccesses;
+    onvifServices.failures = previousFailures;
+    const unsigned long startedAtMs = millis();
+    String responseXml;
+    int statusCode = 0;
+    bool transportFailure = false;
+
+    const bool received = postOnvifSoap(
+        camera.onvifUrl,
+        "http://www.onvif.org/ver10/device/wsdl/GetServices",
+        "<tds:GetServices><tds:IncludeCapability>true</tds:IncludeCapability></tds:GetServices>",
+        responseXml,
+        true,
+        &statusCode,
+        &transportFailure
+    );
+
+    onvifServices.lastLatencyMs = millis() - startedAtMs;
+    onvifServices.lastStatusCode = statusCode;
+
+    if (received && parseOnvifServices(responseXml)) {
+        onvifServices.successes++;
+        onvifServices.lastResult =
+            String("GetServices retornou ") +
+            String(onvifServices.serviceCount) +
+            " servicos validos";
+    } else {
+        onvifServices.failures++;
+        onvifServices.lastResult = transportFailure
+            ? "GetServices falhou no transporte; Media1 convencional preservado"
+            : String("GetServices indisponivel; HTTP ") +
+                String(statusCode) +
+                "; Media1 convencional preservado";
+    }
+
+    if (!onvifServices.device.available) {
+        onvifServices.device.available = true;
+        onvifServices.device.url = camera.onvifUrl;
+        onvifServices.device.majorVersion = 1;
+    }
+
+    if (!onvifServices.media1.available) {
+        onvifServices.media1.available = true;
+        onvifServices.media1.url = makeOnvifUrl(
+            camera.ip,
+            camera.onvifPort,
+            DEFAULT_ONVIF_MEDIA_PATH
+        );
+        onvifServices.media1.majorVersion = 1;
+        onvifServices.usedMediaFallback = true;
+    }
+
+    onvifServices.resolved = true;
+    onvifServices.resolvedAtMs = millis();
+
+    if (previousUsedMediaFallback && !onvifServices.usedMediaFallback) {
+        onvifMetadata = OnvifDeviceMetadata{};
+        onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
+        onvifMetadataStageFailureStreak = 0;
+        lastOnvifMetadataRequestAtMs = 0;
+        lastOnvifMetadataRequestFailed = false;
+    }
+
+    return onvifServices.media1.available;
+}
+
+uint16_t countOnvifOpeningTags(const String& xml, const char* localName)
+{
+    uint16_t count = 0;
+    int start = 0;
+    int end = 0;
+    int position = 0;
+
+    while (findNextOpeningTag(xml, localName, position, start, end)) {
+        if (count < UINT16_MAX) {
+            count++;
+        }
+
+        position = end + 1;
+    }
+
+    return count;
+}
+
+uint16_t countOnvifTopicMarkers(const String& xml)
+{
+    uint16_t count = 0;
+    const char* markers[] = {
+        "topic=\"true\"",
+        "topic='true'"
+    };
+
+    for (const char* marker : markers) {
+        int position = 0;
+        const size_t markerLength = strlen(marker);
+
+        while ((position = xml.indexOf(marker, position)) >= 0) {
+            if (count < UINT16_MAX) {
+                count++;
+            }
+
+            position += markerLength;
+        }
+    }
+
+    return count;
+}
+
+void completeOnvifMetadataRefresh()
+{
+    onvifMetadataStage = OnvifMetadataStage::Complete;
+    onvifMetadata.loadedAtMs = millis();
+    onvifMetadataStageFailureStreak = 0;
+    lastOnvifMetadataRequestFailed = false;
+    onvifMetadata.lastResult =
+        String(onvifMetadata.requests - onvifMetadata.failures) +
+        "/" + String(onvifMetadata.requests) +
+        " consultas ONVIF de leitura concluidas";
+}
+
+void advanceOnvifMetadataStage()
+{
+    switch (onvifMetadataStage) {
+        case OnvifMetadataStage::DeviceInformation:
+            onvifMetadataStage = OnvifMetadataStage::Scopes;
+            break;
+        case OnvifMetadataStage::Scopes:
+            onvifMetadataStage = OnvifMetadataStage::SystemTime;
+            break;
+        case OnvifMetadataStage::SystemTime:
+            onvifMetadataStage = OnvifMetadataStage::EventProperties;
+            break;
+        case OnvifMetadataStage::EventProperties:
+            completeOnvifMetadataRefresh();
+            break;
+        case OnvifMetadataStage::Complete:
+            break;
+    }
+}
+
+void noteOnvifMetadataFailure(const char* operation, int statusCode)
+{
+    onvifMetadata.failures++;
+
+    if (onvifMetadataStageFailureStreak < 255) {
+        onvifMetadataStageFailureStreak++;
+    }
+
+    const bool permanentStatus =
+        (
+            statusCode >= 400 &&
+            statusCode <= 499 &&
+            statusCode != 408 &&
+            statusCode != 429
+        ) || statusCode == 501;
+    const bool retryLimitReached =
+        onvifMetadataStageFailureStreak >= 3;
+
+    if (permanentStatus || retryLimitReached) {
+        onvifMetadata.lastResult = String(operation) +
+            " nao suportado ou indisponivel; etapa ignorada";
+        onvifMetadataStageFailureStreak = 0;
+        lastOnvifMetadataRequestFailed = false;
+        advanceOnvifMetadataStage();
+        return;
+    }
+
+    lastOnvifMetadataRequestFailed = true;
+    onvifMetadata.lastResult = String(operation) + " falhou; HTTP " +
+        String(statusCode) + "; nova tentativa em 30 s";
+}
+
+void refreshOnvifDeviceMetadata()
+{
+    if (
+        !camera.valid ||
+        WiFi.status() != WL_CONNECTED
+    ) {
+        return;
+    }
+
+    const unsigned long now = millis();
+
+    if (onvifMetadataStage == OnvifMetadataStage::Complete) {
+        const bool fallbackRetryDue =
+            onvifServices.usedMediaFallback &&
+            now - onvifServices.resolvedAtMs >=
+                ONVIF_CATALOG_FALLBACK_RETRY_MS;
+
+        if (!fallbackRetryDue) {
+            return;
+        }
+
+        CameraIoGuard cameraIoGuard;
+
+        if (cameraIoGuard.acquired()) {
+            resolveOnvifServiceCatalog();
+        }
+
+        return;
+    }
+
+    const unsigned long retryIntervalMs = lastOnvifMetadataRequestFailed
+        ? 30000UL
+        : 250UL;
+
+    if (
+        lastOnvifMetadataRequestAtMs != 0 &&
+        now - lastOnvifMetadataRequestAtMs < retryIntervalMs
+    ) {
+        return;
+    }
+
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired()) {
+        return;
+    }
+
+    if (!resolveOnvifServiceCatalog()) {
+        lastOnvifMetadataRequestAtMs = now;
+        lastOnvifMetadataRequestFailed = true;
+        onvifMetadata.lastResult =
+            "Catalogo ONVIF indisponivel; nova tentativa em 30 s";
+        return;
+    }
+
+    String responseXml;
+    int statusCode = 0;
+    bool succeeded = false;
+    onvifMetadata.requests++;
+    lastOnvifMetadataRequestAtMs = millis();
+
+    switch (onvifMetadataStage) {
+        case OnvifMetadataStage::DeviceInformation: {
+            succeeded = postOnvifSoap(
+                onvifServices.device.url,
+                "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation",
+                "<tds:GetDeviceInformation/>",
+                responseXml,
+                true,
+                &statusCode,
+                nullptr,
+                1000UL
+            );
+
+            if (!succeeded) {
+                noteOnvifMetadataFailure("GetDeviceInformation", statusCode);
+                return;
+            }
+
+            String value;
+            int ignored = 0;
+
+            if (extractLocalTag(responseXml, "Manufacturer", 0, value, ignored)) {
+                onvifMetadata.manufacturer = limitedOnvifText(value);
+            }
+
+            if (extractLocalTag(responseXml, "Model", 0, value, ignored)) {
+                onvifMetadata.model = limitedOnvifText(value);
+            }
+
+            if (extractLocalTag(
+                responseXml,
+                "FirmwareVersion",
+                0,
+                value,
+                ignored
+            )) {
+                onvifMetadata.firmware = limitedOnvifText(value);
+            }
+
+            onvifMetadata.loaded = true;
+            onvifMetadataStage = OnvifMetadataStage::Scopes;
+            break;
+        }
+
+        case OnvifMetadataStage::Scopes:
+            succeeded = postOnvifSoap(
+                onvifServices.device.url,
+                "http://www.onvif.org/ver10/device/wsdl/GetScopes",
+                "<tds:GetScopes/>",
+                responseXml,
+                true,
+                &statusCode,
+                nullptr,
+                1000UL
+            );
+
+            if (!succeeded) {
+                noteOnvifMetadataFailure("GetScopes", statusCode);
+                return;
+            }
+
+            onvifMetadata.scopeCount = countOnvifOpeningTags(
+                responseXml,
+                "Scopes"
+            );
+            onvifMetadata.profileStreaming =
+                responseXml.indexOf("Profile/Streaming") >= 0 ||
+                responseXml.indexOf("Profile%2FStreaming") >= 0;
+            onvifMetadata.profileT =
+                responseXml.indexOf("Profile/T") >= 0 ||
+                responseXml.indexOf("Profile%2FT") >= 0;
+            onvifMetadata.scopesLoaded = true;
+            onvifMetadataStage = OnvifMetadataStage::SystemTime;
+            break;
+
+        case OnvifMetadataStage::SystemTime: {
+            succeeded = postOnvifSoap(
+                onvifServices.device.url,
+                "http://www.onvif.org/ver10/device/wsdl/GetSystemDateAndTime",
+                "<tds:GetSystemDateAndTime/>",
+                responseXml,
+                true,
+                &statusCode,
+                nullptr,
+                1000UL
+            );
+
+            if (!succeeded) {
+                noteOnvifMetadataFailure("GetSystemDateAndTime", statusCode);
+                return;
+            }
+
+            String value;
+            int ignored = 0;
+
+            if (extractLocalTag(responseXml, "DateTimeType", 0, value, ignored)) {
+                onvifMetadata.dateTimeType = limitedOnvifText(value, 32);
+            }
+
+            if (extractLocalTag(responseXml, "TZ", 0, value, ignored)) {
+                onvifMetadata.timeZone = limitedOnvifText(value, 48);
+            }
+
+            onvifMetadata.timeLoaded = true;
+            onvifMetadataStage = OnvifMetadataStage::EventProperties;
+            break;
+        }
+
+        case OnvifMetadataStage::EventProperties:
+            if (!onvifServices.events.available) {
+                onvifMetadata.requests--;
+                completeOnvifMetadataRefresh();
+                return;
+            }
+
+            succeeded = postOnvifSoap(
+                onvifServices.events.url,
+                "http://www.onvif.org/ver10/events/wsdl/EventPortType/GetEventPropertiesRequest",
+                "<tev:GetEventProperties/>",
+                responseXml,
+                true,
+                &statusCode,
+                nullptr,
+                1000UL
+            );
+
+            if (!succeeded) {
+                noteOnvifMetadataFailure("GetEventProperties", statusCode);
+                return;
+            }
+
+            onvifMetadata.eventTopicCount = countOnvifTopicMarkers(
+                responseXml
+            );
+            onvifMetadata.eventDescriptionCount = countOnvifOpeningTags(
+                responseXml,
+                "MessageDescription"
+            );
+            onvifMetadata.motionEvents =
+                responseXml.indexOf("Motion") >= 0;
+            onvifMetadata.tamperEvents =
+                responseXml.indexOf("Tamper") >= 0;
+            onvifMetadata.signalLossEvents =
+                responseXml.indexOf("SignalLoss") >= 0;
+            onvifMetadata.imageQualityEvents =
+                responseXml.indexOf("ImageTooBlurry") >= 0 ||
+                responseXml.indexOf("ImageTooDark") >= 0 ||
+                responseXml.indexOf("ImageTooBright") >= 0;
+            onvifMetadata.eventPropertiesLoaded = true;
+            completeOnvifMetadataRefresh();
+            return;
+
+        case OnvifMetadataStage::Complete:
+            return;
+    }
+
+    onvifMetadataStageFailureStreak = 0;
+    lastOnvifMetadataRequestFailed = false;
+    onvifMetadata.lastResult =
+        "Inventario ONVIF em andamento";
+}
+
+bool requestLiveSynchronizationPoint(
+    const char* profileToken,
+    String& result
+)
+{
+    result = String();
+
+    if (profileToken == nullptr || profileToken[0] == '\0') {
+        result = "Perfil sem token para SetSynchronizationPoint";
+        return false;
+    }
+
+    if (!onvifServices.resolved || !onvifServices.media1.available) {
+        result = "Servico Media1 indisponivel para SetSynchronizationPoint";
+        return false;
+    }
+
+    const String token(profileToken);
+
+    if (token.length() > 128) {
+        result = "Token do perfil excedeu o limite de seguranca";
+        return false;
+    }
+
+    String requestBody;
+    requestBody.reserve(token.length() + 120);
+    requestBody += "<trt:SetSynchronizationPoint><trt:ProfileToken>";
+    requestBody += htmlEscape(token);
+    requestBody += "</trt:ProfileToken></trt:SetSynchronizationPoint>";
+
+    String responseXml;
+    int statusCode = 0;
+    const bool accepted = postOnvifSoap(
+        onvifServices.media1.url,
+        "http://www.onvif.org/ver10/media/wsdl/SetSynchronizationPoint",
+        requestBody,
+        responseXml,
+        false,
+        &statusCode,
+        nullptr,
+        500UL
+    );
+
+    result = accepted
+        ? String("SetSynchronizationPoint aceito; HTTP ") + String(statusCode)
+        : String("SetSynchronizationPoint falhou; HTTP ") + String(statusCode);
+    return accepted;
+}
+
 #include "live_catalog.h"
+
+void clearMediaCanaryFailureEvidence()
+{
+    mediaCanarySilentProfilesMask = 0;
+
+    for (size_t index = 0; index < MAX_LIVE_PROFILES; index++) {
+        mediaCanarySilentProfileAtMs[index] = 0;
+    }
+}
+
+void resetMediaCanaryFailureEvidence()
+{
+    clearMediaCanaryFailureEvidence();
+    mediaCanaryNextProfileOffset = 0;
+}
 
 bool selectSnapshotProfile(
     const String& profilesXml,
@@ -3582,11 +4567,12 @@ bool resolveSnapshotTarget()
 
     lastSnapshotResolveAttemptAtMs = millis();
 
-    const String mediaUrl = makeOnvifUrl(
-        camera.ip,
-        camera.onvifPort,
-        DEFAULT_ONVIF_MEDIA_PATH
-    );
+    if (!resolveOnvifServiceCatalog()) {
+        lastSnapshotResult = "Catalogo ONVIF sem servico Media1";
+        return false;
+    }
+
+    const String mediaUrl = onvifServices.media1.url;
 
     String profileToken;
     String profileName;
@@ -4121,15 +5107,22 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     }
 
     cameraRebootAccepted++;
-    cameraRebootAttemptsInWindow++;
-    cameraRebootGraceStartedAtMs = millis();
+    const unsigned long acceptedAtMs = millis();
+    cameraRebootAcceptedAtMs[cameraRebootAttemptsInWindow++] = acceptedAtMs;
+    cameraRebootWindowStartedAtMs = cameraRebootAcceptedAtMs[0];
+    cameraRebootGraceStartedAtMs = acceptedAtMs;
     invalidateSnapshotTarget();
+    invalidateOnvifServiceCatalog();
     resetSnapshotProfileFailover();
     invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = now;
     snapshotTargetFailureStreak = 0;
+    consecutiveFailures = 0;
+    consecutiveSuccesses = 0;
+    consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
+    consecutiveIndependentMediaFailures = 0;
     lastSnapshotResolveStatusCode = 0;
     lastSnapshotResolveTransportFailure = false;
     lastSnapshotProbe = SnapshotProbe{};
@@ -4183,6 +5176,7 @@ void sendSnapshotError(
 void serveCameraSnapshot()
 {
     if (healthCheckInProgress) {
+        previewBusyResponses++;
         sendSnapshotError(503, "health_check_in_progress", false);
         return;
     }
@@ -4190,9 +5184,12 @@ void serveCameraSnapshot()
     CameraIoGuard cameraIoGuard;
 
     if (!cameraIoGuard.acquired()) {
+        previewBusyResponses++;
         sendSnapshotError(503, "camera_io_busy", false);
         return;
     }
+
+    const unsigned long snapshotStartedAtMs = millis();
 
     if (!snapshotTarget.valid) {
         if (
@@ -4212,6 +5209,7 @@ void serveCameraSnapshot()
 
     WiFiClient cameraClient;
     HTTPClient request;
+    previewCameraFetches++;
     const int statusCode = openAuthenticatedCameraGet(
         request,
         cameraClient,
@@ -4407,28 +5405,115 @@ void serveCameraSnapshot()
 
     if (validTransfer) {
         snapshotsServed++;
+        previewBytesRelayed += bytesRelayed;
+        lastBrowserSnapshotDeliveredAtMs = millis();
+        lastBrowserSnapshotBytes = bytesRelayed;
+        lastBrowserSnapshotLatencyMs =
+            lastBrowserSnapshotDeliveredAtMs - snapshotStartedAtMs;
         lastSnapshotResult =
             currentTimestamp() + " - quadro entregue; " +
             String(bytesRelayed) + " bytes; perfil " +
             snapshotTarget.profileName;
+    } else if (browserDisconnected) {
+        previewClientAborts++;
     } else {
         snapshotErrors++;
-
-        if (browserDisconnected) {
-            lastSnapshotResult = "Navegador encerrou a transferencia do snapshot";
-        } else {
-            lastSnapshotResult = "Transferencia do snapshot JPEG incompleta";
-        }
+        lastSnapshotResult = "Transferencia do snapshot JPEG incompleta";
     }
+}
+
+bool parseSafeRtspProbeTarget(
+    const String& uri,
+    const IPAddress& expectedIp,
+    uint16_t& port
+)
+{
+    if (!uri.startsWith("rtsp://")) {
+        return false;
+    }
+
+    const int authorityStart = 7;
+    const int pathStart = uri.indexOf('/', authorityStart);
+    const int authorityEnd = pathStart >= 0 ? pathStart : uri.length();
+    String authority = uri.substring(authorityStart, authorityEnd);
+
+    if (
+        authority.isEmpty() ||
+        authority.indexOf('@') >= 0 ||
+        uri.indexOf('\r') >= 0 ||
+        uri.indexOf('\n') >= 0
+    ) {
+        return false;
+    }
+
+    port = 554;
+    const int colonPosition = authority.lastIndexOf(':');
+
+    if (colonPosition > 0) {
+        const String portText = authority.substring(colonPosition + 1);
+
+        for (size_t index = 0; index < portText.length(); index++) {
+            if (!isdigit(static_cast<unsigned char>(portText.charAt(index)))) {
+                return false;
+            }
+        }
+
+        const long parsedPort = portText.toInt();
+
+        if (parsedPort <= 0 || parsedPort > 65535) {
+            return false;
+        }
+
+        port = static_cast<uint16_t>(parsedPort);
+        authority = authority.substring(0, colonPosition);
+    }
+
+    IPAddress advertisedIp;
+    return
+        advertisedIp.fromString(authority.c_str()) &&
+        advertisedIp == expectedIp;
 }
 
 ServiceProbe probeRtsp(const IPAddress& ip, uint16_t port)
 {
     ServiceProbe result;
+    String requestUri = String("rtsp://") + ip.toString() + ':' +
+        String(port) + '/';
+    const char* method = "OPTIONS";
+    uint16_t targetPort = port;
+    LiveStreamDescriptor descriptor;
+    String descriptorError;
+    size_t preferredProfileIndex = 0;
+
+    if (
+        camera.valid &&
+        camera.ip == ip &&
+        findPreferredLiveProfileIndex(preferredProfileIndex) &&
+        provideLiveStreamDescriptor(
+            preferredProfileIndex,
+            descriptor,
+            descriptorError,
+            SERVICE_RESPONSE_TIMEOUT_MS
+        )
+    ) {
+        uint16_t descriptorPort = 0;
+
+        if (parseSafeRtspProbeTarget(
+            descriptor.uri,
+            ip,
+            descriptorPort
+        )) {
+            requestUri = descriptor.uri;
+            targetPort = descriptorPort;
+            method = "DESCRIBE";
+            result.mediaRouteTested = true;
+        }
+    }
+
     WiFiClient client;
     const unsigned long startedAt = millis();
 
-    if (!client.connect(ip, port, TCP_CONNECT_TIMEOUT_MS)) {
+    if (!client.connect(ip, targetPort, TCP_CONNECT_TIMEOUT_MS)) {
         result.latencyMs = millis() - startedAt;
         return result;
     }
@@ -4436,12 +5521,16 @@ ServiceProbe probeRtsp(const IPAddress& ip, uint16_t port)
     result.tcpConnected = true;
     result.latencyMs = millis() - startedAt;
 
-    client.print("OPTIONS rtsp://");
-    client.print(ip.toString());
-    client.print(':');
-    client.print(port);
-    client.print("/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: ESP32-Camera-Watchdog/");
+    client.print(method);
+    client.print(' ');
+    client.print(requestUri);
+    client.print(" RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: ESP32-Camera-Watchdog/");
     client.print(FIRMWARE_VERSION);
+
+    if (result.mediaRouteTested) {
+        client.print("\r\nAccept: application/sdp");
+    }
+
     client.print("\r\n\r\n");
 
     const unsigned long responseStartedAt = millis();
@@ -4591,6 +5680,7 @@ bool scanSubnetForCamera()
             camera.scopes = "Localizada por varredura RTSP/ONVIF";
             lastOnvifProbe = candidateProbe;
             invalidateSnapshotTarget();
+            invalidateOnvifServiceCatalog();
             resetSnapshotProfileFailover();
             invalidateLiveProfiles();
             lastSnapshotResolveAttemptAtMs = 0;
@@ -4599,6 +5689,7 @@ bool scanSubnetForCamera()
             consecutiveControlFailures = 0;
             consecutiveInconclusiveChecks = 0;
             consecutiveMediaServiceFailures = 0;
+            consecutiveIndependentMediaFailures = 0;
             snapshotTargetFailureStreak = 0;
             saveCameraTarget();
 
@@ -4646,53 +5737,87 @@ void resetCameraCheckSequences(const char* snapshotDetail)
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
+    consecutiveIndependentMediaFailures = 0;
     snapshotTargetFailureStreak = 0;
     resetSnapshotProfileFailover();
     lastOnvifProbe = ServiceProbe{};
     lastRtspProbe = ServiceProbe{};
     lastSnapshotProbe = SnapshotProbe{};
     lastSnapshotProbe.detail = snapshotDetail;
+    lastBrowserSnapshotDeliveredAtMs = 0;
+    lastBrowserSnapshotBytes = 0;
+    lastBrowserSnapshotLatencyMs = 0;
+    lastRelayMediaEvidenceConsumedAtMs = 0;
+    lastHealthEvidenceSource = HealthEvidenceSource::None;
+    lastHealthEvidenceAtMs = 0;
+    resetMediaCanaryFailureEvidence();
+    liveStreamRelay.invalidateMediaEvidence();
 }
 
-bool liveRelayHasActiveMedia(const LiveRelayStats& stats)
+bool liveRelayHasRecentMedia(const LiveRelayStats& stats)
 {
     return
-        stats.mediaActive &&
         stats.lastMediaPacketAtMs != 0 &&
         millis() - stats.lastMediaPacketAtMs <=
             LIVE_MEDIA_HEALTH_EVIDENCE_MS;
 }
 
+bool browserSnapshotRecentlyDelivered()
+{
+    return
+        lastBrowserSnapshotDeliveredAtMs != 0 &&
+        millis() - lastBrowserSnapshotDeliveredAtMs <=
+            HEALTH_CHECK_INTERVAL_MS;
+}
+
+bool mediaCanaryEvidenceRecentlyValidated()
+{
+    return
+        lastHealthEvidenceSource == HealthEvidenceSource::MediaCanaryRtp &&
+        lastHealthEvidenceAtMs != 0 &&
+        millis() - lastHealthEvidenceAtMs <=
+            LIVE_MEDIA_CANARY_REUSE_MS;
+}
+
+void noteInconclusiveHealthCheck(const String& event)
+{
+    consecutiveIndependentMediaFailures = 0;
+    consecutiveSuccesses = 0;
+
+    if (
+        cameraState == CameraState::Online &&
+        activeIncident == IncidentKind::None
+    ) {
+        lastEvent = currentTimestamp() + " - " + event;
+        Serial.printf("VERIFICACAO ADIADA: %s\n", event.c_str());
+        return;
+    }
+
+    setState(CameraState::Degraded, event);
+}
+
 void recordSuccessfulHealthCheck(
+    HealthEvidenceSource evidenceSource,
     const char* confirmationEvent,
     const char* healthyEvent,
-    const char* recoveredEvent,
-    bool snapshotValidated
+    const char* recoveredEvent
 )
 {
     successfulHealthChecks++;
+    lastHealthEvidenceSource = evidenceSource;
+    lastHealthEvidenceAtMs = millis();
     consecutiveFailures = 0;
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
+    consecutiveIndependentMediaFailures = 0;
+    clearMediaCanaryFailureEvidence();
 
     if (consecutiveSuccesses < 255) {
         consecutiveSuccesses++;
     }
 
     cameraRebootGraceStartedAtMs = 0;
-
-    if (
-        activeIncident == IncidentKind::SnapshotUnavailable &&
-        !snapshotValidated
-    ) {
-        consecutiveSuccesses = 0;
-        setState(
-            CameraState::Degraded,
-            "Fluxo RTP ativo; snapshot ainda indisponivel"
-        );
-        return;
-    }
 
     if (
         activeIncident != IncidentKind::None &&
@@ -4708,6 +5833,151 @@ void recordSuccessfulHealthCheck(
         CameraState::Online,
         recovered ? recoveredEvent : healthyEvent
     );
+}
+
+MediaCanaryOutcome runIndependentMediaCanary()
+{
+    size_t profileIndices[MAX_LIVE_PROFILES];
+    const size_t profileCount = collectCompatibleLiveProfileIndices(
+        profileIndices,
+        MAX_LIVE_PROFILES
+    );
+    mediaCanaryCycles++;
+    lastMediaCanaryProfilesTested = 0;
+
+    if (profileCount == 0) {
+        resetMediaCanaryFailureEvidence();
+        lastMediaCanaryProbe = LiveMediaProbeResult{};
+        copySettingText(
+            lastMediaCanaryProbe.detail,
+            "Catalogo sem perfil H.264 para sonda RTP"
+        );
+        mediaCanaryInconclusive++;
+        return MediaCanaryOutcome::Inconclusive;
+    }
+
+    uint16_t requiredProfilesMask = 0;
+    const unsigned long evidenceNowMs = millis();
+    const unsigned long evidenceMaxAgeMs =
+        HEALTH_CHECK_INTERVAL_MS *
+        static_cast<unsigned long>(profileCount + 1U);
+
+    for (size_t index = 0; index < profileCount; index++) {
+        const size_t profileIndex = profileIndices[index];
+        const uint16_t profileBit =
+            static_cast<uint16_t>(1U << profileIndex);
+        requiredProfilesMask |= profileBit;
+
+        if (
+            (mediaCanarySilentProfilesMask & profileBit) != 0 &&
+            (
+                mediaCanarySilentProfileAtMs[profileIndex] == 0 ||
+                evidenceNowMs - mediaCanarySilentProfileAtMs[profileIndex] >
+                    evidenceMaxAgeMs
+            )
+        ) {
+            mediaCanarySilentProfilesMask &=
+                static_cast<uint16_t>(~profileBit);
+            mediaCanarySilentProfileAtMs[profileIndex] = 0;
+        }
+    }
+
+    const uint32_t cycleStartedAtMs = millis();
+    const size_t startOffset = mediaCanaryNextProfileOffset % profileCount;
+    bool sawInconclusiveProfile = false;
+
+    for (size_t tested = 0; tested < profileCount; tested++) {
+        const size_t index = (startOffset + tested) % profileCount;
+        const uint32_t cycleElapsedMs = millis() - cycleStartedAtMs;
+
+        if (cycleElapsedMs >= LIVE_MEDIA_PROBE_CYCLE_TIMEOUT_MS) {
+            if (lastMediaCanaryProfilesTested == 0) {
+                lastMediaCanaryProbe = LiveMediaProbeResult{};
+            }
+            copySettingText(
+                lastMediaCanaryProbe.detail,
+                "Sonda RTP interrompida pelo limite total do ciclo"
+            );
+            mediaCanarySweepPending++;
+            break;
+        }
+
+        const uint32_t cycleRemainingMs =
+            LIVE_MEDIA_PROBE_CYCLE_TIMEOUT_MS - cycleElapsedMs;
+
+        if (cycleRemainingMs < LIVE_MEDIA_PROBE_TIMEOUT_MS) {
+            if (lastMediaCanaryProfilesTested == 0) {
+                lastMediaCanaryProbe = LiveMediaProbeResult{};
+            }
+            copySettingText(
+                lastMediaCanaryProbe.detail,
+                "Sonda RTP aguardando orcamento integral no proximo ciclo"
+            );
+            mediaCanarySweepPending++;
+            break;
+        }
+
+        updateCameraAlertLed();
+        mediaCanaryRuns++;
+        lastMediaCanaryAtMs = millis();
+        lastMediaCanaryProfileIndex = profileIndices[index];
+        lastMediaCanaryProfilesTested++;
+        const bool mediaReceived = liveStreamRelay.probeMedia(
+            profileIndices[index],
+            LIVE_MEDIA_PROBE_TIMEOUT_MS,
+            lastMediaCanaryProbe
+        );
+
+        if (mediaReceived) {
+            mediaCanarySuccesses++;
+            resetMediaCanaryFailureEvidence();
+            mediaCanaryNextProfileOffset = index;
+            return MediaCanaryOutcome::MediaReceived;
+        }
+
+        const bool conclusiveMediaFailure =
+            lastMediaCanaryProbe.descriptorResolved &&
+            lastMediaCanaryProbe.playAccepted &&
+            !lastMediaCanaryProbe.mediaReceived &&
+            lastMediaCanaryProbe.observedAfterPlayMs >=
+                LIVE_MEDIA_PROBE_MIN_OBSERVATION_MS;
+
+        if (conclusiveMediaFailure) {
+            mediaCanaryFailures++;
+            const size_t profileIndex = profileIndices[index];
+            const uint16_t profileBit =
+                static_cast<uint16_t>(1U << profileIndex);
+            mediaCanarySilentProfilesMask |= profileBit;
+            mediaCanarySilentProfileAtMs[profileIndex] = millis();
+        } else {
+            mediaCanaryInconclusive++;
+            sawInconclusiveProfile = true;
+            const size_t profileIndex = profileIndices[index];
+            const uint16_t profileBit =
+                static_cast<uint16_t>(1U << profileIndex);
+            mediaCanarySilentProfilesMask &=
+                static_cast<uint16_t>(~profileBit);
+            mediaCanarySilentProfileAtMs[profileIndex] = 0;
+        }
+    }
+
+    mediaCanaryNextProfileOffset =
+        (startOffset + lastMediaCanaryProfilesTested) % profileCount;
+
+    if (
+        (mediaCanarySilentProfilesMask & requiredProfilesMask) ==
+            requiredProfilesMask
+    ) {
+        clearMediaCanaryFailureEvidence();
+        return MediaCanaryOutcome::AllProfilesSilentAfterPlay;
+    }
+
+    if (sawInconclusiveProfile) {
+        clearMediaCanaryFailureEvidence();
+        return MediaCanaryOutcome::Inconclusive;
+    }
+
+    return MediaCanaryOutcome::SweepPending;
 }
 
 struct HealthCheckScheduleGuard {
@@ -4754,8 +6024,13 @@ void runHealthCheck()
     LiveRelayStats relayStats;
     liveStreamRelay.snapshotStats(relayStats);
 
-    if (liveRelayHasActiveMedia(relayStats)) {
+    if (
+        liveRelayHasRecentMedia(relayStats) &&
+        relayStats.lastMediaPacketAtMs !=
+            lastRelayMediaEvidenceConsumedAtMs
+    ) {
         totalHealthChecks++;
+        lastRelayMediaEvidenceConsumedAtMs = relayStats.lastMediaPacketAtMs;
         Serial.printf(
             "CAMERA OK: fluxo RTP entregue ha %lus; probes paralelos adiados.\n",
             static_cast<unsigned long>(
@@ -4763,10 +6038,10 @@ void runHealthCheck()
             )
         );
         recordSuccessfulHealthCheck(
+            HealthEvidenceSource::RelayRtp,
             "Fluxo RTP retornou; confirmando estabilidade",
             "Camera entregando fluxo RTP ao vivo",
-            "Camera recuperada e fluxo RTP validado",
-            false
+            "Camera recuperada e fluxo RTP validado"
         );
         return;
     }
@@ -4774,9 +6049,60 @@ void runHealthCheck()
     if (relayStats.clientActive) {
         totalHealthChecks++;
         inconclusiveHealthChecks++;
-        setState(
-            CameraState::Degraded,
+        clearMediaCanaryFailureEvidence();
+        noteInconclusiveHealthCheck(
             "Sessao ao vivo em negociacao; probes paralelos adiados"
+        );
+        return;
+    }
+
+    if (browserSnapshotRecentlyDelivered()) {
+        totalHealthChecks++;
+        previewHealthEvidenceUses++;
+        lastSnapshotProbe = SnapshotProbe{};
+        lastSnapshotProbe.attempted = true;
+        lastSnapshotProbe.conclusive = true;
+        lastSnapshotProbe.targetResolved = snapshotTarget.valid;
+        lastSnapshotProbe.httpResponded = true;
+        lastSnapshotProbe.jpegValid = true;
+        lastSnapshotProbe.statusCode = 200;
+        lastSnapshotProbe.latencyMs = lastBrowserSnapshotLatencyMs;
+        lastSnapshotProbe.bytesRead = lastBrowserSnapshotBytes;
+        lastSnapshotProbe.detail = "JPEG validado pela Previa recente";
+        recordSuccessfulHealthCheck(
+            HealthEvidenceSource::PreviewJpeg,
+            "Previa retornou; confirmando estabilidade",
+            "Camera validada pela Previa recente",
+            "Camera recuperada e JPEG validado pela Previa"
+        );
+        return;
+    }
+
+    if (liveRelayHasRecentMedia(relayStats)) {
+        totalHealthChecks++;
+        inconclusiveHealthChecks++;
+        consecutiveFailures = 0;
+        consecutiveInconclusiveChecks = 0;
+        consecutiveMediaServiceFailures = 0;
+        clearMediaCanaryFailureEvidence();
+        noteInconclusiveHealthCheck(
+            "Fluxo RTP recente; probes adiados durante a graca pos-sessao"
+        );
+        return;
+    }
+
+    if (
+        activeIncident == IncidentKind::None &&
+        mediaCanaryEvidenceRecentlyValidated()
+    ) {
+        totalHealthChecks++;
+        inconclusiveHealthChecks++;
+        consecutiveFailures = 0;
+        consecutiveInconclusiveChecks = 0;
+        consecutiveMediaServiceFailures = 0;
+        clearMediaCanaryFailureEvidence();
+        noteInconclusiveHealthCheck(
+            "RTP canario recente; novas sondas adiadas"
         );
         return;
     }
@@ -4786,8 +6112,8 @@ void runHealthCheck()
     if (!cameraIoGuard.acquired()) {
         totalHealthChecks++;
         inconclusiveHealthChecks++;
-        setState(
-            CameraState::Degraded,
+        clearMediaCanaryFailureEvidence();
+        noteInconclusiveHealthCheck(
             "Canal da camera ocupado pelo relay ao vivo; verificacao adiada"
         );
         return;
@@ -4855,15 +6181,13 @@ void runHealthCheck()
         );
 
         recordSuccessfulHealthCheck(
+            HealthEvidenceSource::SnapshotJpeg,
             "Imagem retornou; confirmando estabilidade",
             "Camera e canal de imagem responderam ao teste",
-            "Camera recuperada e JPEG validado",
-            true
+            "Camera recuperada e JPEG validado"
         );
         return;
     }
-
-    consecutiveSuccesses = 0;
 
     const bool mediaServiceTransportFailure =
         !lastSnapshotProbe.conclusive &&
@@ -4896,7 +6220,6 @@ void runHealthCheck()
     }
 
     if (!lastSnapshotProbe.conclusive && controlAvailable) {
-        inconclusiveHealthChecks++;
         consecutiveControlFailures = 0;
 
         if (
@@ -4906,16 +6229,41 @@ void runHealthCheck()
             consecutiveInconclusiveChecks++;
         }
 
-        if (
+        const bool shouldTryMediaCanary =
+            lastSnapshotProbe.requestAttempted &&
             millis() - bootAtMs >= STARTUP_GRACE_MS &&
-            consecutiveInconclusiveChecks >= VIDEO_FAILURES_BEFORE_ALERT
+            consecutiveInconclusiveChecks >= VIDEO_FAILURES_BEFORE_ALERT;
+        MediaCanaryOutcome mediaCanaryOutcome =
+            MediaCanaryOutcome::Inconclusive;
+
+        if (shouldTryMediaCanary) {
+            mediaCanaryOutcome = runIndependentMediaCanary();
+        }
+
+        if (
+            mediaCanaryOutcome == MediaCanaryOutcome::MediaReceived
+        ) {
+            recordSuccessfulHealthCheck(
+                HealthEvidenceSource::MediaCanaryRtp,
+                "RTP canario retornou; confirmando estabilidade",
+                "Camera validada por RTP canario",
+                "Camera recuperada e RTP canario validado"
+            );
+            return;
+        }
+
+        inconclusiveHealthChecks++;
+
+        if (
+            shouldTryMediaCanary &&
+            mediaCanaryOutcome ==
+                MediaCanaryOutcome::AllProfilesSilentAfterPlay
         ) {
             beginOrEscalateIncident(IncidentKind::SnapshotUnavailable);
             queueIncidentAlert();
         }
 
-        setState(
-            CameraState::Degraded,
+        noteInconclusiveHealthCheck(
             String("Monitor de snapshot inconclusivo: ") +
                 lastSnapshotProbe.detail
         );
@@ -4928,6 +6276,44 @@ void runHealthCheck()
         consecutiveMediaServiceFailures = 0;
     }
 
+    bool independentMediaFailureThisCheck = false;
+    MediaCanaryOutcome mediaCanaryOutcomeThisCheck =
+        MediaCanaryOutcome::Inconclusive;
+
+    if (lastSnapshotProbe.conclusive && controlAvailable) {
+        mediaCanaryOutcomeThisCheck = runIndependentMediaCanary();
+
+        if (
+            mediaCanaryOutcomeThisCheck ==
+                MediaCanaryOutcome::MediaReceived
+        ) {
+            recordSuccessfulHealthCheck(
+                HealthEvidenceSource::MediaCanaryRtp,
+                "RTP canario retornou; confirmando estabilidade",
+                "Camera validada por RTP canario",
+                "Camera recuperada e RTP canario validado"
+            );
+            return;
+        }
+
+        independentMediaFailureThisCheck =
+            mediaCanaryOutcomeThisCheck ==
+                MediaCanaryOutcome::AllProfilesSilentAfterPlay;
+
+        if (independentMediaFailureThisCheck) {
+            if (consecutiveIndependentMediaFailures < 255) {
+                consecutiveIndependentMediaFailures++;
+            }
+        } else if (
+            mediaCanaryOutcomeThisCheck == MediaCanaryOutcome::Inconclusive
+        ) {
+            consecutiveIndependentMediaFailures = 0;
+        }
+    } else {
+        consecutiveIndependentMediaFailures = 0;
+    }
+
+    consecutiveSuccesses = 0;
     failedHealthChecks++;
 
     if (lastSnapshotProbe.conclusive && consecutiveFailures < 255) {
@@ -4939,6 +6325,7 @@ void runHealthCheck()
         } else {
             consecutiveFailures++;
         }
+
     }
 
     if (controlAvailable) {
@@ -4953,8 +6340,6 @@ void runHealthCheck()
             return;
         }
 
-        beginOrEscalateIncident(IncidentKind::SnapshotUnavailable);
-
         Serial.printf(
             "SNAPSHOT FALHOU: tentativas=%u | IP=%s | HTTP=%d | %s\n",
             consecutiveFailures,
@@ -4963,18 +6348,26 @@ void runHealthCheck()
             lastSnapshotProbe.detail.c_str()
         );
 
-        if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_ALERT) {
+        if (
+            consecutiveFailures >= VIDEO_FAILURES_BEFORE_ALERT &&
+            mediaCanaryOutcomeThisCheck ==
+                MediaCanaryOutcome::AllProfilesSilentAfterPlay
+        ) {
+            beginOrEscalateIncident(IncidentKind::SnapshotUnavailable);
             queueIncidentAlert();
         }
 
         if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_REBOOT) {
             liveStreamRelay.snapshotStats(relayStats);
             const bool liveMediaActive =
-                liveRelayHasActiveMedia(relayStats);
+                liveRelayHasRecentMedia(relayStats);
             const bool rebootEligible =
                 lastOnvifProbe.protocolResponded &&
                 snapshotFailureAllowsAutomaticReboot() &&
-                !liveMediaActive;
+                !liveMediaActive &&
+                independentMediaFailureThisCheck &&
+                consecutiveIndependentMediaFailures >=
+                    VIDEO_FAILURES_BEFORE_REBOOT;
 
             if (rebootEligible && requestCameraRebootOnvif()) {
                 return;
@@ -4990,6 +6383,15 @@ void runHealthCheck()
                 } else if (liveMediaActive) {
                     lastCameraRebootResult +=
                         "fluxo RTP recente; reboot adiado";
+                } else if (!independentMediaFailureThisCheck) {
+                    lastCameraRebootResult +=
+                        "sonda RTP independente inconclusiva; reboot bloqueado";
+                } else if (
+                    consecutiveIndependentMediaFailures <
+                        VIDEO_FAILURES_BEFORE_REBOOT
+                ) {
+                    lastCameraRebootResult +=
+                        "falha RTSP independente ainda nao confirmada";
                 } else if (snapshotProfileFailoverPending) {
                     lastCameraRebootResult +=
                         "perfil de snapshot alternativo ainda em teste";
@@ -5038,8 +6440,33 @@ void runHealthCheck()
     );
 }
 
+void appendOnvifEndpointJson(
+    String& json,
+    const char* name,
+    const OnvifServiceEndpoint& endpoint,
+    bool prependComma
+)
+{
+    if (prependComma) {
+        json += ',';
+    }
+
+    json += '"';
+    json += name;
+    json += "\":{\"available\":";
+    json += endpoint.available ? "true" : "false";
+    json += ",\"url\":\"";
+    json += jsonEscape(endpoint.url);
+    json += "\",\"version\":\"";
+    json += endpoint.majorVersion;
+    json += '.';
+    json += endpoint.minorVersion;
+    json += "\"}";
+}
+
 String buildStatusJson()
 {
+    refreshCameraRebootWindow();
     const uint32_t heapTotalBytes = ESP.getHeapSize();
     const uint32_t heapFreeBytes = ESP.getFreeHeap();
     const uint32_t heapMinimumFreeBytes = ESP.getMinFreeHeap();
@@ -5051,7 +6478,7 @@ String buildStatusJson()
     const unsigned long now = millis();
 
     String json;
-    json.reserve(9200);
+    json.reserve(14000);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -5145,6 +6572,30 @@ String buildStatusJson()
     json += WiFi.RSSI();
     json += "},";
 
+    json += "\"alertLed\":{\"configured\":";
+    json += ENABLE_CAMERA_ALERT_LED ? "true" : "false";
+    json += ",\"blinking\":";
+    json += cameraAlertLedBlinking ? "true" : "false";
+    json += ",\"on\":";
+    json += cameraAlertLedOn ? "true" : "false";
+    json += ",\"reason\":\"";
+
+    if (!ENABLE_CAMERA_ALERT_LED) {
+        json += "disabled";
+    } else if (WiFi.status() != WL_CONNECTED) {
+        json += "wifi_disconnected";
+    } else if (activeIncident != IncidentKind::None) {
+        json += incidentName(activeIncident);
+    } else if (cameraState == CameraState::Offline) {
+        json += "camera_offline";
+    } else if (cameraState == CameraState::Recovering) {
+        json += "camera_recovering";
+    } else {
+        json += "none";
+    }
+
+    json += "\"},";
+
     json += "\"camera\":{";
     json += "\"name\":\"";
     json += jsonEscape(CAMERA_NAME);
@@ -5162,6 +6613,106 @@ String buildStatusJson()
     json += camera.rtspPort;
     json += "},";
 
+    json += "\"onvif\":{";
+    json += "\"catalogResolved\":";
+    json += onvifServices.resolved ? "true" : "false";
+    json += ",\"usedMediaFallback\":";
+    json += onvifServices.usedMediaFallback ? "true" : "false";
+    json += ",\"serviceCount\":";
+    json += onvifServices.serviceCount;
+    json += ",\"attempts\":";
+    json += onvifServices.attempts;
+    json += ",\"successes\":";
+    json += onvifServices.successes;
+    json += ",\"failures\":";
+    json += onvifServices.failures;
+    json += ",\"rejectedEndpoints\":";
+    json += onvifServices.rejectedEndpoints;
+    json += ",\"lastStatus\":";
+    json += onvifServices.lastStatusCode;
+    json += ",\"lastLatencyMs\":";
+    json += onvifServices.lastLatencyMs;
+    json += ",\"ageSeconds\":";
+    json += onvifServices.resolvedAtMs == 0
+        ? 0UL
+        : (now - onvifServices.resolvedAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(onvifServices.lastResult);
+    json += "\",\"authentication\":{";
+    json += "\"usernameToken\":";
+    json += onvifServices.usernameToken ? "true" : "false";
+    json += ",\"httpDigest\":";
+    json += onvifServices.httpDigest ? "true" : "false";
+    json += "},\"capabilities\":{";
+    json += "\"snapshotUri\":";
+    json += onvifServices.mediaSnapshotUri ? "true" : "false";
+    json += ",\"rtpRtspTcp\":";
+    json += onvifServices.mediaRtpRtspTcp ? "true" : "false";
+    json += ",\"media2RtspStreaming\":";
+    json += onvifServices.media2RtspStreaming ? "true" : "false";
+    json += ",\"eventsPullPoint\":";
+    json += onvifServices.eventsPullPoint ? "true" : "false";
+    json += ",\"ptzStatus\":";
+    json += onvifServices.ptzStatus ? "true" : "false";
+    json += ",\"imagingStabilizationAdvertised\":";
+    json += onvifServices.imagingStabilizationAdvertised ? "true" : "false";
+    json += ",\"analyticsRules\":";
+    json += onvifServices.analyticsRules ? "true" : "false";
+    json += ",\"analyticsModules\":";
+    json += onvifServices.analyticsModules ? "true" : "false";
+    json += "},\"services\":{";
+    appendOnvifEndpointJson(json, "device", onvifServices.device, false);
+    appendOnvifEndpointJson(json, "media1", onvifServices.media1, true);
+    appendOnvifEndpointJson(json, "media2", onvifServices.media2, true);
+    appendOnvifEndpointJson(json, "events", onvifServices.events, true);
+    appendOnvifEndpointJson(json, "ptz", onvifServices.ptz, true);
+    appendOnvifEndpointJson(json, "imaging", onvifServices.imaging, true);
+    appendOnvifEndpointJson(json, "analytics", onvifServices.analytics, true);
+    appendOnvifEndpointJson(json, "deviceIo", onvifServices.deviceIo, true);
+    json += "},\"deviceInfo\":{";
+    json += "\"loaded\":";
+    json += onvifMetadata.loaded ? "true" : "false";
+    json += ",\"inventoryComplete\":";
+    json += onvifMetadata.loadedAtMs != 0 ? "true" : "false";
+    json += ",\"manufacturer\":\"";
+    json += jsonEscape(onvifMetadata.manufacturer);
+    json += "\",\"model\":\"";
+    json += jsonEscape(onvifMetadata.model);
+    json += "\",\"firmware\":\"";
+    json += jsonEscape(onvifMetadata.firmware);
+    json += "\",\"dateTimeType\":\"";
+    json += jsonEscape(onvifMetadata.dateTimeType);
+    json += "\",\"reportedTimeZone\":\"";
+    json += jsonEscape(onvifMetadata.timeZone);
+    json += "\",\"scopeCount\":";
+    json += onvifMetadata.scopeCount;
+    json += ",\"profileStreaming\":";
+    json += onvifMetadata.profileStreaming ? "true" : "false";
+    json += ",\"profileT\":";
+    json += onvifMetadata.profileT ? "true" : "false";
+    json += ",\"requests\":";
+    json += onvifMetadata.requests;
+    json += ",\"failures\":";
+    json += onvifMetadata.failures;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(onvifMetadata.lastResult);
+    json += "\"},\"events\":{";
+    json += "\"propertiesLoaded\":";
+    json += onvifMetadata.eventPropertiesLoaded ? "true" : "false";
+    json += ",\"topicCount\":";
+    json += onvifMetadata.eventTopicCount;
+    json += ",\"descriptionCount\":";
+    json += onvifMetadata.eventDescriptionCount;
+    json += ",\"motion\":";
+    json += onvifMetadata.motionEvents ? "true" : "false";
+    json += ",\"tamper\":";
+    json += onvifMetadata.tamperEvents ? "true" : "false";
+    json += ",\"signalLoss\":";
+    json += onvifMetadata.signalLossEvents ? "true" : "false";
+    json += ",\"imageQuality\":";
+    json += onvifMetadata.imageQualityEvents ? "true" : "false";
+    json += "}},";
+
     json += "\"probes\":{";
     json += "\"onvifTcp\":";
     json += lastOnvifProbe.tcpConnected ? "true" : "false";
@@ -5175,10 +6726,65 @@ String buildStatusJson()
     json += lastRtspProbe.tcpConnected ? "true" : "false";
     json += ",\"rtspProtocol\":";
     json += lastRtspProbe.protocolResponded ? "true" : "false";
+    json += ",\"rtspMediaRouteTested\":";
+    json += lastRtspProbe.mediaRouteTested ? "true" : "false";
     json += ",\"rtspStatus\":";
     json += lastRtspProbe.statusCode;
     json += ",\"rtspLatencyMs\":";
     json += lastRtspProbe.latencyMs;
+    json += "},";
+
+    json += "\"mediaCanary\":{";
+    json += "\"cycles\":";
+    json += mediaCanaryCycles;
+    json += ",\"runs\":";
+    json += mediaCanaryRuns;
+    json += ",\"successes\":";
+    json += mediaCanarySuccesses;
+    json += ",\"failures\":";
+    json += mediaCanaryFailures;
+    json += ",\"inconclusive\":";
+    json += mediaCanaryInconclusive;
+    json += ",\"sweepPending\":";
+    json += mediaCanarySweepPending;
+    json += ",\"attempted\":";
+    json += lastMediaCanaryProbe.attempted ? "true" : "false";
+    json += ",\"descriptorResolved\":";
+    json += lastMediaCanaryProbe.descriptorResolved ? "true" : "false";
+    json += ",\"rtspResponded\":";
+    json += lastMediaCanaryProbe.rtspResponded ? "true" : "false";
+    json += ",\"playAccepted\":";
+    json += lastMediaCanaryProbe.playAccepted ? "true" : "false";
+    json += ",\"mediaReceived\":";
+    json += lastMediaCanaryProbe.mediaReceived ? "true" : "false";
+    json += ",\"status\":";
+    json += lastMediaCanaryProbe.statusCode;
+    json += ",\"latencyMs\":";
+    json += lastMediaCanaryProbe.latencyMs;
+    json += ",\"observedAfterPlayMs\":";
+    json += lastMediaCanaryProbe.observedAfterPlayMs;
+    json += ",\"bytes\":";
+    json += lastMediaCanaryProbe.bytes;
+    json += ",\"profileIndex\":";
+    json += lastMediaCanaryProfileIndex;
+    json += ",\"profilesTested\":";
+    json += lastMediaCanaryProfilesTested;
+    json += ",\"silentProfilesMask\":";
+    json += mediaCanarySilentProfilesMask;
+    json += ",\"ageSeconds\":";
+    json += lastMediaCanaryAtMs == 0
+        ? 0UL
+        : (now - lastMediaCanaryAtMs) / 1000UL;
+    json += ",\"detail\":\"";
+    json += jsonEscape(lastMediaCanaryProbe.detail);
+    json += "\"},";
+
+    json += "\"healthEvidence\":{\"source\":\"";
+    json += healthEvidenceSourceName(lastHealthEvidenceSource);
+    json += "\",\"ageSeconds\":";
+    json += lastHealthEvidenceAtMs == 0
+        ? 0UL
+        : (now - lastHealthEvidenceAtMs) / 1000UL;
     json += "},";
 
     json += "\"snapshot\":{";
@@ -5216,6 +6822,26 @@ String buildStatusJson()
     json += snapshotsServed;
     json += ",\"errors\":";
     json += snapshotErrors;
+    json += ",\"cameraHttpRequests\":";
+    json += cameraJpegHttpRequests;
+    json += ",\"previewFetchOperations\":";
+    json += previewCameraFetches;
+    json += ",\"busyResponses\":";
+    json += previewBusyResponses;
+    json += ",\"clientAborts\":";
+    json += previewClientAborts;
+    json += ",\"bytesRelayed\":";
+    appendLiveUnsigned64(json, previewBytesRelayed);
+    json += ",\"healthEvidenceUses\":";
+    json += previewHealthEvidenceUses;
+    json += ",\"lastDeliveredAgeSeconds\":";
+    json += lastBrowserSnapshotDeliveredAtMs == 0
+        ? 0UL
+        : (now - lastBrowserSnapshotDeliveredAtMs) / 1000UL;
+    json += ",\"lastDeliveredBytes\":";
+    json += lastBrowserSnapshotBytes;
+    json += ",\"lastDeliveredLatencyMs\":";
+    json += lastBrowserSnapshotLatencyMs;
     json += ",\"probeRuns\":";
     json += snapshotProbeRuns;
     json += ",\"probeFailures\":";
@@ -5287,6 +6913,8 @@ String buildStatusJson()
     json += consecutiveInconclusiveChecks;
     json += ",\"consecutiveMediaServiceFailures\":";
     json += consecutiveMediaServiceFailures;
+    json += ",\"consecutiveIndependentMediaFailures\":";
+    json += consecutiveIndependentMediaFailures;
     json += ",\"consecutiveSuccesses\":";
     json += consecutiveSuccesses;
     json += ",\"discoveryRuns\":";
@@ -5316,6 +6944,8 @@ String buildStatusJson()
     json += String(1000.0f / FEED_MIN_INTERVAL_MS, 2);
     json += ",\"statusRefreshIntervalMs\":";
     json += STATUS_REFRESH_INTERVAL_MS;
+    json += ",\"snapshotHttpTimeoutMs\":";
+    json += SNAPSHOT_HTTP_TIMEOUT_MS;
     json += "},\"settings\":{";
     json += "\"defaultsRevision\":";
     json += RUNTIME_SETTINGS_DEFAULTS_REVISION;
@@ -6079,6 +7709,7 @@ void initializeConnectedServices()
     }
 
     if (camera.valid && resolveCameraOnvifEndpoint()) {
+        resolveOnvifServiceCatalog();
         resolveSnapshotTarget();
     }
 
@@ -6157,8 +7788,10 @@ void processPendingAdminAction()
             if (found) {
                 resolveCameraOnvifEndpoint();
                 invalidateSnapshotTarget();
+                invalidateOnvifServiceCatalog();
                 resetSnapshotProfileFailover();
                 lastSnapshotResolveAttemptAtMs = 0;
+                resolveOnvifServiceCatalog();
                 runHealthCheck();
             }
 
@@ -6181,8 +7814,17 @@ void processPendingAdminAction()
 
         case AdminAction::ResetRebootLimiter:
             lastCameraRebootAttemptAtMs = 0;
-            cameraRebootWindowStartedAtMs = millis();
+            cameraRebootWindowStartedAtMs = 0;
             cameraRebootAttemptsInWindow = 0;
+
+            for (
+                uint8_t index = 0;
+                index < MAX_ONVIF_REBOOT_ATTEMPTS_MAX;
+                index++
+            ) {
+                cameraRebootAcceptedAtMs[index] = 0;
+            }
+
             lastCameraRebootResult =
                 currentTimestamp() + " - limitador de reboots reiniciado";
             lastAdminActionResult = lastCameraRebootResult;
@@ -6272,6 +7914,7 @@ void loop()
 
     if (connectedServicesInitialized) {
         httpServer.handleClient();
+        refreshOnvifDeviceMetadata();
     }
     processPendingEmails();
     processPendingAdminAction();

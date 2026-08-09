@@ -19,6 +19,35 @@ constexpr size_t MAX_RTSP_HEADER_BYTES = 8192;
 constexpr size_t MAX_RTSP_BODY_BYTES = 32768;
 constexpr UBaseType_t LIVE_TASK_PRIORITY = 1;
 constexpr BaseType_t LIVE_TASK_CORE = 0;
+constexpr uint32_t LIVE_SYNC_SUCCESS_MIN_INTERVAL_MS = 5000UL;
+constexpr uint32_t LIVE_SYNC_FAILURE_BACKOFF_MS = 5UL * 60UL * 1000UL;
+constexpr uint32_t LIVE_PROBE_TEARDOWN_RESERVE_MS = 25UL;
+
+struct RtspDeadline {
+    uint32_t startedAtMs = 0;
+    uint32_t timeoutMs = 0;
+};
+
+uint32_t remainingTimeMs(const RtspDeadline* deadline)
+{
+    if (deadline == nullptr) {
+        return UINT32_MAX;
+    }
+
+    const uint32_t elapsed = millis() - deadline->startedAtMs;
+    return elapsed >= deadline->timeoutMs
+        ? 0
+        : deadline->timeoutMs - elapsed;
+}
+
+uint32_t boundedTimeoutMs(
+    uint32_t normalTimeoutMs,
+    const RtspDeadline* deadline
+)
+{
+    const uint32_t remaining = remainingTimeMs(deadline);
+    return remaining < normalTimeoutMs ? remaining : normalTimeoutMs;
+}
 
 struct ParsedRtspUri {
     bool valid = false;
@@ -111,13 +140,145 @@ void copyText(char* destination, size_t capacity, const String& source)
     destination[length] = '\0';
 }
 
-bool writeAll(WiFiClient& client, const uint8_t* data, size_t length)
+void recordSynchronizationResult(
+    LiveRelayStats& relayStats,
+    portMUX_TYPE& statsMux,
+    bool attempted,
+    bool accepted,
+    uint32_t recordedAtMs,
+    const String& result
+)
+{
+    portENTER_CRITICAL(&statsMux);
+
+    if (attempted) {
+        relayStats.syncAttempts++;
+        relayStats.lastSyncAccepted = accepted;
+
+        if (accepted) {
+            relayStats.syncAccepted++;
+        } else {
+            relayStats.syncFailed++;
+        }
+    } else {
+        relayStats.syncSkipped++;
+    }
+
+    relayStats.lastSyncAtMs = recordedAtMs;
+    copyText(
+        relayStats.lastSyncResult,
+        sizeof(relayStats.lastSyncResult),
+        result
+    );
+    portEXIT_CRITICAL(&statsMux);
+}
+
+void requestSynchronizationPoint(
+    const LiveStreamDescriptor& descriptor,
+    LiveStreamSynchronizationRequester synchronizationRequester,
+    uint32_t& lastSyncAttemptAtMs,
+    bool& hasSyncAttempt,
+    bool& lastSyncAccepted,
+    LiveRelayStats& relayStats,
+    portMUX_TYPE& statsMux
+)
+{
+    const uint32_t now = millis();
+    String syncResult;
+
+    if (descriptor.profileToken[0] == '\0') {
+        syncResult = "Sincronizacao ONVIF ignorada: perfil sem token";
+        recordSynchronizationResult(
+            relayStats,
+            statsMux,
+            false,
+            false,
+            now,
+            syncResult
+        );
+        Serial.print("LIVE: ");
+        Serial.println(syncResult);
+        return;
+    }
+
+    if (synchronizationRequester == nullptr) {
+        syncResult = "Sincronizacao ONVIF ignorada: callback indisponivel";
+        recordSynchronizationResult(
+            relayStats,
+            statsMux,
+            false,
+            false,
+            now,
+            syncResult
+        );
+        Serial.print("LIVE: ");
+        Serial.println(syncResult);
+        return;
+    }
+
+    const uint32_t retryIntervalMs = lastSyncAccepted
+        ? LIVE_SYNC_SUCCESS_MIN_INTERVAL_MS
+        : LIVE_SYNC_FAILURE_BACKOFF_MS;
+
+    if (
+        hasSyncAttempt &&
+        now - lastSyncAttemptAtMs < retryIntervalMs
+    ) {
+        syncResult = lastSyncAccepted
+            ? "Sincronizacao ONVIF ignorada: limite de 5 s apos sucesso"
+            : "Sincronizacao ONVIF ignorada: backoff de 5 min apos falha";
+        recordSynchronizationResult(
+            relayStats,
+            statsMux,
+            false,
+            false,
+            now,
+            syncResult
+        );
+        Serial.print("LIVE: ");
+        Serial.println(syncResult);
+        return;
+    }
+
+    lastSyncAttemptAtMs = now;
+    hasSyncAttempt = true;
+    const bool accepted = synchronizationRequester(
+        descriptor.profileToken,
+        syncResult
+    );
+    lastSyncAccepted = accepted;
+
+    if (syncResult.isEmpty()) {
+        syncResult = accepted
+            ? "SetSynchronizationPoint aceito"
+            : "SetSynchronizationPoint falhou";
+    }
+
+    recordSynchronizationResult(
+        relayStats,
+        statsMux,
+        true,
+        accepted,
+        millis(),
+        syncResult
+    );
+
+    Serial.print("LIVE: ");
+    Serial.println(syncResult);
+}
+
+bool writeAll(
+    WiFiClient& client,
+    const uint8_t* data,
+    size_t length,
+    const RtspDeadline* deadline = nullptr
+)
 {
     size_t written = 0;
     unsigned long lastProgressAt = millis();
 
     while (written < length) {
-        if (!client.connected()) {
+        if (!client.connected() || remainingTimeMs(deadline) == 0) {
             return false;
         }
 
@@ -139,12 +300,17 @@ bool writeAll(WiFiClient& client, const uint8_t* data, size_t length)
     return true;
 }
 
-bool writeAll(WiFiClient& client, const String& text)
+bool writeAll(
+    WiFiClient& client,
+    const String& text,
+    const RtspDeadline* deadline = nullptr
+)
 {
     return writeAll(
         client,
         reinterpret_cast<const uint8_t*>(text.c_str()),
-        text.length()
+        text.length(),
+        deadline
     );
 }
 
@@ -152,13 +318,18 @@ bool readExact(
     WiFiClient& client,
     uint8_t* destination,
     size_t length,
-    uint32_t timeoutMs
+    uint32_t timeoutMs,
+    const RtspDeadline* deadline = nullptr
 )
 {
     size_t received = 0;
     unsigned long lastDataAt = millis();
 
     while (received < length) {
+        if (remainingTimeMs(deadline) == 0) {
+            return false;
+        }
+
         const int available = client.available();
 
         if (available > 0) {
@@ -175,7 +346,11 @@ bool readExact(
             }
         }
 
-        if (!client.connected() || millis() - lastDataAt >= timeoutMs) {
+        if (
+            !client.connected() ||
+            remainingTimeMs(deadline) == 0 ||
+            millis() - lastDataAt >= timeoutMs
+        ) {
             return false;
         }
 
@@ -185,7 +360,12 @@ bool readExact(
     return true;
 }
 
-bool discardExact(WiFiClient& client, size_t length, uint32_t timeoutMs)
+bool discardExact(
+    WiFiClient& client,
+    size_t length,
+    uint32_t timeoutMs,
+    const RtspDeadline* deadline = nullptr
+)
 {
     uint8_t buffer[256];
     size_t remaining = length;
@@ -193,7 +373,7 @@ bool discardExact(WiFiClient& client, size_t length, uint32_t timeoutMs)
     while (remaining > 0) {
         const size_t amount = min(remaining, sizeof(buffer));
 
-        if (!readExact(client, buffer, amount, timeoutMs)) {
+        if (!readExact(client, buffer, amount, timeoutMs, deadline)) {
             return false;
         }
 
@@ -207,7 +387,8 @@ bool readHeaders(
     WiFiClient& client,
     String& headers,
     uint32_t timeoutMs,
-    char firstByte = '\0'
+    char firstByte = '\0',
+    const RtspDeadline* deadline = nullptr
 )
 {
     headers = String();
@@ -220,7 +401,15 @@ bool readHeaders(
     unsigned long lastDataAt = millis();
 
     while (headers.length() < MAX_RTSP_HEADER_BYTES) {
+        if (remainingTimeMs(deadline) == 0) {
+            return false;
+        }
+
         while (client.available()) {
+            if (remainingTimeMs(deadline) == 0) {
+                return false;
+            }
+
             const int value = client.read();
 
             if (value < 0) {
@@ -235,7 +424,11 @@ bool readHeaders(
             }
         }
 
-        if (!client.connected() || millis() - lastDataAt >= timeoutMs) {
+        if (
+            !client.connected() ||
+            remainingTimeMs(deadline) == 0 ||
+            millis() - lastDataAt >= timeoutMs
+        ) {
             return false;
         }
 
@@ -299,12 +492,19 @@ int parseRtspStatusCode(const String& headers)
 bool readRtspResponse(
     WiFiClient& client,
     RtspResponse& response,
-    char firstByte = '\0'
+    char firstByte = '\0',
+    const RtspDeadline* deadline = nullptr
 )
 {
     response = RtspResponse{};
 
-    if (!readHeaders(client, response.headers, LIVE_RTSP_RESPONSE_TIMEOUT_MS, firstByte)) {
+    if (!readHeaders(
+        client,
+        response.headers,
+        LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+        firstByte,
+        deadline
+    )) {
         return false;
     }
 
@@ -330,7 +530,8 @@ bool readRtspResponse(
             client,
             bodyBuffer,
             amount,
-            LIVE_RTSP_RESPONSE_TIMEOUT_MS
+            LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+            deadline
         )) {
             response.body = String();
             return false;
@@ -717,24 +918,45 @@ String makeAuthorization(
     return authorization;
 }
 
-bool ensureCameraConnected(RtspSession& session)
+bool ensureCameraConnected(
+    RtspSession& session,
+    const RtspDeadline* deadline = nullptr
+)
 {
     if (session.cameraClient.connected()) {
         return true;
     }
 
     session.cameraClient.stop();
+    const uint32_t connectTimeoutMs = boundedTimeoutMs(
+        LIVE_RTSP_CONNECT_TIMEOUT_MS,
+        deadline
+    );
+
+    if (connectTimeoutMs == 0) {
+        return false;
+    }
 
     if (!session.cameraClient.connect(
         session.endpoint.ip,
         session.endpoint.port,
-        LIVE_RTSP_CONNECT_TIMEOUT_MS
+        connectTimeoutMs
     )) {
         return false;
     }
 
+    const uint32_t responseTimeoutMs = boundedTimeoutMs(
+        LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+        deadline
+    );
+
+    if (responseTimeoutMs == 0) {
+        session.cameraClient.stop();
+        return false;
+    }
+
     session.cameraClient.setNoDelay(true);
-    session.cameraClient.setTimeout(LIVE_RTSP_RESPONSE_TIMEOUT_MS);
+    session.cameraClient.setTimeout((responseTimeoutMs + 999UL) / 1000UL);
     return true;
 }
 
@@ -976,10 +1198,11 @@ bool sendRtspRequestAttempt(
     const char* password,
     const char* userAgent,
     bool withAuthorization,
-    RtspResponse& response
+    RtspResponse& response,
+    const RtspDeadline* deadline = nullptr
 )
 {
-    if (!ensureCameraConnected(session)) {
+    if (!ensureCameraConnected(session, deadline)) {
         return false;
     }
 
@@ -1031,11 +1254,16 @@ bool sendRtspRequestAttempt(
     request += "\r\n";
     request += body;
 
-    if (!writeAll(session.cameraClient, request)) {
+    if (!writeAll(session.cameraClient, request, deadline)) {
         return false;
     }
 
-    return readRtspResponse(session.cameraClient, response);
+    return readRtspResponse(
+        session.cameraClient,
+        response,
+        '\0',
+        deadline
+    );
 }
 
 bool performRtspRequest(
@@ -1048,12 +1276,28 @@ bool performRtspRequest(
     const char* password,
     const char* userAgent,
     RtspResponse& response,
-    String& error
+    String& error,
+    const RtspDeadline* deadline = nullptr,
+    bool* protocolResponded = nullptr,
+    int* lastStatusCode = nullptr
 )
 {
     const bool haveChallenge = session.challenge.valid;
+    const auto captureStatus = [&]() {
+        if (response.statusCode <= 0) {
+            return;
+        }
 
-    if (!sendRtspRequestAttempt(
+        if (protocolResponded != nullptr) {
+            *protocolResponded = true;
+        }
+
+        if (lastStatusCode != nullptr) {
+            *lastStatusCode = response.statusCode;
+        }
+    };
+
+    const bool firstAttemptSucceeded = sendRtspRequestAttempt(
         session,
         method,
         requestUri,
@@ -1063,8 +1307,12 @@ bool performRtspRequest(
         password,
         userAgent,
         haveChallenge,
-        response
-    )) {
+        response,
+        deadline
+    );
+    captureStatus();
+
+    if (!firstAttemptSucceeded) {
         error = "A câmera encerrou a conexão RTSP durante ";
         error += method;
         return false;
@@ -1089,7 +1337,7 @@ bool performRtspRequest(
         session.cameraClient.stop();
     }
 
-    if (!sendRtspRequestAttempt(
+    const bool authenticatedAttemptSucceeded = sendRtspRequestAttempt(
         session,
         method,
         requestUri,
@@ -1099,8 +1347,12 @@ bool performRtspRequest(
         password,
         userAgent,
         true,
-        response
-    )) {
+        response,
+        deadline
+    );
+    captureStatus();
+
+    if (!authenticatedAttemptSucceeded) {
         error = "Falha ao repetir ";
         error += method;
         error += " com autenticação RTSP";
@@ -1535,7 +1787,8 @@ void sendTeardown(
     RtspSession& session,
     const char* username,
     const char* password,
-    const char* userAgent
+    const char* userAgent,
+    const RtspDeadline* deadline = nullptr
 )
 {
     if (!session.cameraClient.connected() || session.sessionId.isEmpty()) {
@@ -1574,7 +1827,7 @@ void sendTeardown(
     }
 
     request += "\r\n";
-    writeAll(session.cameraClient, request);
+    writeAll(session.cameraClient, request, deadline);
 }
 
 RelaySessionResult relayRtspToBrowser(
@@ -1583,6 +1836,10 @@ RelaySessionResult relayRtspToBrowser(
     const char* username,
     const char* password,
     const char* userAgent,
+    LiveStreamSynchronizationRequester synchronizationRequester,
+    uint32_t& lastSyncAttemptAtMs,
+    bool& hasSyncAttempt,
+    bool& lastSyncAccepted,
     LiveRelayStats& relayStats,
     portMUX_TYPE& statsMux
 )
@@ -1743,6 +2000,7 @@ RelaySessionResult relayRtspToBrowser(
     result.started = true;
     unsigned long lastMediaAt = millis();
     unsigned long lastKeepaliveAt = millis();
+    bool synchronizationRequested = false;
 
     while (browser.connected() && session.cameraClient.connected()) {
         const unsigned long now = millis();
@@ -1845,6 +2103,20 @@ RelaySessionResult relayRtspToBrowser(
             relayStats.mediaActive = true;
             relayStats.lastMediaPacketAtMs = relayedAtMs;
             portEXIT_CRITICAL(&statsMux);
+
+            if (!synchronizationRequested) {
+                synchronizationRequested = true;
+                requestSynchronizationPoint(
+                    descriptor,
+                    synchronizationRequester,
+                    lastSyncAttemptAtMs,
+                    hasSyncAttempt,
+                    lastSyncAccepted,
+                    relayStats,
+                    statsMux
+                );
+            }
+
             continue;
         }
 
@@ -1876,6 +2148,7 @@ LiveStreamRelay::LiveStreamRelay() = default;
 bool LiveStreamRelay::begin(
     uint16_t port,
     LiveStreamDescriptorProvider descriptorProvider,
+    LiveStreamSynchronizationRequester synchronizationRequester,
     SemaphoreHandle_t cameraIoMutex,
     const char* username,
     const char* password,
@@ -1893,6 +2166,7 @@ bool LiveStreamRelay::begin(
 
     port_ = port;
     descriptorProvider_ = descriptorProvider;
+    synchronizationRequester_ = synchronizationRequester;
     cameraIoMutex_ = cameraIoMutex;
     username_ = username;
     password_ = password;
@@ -1944,6 +2218,316 @@ void LiveStreamRelay::snapshotStats(LiveRelayStats& output) const
     portEXIT_CRITICAL(&statsMux_);
 }
 
+void LiveStreamRelay::invalidateMediaEvidence()
+{
+    portENTER_CRITICAL(&statsMux_);
+    stats_.mediaActive = false;
+    stats_.lastMediaPacketAtMs = 0;
+    portEXIT_CRITICAL(&statsMux_);
+}
+
+bool LiveStreamRelay::probeMedia(
+    size_t profileIndex,
+    uint32_t timeoutMs,
+    LiveMediaProbeResult& result
+)
+{
+    result = LiveMediaProbeResult{};
+    result.attempted = true;
+    const uint32_t startedAtMs = millis();
+    const uint32_t proportionalReserveMs = timeoutMs / 10UL;
+    const uint32_t teardownReserveMs = proportionalReserveMs <
+        LIVE_PROBE_TEARDOWN_RESERVE_MS
+            ? proportionalReserveMs
+            : LIVE_PROBE_TEARDOWN_RESERVE_MS;
+    RtspDeadline totalDeadline;
+    totalDeadline.startedAtMs = startedAtMs;
+    totalDeadline.timeoutMs = timeoutMs;
+    RtspDeadline workDeadline;
+    workDeadline.startedAtMs = startedAtMs;
+    workDeadline.timeoutMs = timeoutMs - teardownReserveMs;
+    RtspSession session;
+    uint32_t playAcceptedAtMs = 0;
+
+    const auto finishProbe = [&](const String& detail) {
+        if (result.playAccepted && playAcceptedAtMs != 0) {
+            result.observedAfterPlayMs = millis() - playAcceptedAtMs;
+        }
+
+        sendTeardown(
+            session,
+            username_,
+            password_,
+            userAgent_,
+            &totalDeadline
+        );
+        session.cameraClient.stop();
+        result.latencyMs = millis() - startedAtMs;
+        copyText(result.detail, sizeof(result.detail), detail);
+        return result.mediaReceived;
+    };
+
+    if (timeoutMs == 0) {
+        return finishProbe("Sonda RTP sem tempo disponivel");
+    }
+
+    if (descriptorProvider_ == nullptr) {
+        return finishProbe("Provedor de perfil ao vivo indisponivel");
+    }
+
+    LiveStreamDescriptor descriptor;
+    String detail;
+
+    const uint32_t descriptorTimeoutMs = remainingTimeMs(&workDeadline);
+
+    if (
+        descriptorTimeoutMs == 0 ||
+        !descriptorProvider_(
+            profileIndex,
+            descriptor,
+            detail,
+            descriptorTimeoutMs
+        )
+    ) {
+        if (detail.isEmpty()) {
+            detail = "Perfil de video indisponivel para a sonda RTP";
+        }
+
+        return finishProbe(detail);
+    }
+
+    result.descriptorResolved = true;
+
+    if (remainingTimeMs(&workDeadline) == 0) {
+        return finishProbe("Timeout ao resolver o perfil da sonda RTP");
+    }
+
+    if (!parseRtspUri(descriptor.uri, session.endpoint)) {
+        return finishProbe("URI RTSP invalida para a sonda RTP");
+    }
+
+    RtspResponse describe;
+
+    if (!performRtspRequest(
+        session,
+        "DESCRIBE",
+        session.endpoint.requestUri,
+        "Accept: application/sdp\r\n",
+        String(),
+        username_,
+        password_,
+        userAgent_,
+        describe,
+        detail,
+        &workDeadline,
+        &result.rtspResponded,
+        &result.statusCode
+    )) {
+        return finishProbe(detail.isEmpty()
+            ? String("Falha no DESCRIBE da sonda RTP")
+            : detail);
+    }
+
+    if (describe.statusCode < 200 || describe.statusCode >= 300) {
+        detail = "DESCRIBE RTSP retornou codigo ";
+        detail += describe.statusCode;
+        return finishProbe(detail);
+    }
+
+    session.contentBase = headerValue(describe.headers, "Content-Base");
+    session.aggregateUri = normalizeRtspRequestUri(
+        session.endpoint,
+        session.contentBase.isEmpty()
+            ? session.endpoint.requestUri
+            : session.contentBase
+    );
+
+    if (!parseSdpVideoTrack(describe.body, session.track, detail)) {
+        return finishProbe(detail);
+    }
+
+    session.trackUri = resolveTrackUri(
+        session.endpoint,
+        session.aggregateUri,
+        session.contentBase,
+        session.track.control
+    );
+    describe = RtspResponse{};
+
+    RtspResponse setup;
+
+    if (!performRtspRequest(
+        session,
+        "SETUP",
+        session.trackUri,
+        "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n",
+        String(),
+        username_,
+        password_,
+        userAgent_,
+        setup,
+        detail,
+        &workDeadline,
+        &result.rtspResponded,
+        &result.statusCode
+    )) {
+        return finishProbe(detail.isEmpty()
+            ? String("Falha no SETUP da sonda RTP")
+            : detail);
+    }
+
+    if (setup.statusCode < 200 || setup.statusCode >= 300) {
+        detail = "SETUP RTSP retornou codigo ";
+        detail += setup.statusCode;
+        return finishProbe(detail);
+    }
+
+    session.sessionId = parseSessionId(headerValue(setup.headers, "Session"));
+
+    if (session.sessionId.isEmpty()) {
+        return finishProbe("SETUP nao retornou identificador de sessao");
+    }
+
+    session.videoChannel = parseInterleavedChannel(
+        headerValue(setup.headers, "Transport")
+    );
+    setup = RtspResponse{};
+
+    RtspResponse play;
+
+    if (!performRtspRequest(
+        session,
+        "PLAY",
+        session.aggregateUri,
+        "Range: npt=0.000-\r\n",
+        String(),
+        username_,
+        password_,
+        userAgent_,
+        play,
+        detail,
+        &workDeadline,
+        &result.rtspResponded,
+        &result.statusCode
+    )) {
+        return finishProbe(detail.isEmpty()
+            ? String("Falha no PLAY da sonda RTP")
+            : detail);
+    }
+
+    if (play.statusCode < 200 || play.statusCode >= 300) {
+        detail = "PLAY RTSP retornou codigo ";
+        detail += play.statusCode;
+        return finishProbe(detail);
+    }
+
+    result.playAccepted = true;
+    playAcceptedAtMs = millis();
+    play = RtspResponse{};
+
+    while (remainingTimeMs(&workDeadline) > 0) {
+        if (!session.cameraClient.connected()) {
+            return finishProbe("Camera encerrou a sonda antes do primeiro RTP");
+        }
+
+        if (session.cameraClient.available() <= 0) {
+            delay(1);
+            continue;
+        }
+
+        const int first = session.cameraClient.read();
+
+        if (first < 0) {
+            delay(1);
+            continue;
+        }
+
+        if (first != '$') {
+            RtspResponse asynchronousResponse;
+
+            if (!readRtspResponse(
+                session.cameraClient,
+                asynchronousResponse,
+                static_cast<char>(first),
+                &workDeadline
+            )) {
+                return finishProbe("Resposta RTSP assincrona invalida na sonda");
+            }
+
+            continue;
+        }
+
+        uint8_t interleavedHeader[3];
+
+        if (!readExact(
+            session.cameraClient,
+            interleavedHeader,
+            sizeof(interleavedHeader),
+            LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+            &workDeadline
+        )) {
+            return finishProbe("Cabecalho RTP incompleto na sonda");
+        }
+
+        const uint8_t channel = interleavedHeader[0];
+        const size_t length =
+            (static_cast<size_t>(interleavedHeader[1]) << 8) |
+            static_cast<size_t>(interleavedHeader[2]);
+
+        if (length < 12) {
+            if (!discardExact(
+                session.cameraClient,
+                length,
+                LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+                &workDeadline
+            )) {
+                return finishProbe("Pacote intercalado curto e incompleto");
+            }
+
+            continue;
+        }
+
+        uint8_t rtpHeader[12];
+
+        if (!readExact(
+            session.cameraClient,
+            rtpHeader,
+            sizeof(rtpHeader),
+            LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+            &workDeadline
+        )) {
+            return finishProbe("Cabecalho do pacote RTP incompleto");
+        }
+
+        if (!discardExact(
+            session.cameraClient,
+            length - sizeof(rtpHeader),
+            LIVE_RTSP_RESPONSE_TIMEOUT_MS,
+            &workDeadline
+        )) {
+            return finishProbe("Payload do pacote RTP incompleto");
+        }
+
+        const size_t rtpHeaderLength =
+            12U + 4U * static_cast<size_t>(rtpHeader[0] & 0x0F);
+        const bool validRtp =
+            channel == session.videoChannel &&
+            (rtpHeader[0] >> 6) == 2 &&
+            length >= rtpHeaderLength &&
+            (rtpHeader[1] & 0x7F) == session.track.payloadType;
+
+        if (!validRtp) {
+            continue;
+        }
+
+        result.mediaReceived = true;
+        result.bytes = static_cast<uint32_t>(length);
+        return finishProbe("Primeiro pacote RTP de video recebido");
+    }
+
+    return finishProbe("Timeout aguardando o primeiro pacote RTP de video");
+}
+
 void LiveStreamRelay::taskEntry(void* parameter)
 {
     LiveStreamRelay* relay = static_cast<LiveStreamRelay*>(parameter);
@@ -1983,7 +2567,7 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     }
 
     browserClient.setNoDelay(true);
-    browserClient.setTimeout(BROWSER_REQUEST_TIMEOUT_MS);
+    browserClient.setTimeout((BROWSER_REQUEST_TIMEOUT_MS + 999UL) / 1000UL);
 
     String method;
     String target;
@@ -2044,7 +2628,12 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
         return;
     }
 
-    if (!descriptorProvider_(profileIndex, descriptor, descriptorError)) {
+    if (!descriptorProvider_(
+        profileIndex,
+        descriptor,
+        descriptorError,
+        LIVE_RTSP_RESPONSE_TIMEOUT_MS
+    )) {
         xSemaphoreGiveRecursive(cameraIoMutex_);
         String json = "{\"ok\":false,\"error\":\"profile_unavailable\",\"detail\":\"";
         json += jsonEscapeLocal(descriptorError);
@@ -2079,6 +2668,10 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
         username_,
         password_,
         userAgent_,
+        synchronizationRequester_,
+        lastSyncAttemptAtMs_,
+        hasSyncAttempt_,
+        lastSyncAccepted_,
         stats_,
         statsMux_
     );

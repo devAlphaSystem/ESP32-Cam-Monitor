@@ -488,6 +488,21 @@ main{padding:14px 12px 36px}
       <div class="card-v" id="v-wifi"><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="rssi">—</span></div>
       <div class="card-m" id="m-wifi">—</div>
     </article>
+    <article class="card">
+      <div class="card-h">Catálogo ONVIF<i class="pip" id="p-ronvif"></i></div>
+      <div class="card-v info" id="r-onvif">—</div>
+      <div class="card-m" id="r-onvif-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Eventos anunciados<i class="pip" id="p-revents"></i></div>
+      <div class="card-v info" id="r-events">—</div>
+      <div class="card-m" id="r-events-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Quadro-chave ONVIF<i class="pip" id="p-rsync"></i></div>
+      <div class="card-v info" id="r-sync">—</div>
+      <div class="card-m" id="r-sync-meta">—</div>
+    </article>
   </div>
 
   <section class="chart-card" aria-labelledby="historyTitle">
@@ -649,7 +664,7 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
-<script src="/assets/live-player.js?v=0.7.0"></script>
+<script src="/assets/live-player.js?v=0.8.2"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -676,7 +691,11 @@ let activeSettingsSection = 'identification';
 let feedMinimumIntervalMs = 2000;
 let feedTargetCycleMs = 2000;
 let statusRefreshIntervalMs = 3000;
+let snapshotHttpTimeoutMs = 5000;
 let statusRefreshTimer;
+let statusLoading = false;
+let statusAbortController = null;
+let statusRequestGeneration = 0;
 let settingsLoaded = false;
 let settingsLoading = false;
 let settingsBusy = false;
@@ -691,6 +710,16 @@ function duration(totalSeconds) {
   if (h) return h + 'h ' + m + 'min';
   if (m) return m + 'min ' + (s % 60) + 's';
   return s + 's';
+}
+
+function localizeTimestampText(value) {
+  if (typeof value !== 'string') return value;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)(.*)$/);
+  if (!match) return value;
+  const timestamp = new Date(match[1]);
+  return Number.isNaN(timestamp.getTime())
+    ? value
+    : timestamp.toLocaleString('pt-BR') + match[2];
 }
 
 function pip(id, tone) { $(id).className = 'pip ' + tone; }
@@ -786,6 +815,61 @@ function renderResources(d) {
     pip('p-rpsram', 'info');
   }
 
+  const onvif = d.onvif || {};
+  const onvifReady = Boolean(onvif.catalogResolved && !onvif.usedMediaFallback);
+  $('r-onvif').textContent = (onvif.serviceCount || 0) + ' serviços';
+  const onvifTone = !onvif.catalogResolved ? 'info' : onvifReady ? 'ok' : 'warn';
+  $('r-onvif').className = 'card-v ' + onvifTone;
+  $('r-onvif-meta').textContent = !onvif.catalogResolved
+    ? 'aguardando consulta GetServices'
+    : onvif.usedMediaFallback
+      ? 'Media1 convencional em uso · ' + (onvif.lastResult || 'catálogo indisponível')
+      : (onvif.lastLatencyMs || 0) + ' ms · endpoints validados no IP da câmera';
+  pip('p-ronvif', onvifTone);
+
+  const events = onvif.events || {};
+  const eventsServiceAvailable = Boolean(
+    onvif.services && onvif.services.events && onvif.services.events.available
+  );
+  const eventKinds = [
+    events.motion && 'movimento',
+    events.tamper && 'tamper',
+    events.signalLoss && 'perda de sinal',
+    events.imageQuality && 'qualidade de imagem'
+  ].filter(Boolean);
+  const eventsTone = events.propertiesLoaded
+    ? 'ok'
+    : !onvif.catalogResolved || !eventsServiceAvailable ? 'info' : 'warn';
+  $('r-events').textContent = events.propertiesLoaded
+    ? (events.topicCount || 0) + ' tópicos'
+    : !onvif.catalogResolved
+      ? 'aguardando catálogo'
+      : eventsServiceAvailable ? 'não consultados' : 'não anunciado';
+  $('r-events').className = 'card-v ' + eventsTone;
+  $('r-events-meta').textContent = events.propertiesLoaded
+    ? (eventKinds.join(' · ') || 'sem tópicos monitoráveis identificados')
+    : !eventsServiceAvailable && onvif.catalogResolved
+      ? 'a câmera não anunciou o serviço Events'
+      : 'GetEventProperties ainda não retornou dados';
+  pip('p-revents', eventsTone);
+
+  const relay = d.live && d.live.relay ? d.live.relay : {};
+  const syncAttempts = Number(relay.syncAttempts || 0);
+  const syncAccepted = Number(relay.syncAccepted || 0);
+  const syncFailed = Number(relay.syncFailed || 0);
+  const syncSkipped = Number(relay.syncSkipped || 0);
+  const lastSyncAccepted = Boolean(relay.lastSyncAccepted);
+  $('r-sync').textContent = syncAttempts
+    ? syncAccepted + ' / ' + syncAttempts + ' aceitos'
+    : syncSkipped ? '0 solicitações' : 'aguardando sessão';
+  $('r-sync').className = 'card-v ' + (!syncAttempts ? 'info' : lastSyncAccepted ? 'ok' : 'warn');
+  $('r-sync-meta').textContent = syncAttempts
+    ? syncFailed + ' falhas · ' + syncSkipped + ' não executados'
+    : syncSkipped
+      ? syncSkipped + ' sessões sem solicitação válida'
+      : 'será solicitado logo após o PLAY do RTSP';
+  pip('p-rsync', !syncAttempts ? 'info' : lastSyncAccepted ? 'ok' : 'warn');
+
   resourceHistory.heap.push(heapPercent);
   resourceHistory.rssi.push(d.wifi.connected ? d.wifi.rssi : -100);
   if (resourceHistory.heap.length > HISTORY_LIMIT) resourceHistory.heap.shift();
@@ -866,7 +950,21 @@ let feedLoading = false;
 let feedFailures = 0;
 let feedTimer;
 let feedRequestedAtMs = 0;
+let feedWatchdogTimer;
+let feedRequestGeneration = 0;
 // Os intervalos da previa sao atualizados pelo JSON do firmware.
+
+function cancelFeedLoad(resetFailures) {
+  feedRequestGeneration++;
+  clearTimeout(feedWatchdogTimer);
+  feedWatchdogTimer = null;
+  const frame = $('cameraFeed');
+  frame.onload = null;
+  frame.onerror = null;
+  frame.removeAttribute('src');
+  feedLoading = false;
+  if (resetFailures) feedFailures = 0;
+}
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
@@ -879,6 +977,10 @@ function scheduleFeed(delay) {
 
 function loadFeed() {
   if (document.hidden || activeView !== 'feed' || feedLoading) return;
+  if (statusLoading) {
+    scheduleFeed(250);
+    return;
+  }
   if (cameraRecovering) {
     $('cameraFeed').classList.remove('ready');
     $('feedState').classList.remove('hidden');
@@ -897,7 +999,22 @@ function loadFeed() {
   const frame = $('cameraFeed');
   feedLoading = true;
   feedRequestedAtMs = Date.now();
+  const requestGeneration = ++feedRequestGeneration;
+  clearTimeout(feedWatchdogTimer);
+  feedWatchdogTimer = setTimeout(() => {
+    if (requestGeneration !== feedRequestGeneration || !feedLoading) return;
+    cancelFeedLoad(false);
+    feedFailures++;
+    frame.classList.remove('ready');
+    $('feedState').classList.remove('hidden');
+    $('feedState').textContent = 'A imagem demorou demais; tentando novamente…';
+    $('feedStamp').textContent = 'prévia temporariamente indisponível';
+    scheduleFeed(Math.min(8000, 1000 * Math.pow(2, Math.min(feedFailures, 3))));
+  }, Math.max(12000, Math.min(65000, snapshotHttpTimeoutMs * 2 + 5000)));
   frame.onload = () => {
+    if (requestGeneration !== feedRequestGeneration) return;
+    clearTimeout(feedWatchdogTimer);
+    feedWatchdogTimer = null;
     feedLoading = false;
     feedFailures = 0;
     frame.classList.add('ready');
@@ -907,6 +1024,9 @@ function loadFeed() {
     scheduleFeed(Math.max(feedMinimumIntervalMs, feedTargetCycleMs - elapsed));
   };
   frame.onerror = () => {
+    if (requestGeneration !== feedRequestGeneration) return;
+    clearTimeout(feedWatchdogTimer);
+    feedWatchdogTimer = null;
     feedLoading = false;
     feedFailures++;
     frame.classList.remove('ready');
@@ -983,6 +1103,7 @@ let livePlayer = null;
 let liveShouldRun = false;
 let liveReconnectTimer = null;
 let liveReconnectAttempt = 0;
+let liveFailedProfileIndices = [];
 let liveLastStatus = null;
 let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0 };
 let liveMarkerCompatibilityNotified = false;
@@ -1051,6 +1172,32 @@ function selectedLiveProfileIndex() {
   return Number.isInteger(index) && index >= 0 ? index : -1;
 }
 
+function resetLiveProfileAttempts() {
+  liveFailedProfileIndices = [];
+}
+
+function noteLiveProfileAttempt(profileIndex) {
+  if (!liveFailedProfileIndices.includes(profileIndex)) {
+    liveFailedProfileIndices.push(profileIndex);
+  }
+}
+
+function selectLiveFallbackProfile() {
+  const currentProfileIndex = selectedLiveProfileIndex();
+  if (currentProfileIndex >= 0) noteLiveProfileAttempt(currentProfileIndex);
+  const fallback = liveProfiles.find(
+    profile => !liveFailedProfileIndices.includes(profile.index)
+  );
+
+  if (!fallback) {
+    resetLiveProfileAttempts();
+    return null;
+  }
+
+  $('liveProfile').value = String(fallback.index);
+  return fallback;
+}
+
 function liveHostForUrl() {
   const host = location.hostname || location.host.split(':')[0];
   return host.includes(':') && !host.startsWith('[') ? '[' + host + ']' : host;
@@ -1066,12 +1213,15 @@ function clearLiveReconnectTimer() {
   liveReconnectTimer = null;
 }
 
-function scheduleLiveReconnect() {
+function scheduleLiveReconnect(message) {
   clearLiveReconnectTimer();
   if (!liveShouldRun || activeView !== 'stream' || document.hidden) return;
   const delay = Math.min(10000, 1000 * Math.pow(2, Math.min(liveReconnectAttempt, 3)));
   liveReconnectAttempt++;
-  setLivePlayerStatus('Transmissão encerrada; nova tentativa em ' + Math.round(delay / 1000) + ' s…', 'warn');
+  setLivePlayerStatus(
+    message || 'Transmissão encerrada; nova tentativa em ' + Math.round(delay / 1000) + ' s…',
+    'warn'
+  );
   liveReconnectTimer = setTimeout(() => {
     liveReconnectTimer = null;
     if (liveShouldRun && activeView === 'stream' && !document.hidden) openLiveStream();
@@ -1125,13 +1275,14 @@ function ensureLivePlayer() {
       }
     },
     onVideoInfo(info) {
-      liveReconnectAttempt = 0;
       $('liveCodecState').textContent = info.codec + ' · ' + info.width + '×' + info.height;
       setLiveOverlay('Segmento H.264 aceito; aguardando o primeiro quadro decodificado…', false);
       setLivePlayerStatus('Inicializando o decodificador H.264 do navegador.', 'warn');
     },
     onPlaybackReady() {
       liveReconnectAttempt = 0;
+      resetLiveProfileAttempts();
+      saveLivePreferences();
       liveVideo.classList.add('ready');
       setLiveOverlay('', true);
       setLivePlayerStatus(
@@ -1149,7 +1300,14 @@ function ensureLivePlayer() {
       liveVideo.classList.remove('ready');
       setLivePlayerStatus(error.message || String(error), 'bad');
       setLiveOverlay('A transmissão foi interrompida: ' + (error.message || String(error)), false);
-      if (liveShouldRun) scheduleLiveReconnect();
+      if (liveShouldRun) {
+        const fallback = selectLiveFallbackProfile();
+        scheduleLiveReconnect(
+          fallback
+            ? 'Perfil sem mídia; tentando ' + fallback.name + ' automaticamente…'
+            : null
+        );
+      }
     }
   });
   return livePlayer;
@@ -1169,6 +1327,7 @@ function openLiveStream() {
     setLivePlayerStatus('Navegador sem suporte ao player integrado.', 'bad');
     return;
   }
+  noteLiveProfileAttempt(profileIndex);
 
   liveVideo.classList.remove('ready');
   liveMarkerCompatibilityNotified = false;
@@ -1188,6 +1347,7 @@ function openLiveStream() {
 
 function startLivePlayer() {
   if (activeView !== 'stream') return;
+  resetLiveProfileAttempts();
   liveShouldRun = true;
   liveReconnectAttempt = 0;
   openLiveStream();
@@ -1195,6 +1355,7 @@ function startLivePlayer() {
 
 function stopLivePlayer(userInitiated) {
   liveShouldRun = false;
+  resetLiveProfileAttempts();
   clearLiveReconnectTimer();
   if (livePlayer) livePlayer.stop(false);
   liveVideo.classList.remove('ready');
@@ -1240,7 +1401,7 @@ function renderLiveStatus(live, camera) {
       : relay.clientActive ? 'conectando à câmera'
       : relay.running ? 'aguardando navegador' : 'parado';
   $('liveRelayState').textContent = relayState
-    + (relay.lastError ? ' · ' + relay.lastError : '');
+    + (!relay.mediaActive && relay.lastError ? ' · ' + relay.lastError : '');
 
   const compatibleProfiles = Array.isArray(live.profiles)
     ? live.profiles.filter(profile => profile.relayCompatible)
@@ -1252,6 +1413,7 @@ function renderLiveStatus(live, camera) {
 
   if (signature !== liveProfileSignature) {
     liveProfileSignature = signature;
+    resetLiveProfileAttempts();
     liveProfiles = compatibleProfiles;
     const select = $('liveProfile');
     const previous = Number(select.value);
@@ -1286,7 +1448,9 @@ function renderLiveStatus(live, camera) {
     }
   }
 
-  if (relay.clientActive && livePlayer && livePlayer.running) {
+  if (!liveShouldRun) {
+    setLivePlayerStatus('Relay RTSP/HTTP parado.', '');
+  } else if (relay.clientActive && livePlayer && livePlayer.running) {
     if (liveVideo.classList.contains('ready')) {
       setLivePlayerStatus(
         liveMarkerCompatibilityNotified
@@ -1295,8 +1459,6 @@ function renderLiveStatus(live, camera) {
         'ok'
       );
     }
-  } else if (relay.lastError && !liveReconnectTimer) {
-    setLivePlayerStatus(relay.lastError, 'warn');
   }
 
   if (
@@ -1313,12 +1475,14 @@ function renderLiveStatus(live, camera) {
 
 $('liveStart').addEventListener('click', startLivePlayer);
 $('liveReload').addEventListener('click', () => {
+  resetLiveProfileAttempts();
   liveShouldRun = true;
   liveReconnectAttempt = 0;
   openLiveStream();
 });
 $('liveStop').addEventListener('click', () => stopLivePlayer(true));
 $('liveProfile').addEventListener('change', () => {
+  resetLiveProfileAttempts();
   saveLivePreferences();
   if (liveShouldRun && activeView === 'stream') openLiveStream();
 });
@@ -1465,13 +1629,13 @@ function formatSettingNumber(value) {
 
 function setSettingsStatus(message, tone) {
   const target = $('settingsFormStatus');
-  target.textContent = message;
+  target.textContent = localizeTimestampText(message);
   target.className = 'form-result' + (tone ? ' ' + tone : '');
 }
 
 function setAdminActionStatus(message, tone) {
   const target = $('adminActionStatus');
-  target.textContent = message;
+  target.textContent = localizeTimestampText(message);
   target.className = 'form-result' + (tone ? ' ' + tone : '');
 }
 
@@ -1530,7 +1694,7 @@ function populateSettings(payload) {
     : 'valores padrão de fábrica';
   $('settingsMeta').textContent = 'esquema ' + payload.schemaVersion
     + ' · padrões ' + (payload.defaultsRevision || 0) + ' · revisão ' + payload.revision
-    + ' · ' + (payload.lastResult || 'configurações carregadas');
+    + ' · ' + localizeTimestampText(payload.lastResult || 'configurações carregadas');
 
   feedMinimumIntervalMs = Number(values.feedMinIntervalMs) || feedMinimumIntervalMs;
   feedTargetCycleMs = Number(values.feedTargetCycleMs) || feedTargetCycleMs;
@@ -1751,6 +1915,7 @@ function render(d) {
     feedMinimumIntervalMs = Number(d.ui.feedMinimumIntervalMs) || feedMinimumIntervalMs;
     feedTargetCycleMs = Number(d.ui.feedTargetCycleMs) || feedTargetCycleMs;
     statusRefreshIntervalMs = Number(d.ui.statusRefreshIntervalMs) || statusRefreshIntervalMs;
+    snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
   }
 
   if (d.adminAction && d.adminAction.lastResult && activeView === 'actions') {
@@ -1803,13 +1968,17 @@ function render(d) {
     + (c.inconclusiveChecks ? plural(c.inconclusiveChecks, 'inconclusiva', 'inconclusivas') + ' · ' : '')
     + currentSequence;
 
-  $('l-event').textContent = d.lastEvent;
+  $('l-event').textContent = localizeTimestampText(d.lastEvent);
   $('l-url').textContent = d.camera.onvifUrl || 'desconhecido';
-  $('l-image').textContent = d.snapshot.lastResult || d.snapshot.detail || 'ainda não testado';
-  $('l-reboot').textContent = d.recovery.lastResult
-    + (d.recovery.graceActive ? ' · aguardando ' + duration(d.recovery.graceRemainingSeconds) : '');
-  $('l-disc').textContent = d.lastDiscovery;
-  $('l-scan').textContent = d.lastSubnetScan;
+  $('l-image').textContent = localizeTimestampText(
+    d.snapshot.lastResult || d.snapshot.detail || 'ainda não testado'
+  );
+  $('l-reboot').textContent = localizeTimestampText(
+    d.recovery.lastResult
+      + (d.recovery.graceActive ? ' · aguardando ' + duration(d.recovery.graceRemainingSeconds) : '')
+  );
+  $('l-disc').textContent = localizeTimestampText(d.lastDiscovery);
+  $('l-scan').textContent = localizeTimestampText(d.lastSubnetScan);
   const mailResult = $('l-mail');
   const mailTag = document.createElement('span');
   mailTag.className = 'tag ' + (d.resendConfigured ? 'ok' : 'bad');
@@ -1817,7 +1986,8 @@ function render(d) {
   mailResult.replaceChildren(
     mailTag,
     document.createTextNode(
-      ' ' + c.emailsSent + ' enviados, ' + c.emailErrors + ' erros — ' + d.lastEmailResult
+      ' ' + c.emailsSent + ' enviados, ' + c.emailErrors + ' erros — '
+        + localizeTimestampText(d.lastEmailResult)
     )
   );
 
@@ -1837,15 +2007,49 @@ function scheduleStatusRefresh(delay) {
 
 async function refresh() {
   clearTimeout(statusRefreshTimer);
+  if (statusLoading) return;
+  if (activeView === 'feed' && feedLoading) {
+    scheduleStatusRefresh(250);
+    return;
+  }
+  statusLoading = true;
+  const requestGeneration = ++statusRequestGeneration;
+  const abortController = typeof AbortController === 'function'
+    ? new AbortController()
+    : null;
+  statusAbortController = abortController;
+  let requestTimeout;
   try {
-    const response = await fetch('/api/status', { cache: 'no-store' });
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    render(await response.json());
+    const timeoutMs = Math.max(5000, Math.min(30000, statusRefreshIntervalMs * 2));
+    const payload = await Promise.race([
+      (async () => {
+        const response = await fetch('/api/status', {
+          cache: 'no-store',
+          signal: abortController ? abortController.signal : undefined
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      })(),
+      new Promise((resolve, reject) => {
+        requestTimeout = setTimeout(() => {
+          if (abortController) abortController.abort();
+          reject(new Error('status_timeout'));
+        }, timeoutMs);
+      })
+    ]);
+    if (requestGeneration !== statusRequestGeneration) return;
+    render(payload);
     $('live').classList.remove('stale');
   } catch (error) {
-    $('live').classList.add('stale');
-    $('liveText').textContent = 'sem resposta do dispositivo';
+    if (requestGeneration === statusRequestGeneration && !document.hidden) {
+      $('live').classList.add('stale');
+      $('liveText').textContent = 'sem resposta do dispositivo';
+    }
   } finally {
+    clearTimeout(requestTimeout);
+    if (requestGeneration !== statusRequestGeneration) return;
+    statusAbortController = null;
+    statusLoading = false;
     scheduleStatusRefresh(statusRefreshIntervalMs);
   }
 }
@@ -1894,13 +2098,9 @@ function activateView(name, updateHash) {
     if (feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
     clearTimeout(feedTimer);
     feedTimer = null;
+    cancelFeedLoad(true);
     const frame = $('cameraFeed');
-    frame.onload = null;
-    frame.onerror = null;
-    frame.removeAttribute('src');
     frame.classList.remove('ready');
-    feedLoading = false;
-    feedFailures = 0;
   }
 
   if (nextView === 'stream') {
@@ -1930,6 +2130,17 @@ document.addEventListener('visibilitychange', () => {
     clearTimeout(feedTimer);
     clearTimeout(statusRefreshTimer);
     feedTimer = null;
+    cancelFeedLoad(false);
+    if (activeView === 'feed') {
+      $('cameraFeed').classList.remove('ready');
+      $('feedState').classList.remove('hidden');
+      $('feedState').textContent = 'Prévia pausada enquanto a aba está oculta.';
+      $('feedStamp').textContent = 'aguardando retorno à aba';
+    }
+    statusRequestGeneration++;
+    if (statusAbortController) statusAbortController.abort();
+    statusAbortController = null;
+    statusLoading = false;
     if (activeView === 'stream') stopLivePlayer(false);
     return;
   }

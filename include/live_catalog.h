@@ -78,8 +78,34 @@ bool liveEncodingCompatible(const String& encoding)
         normalized == "H264";
 }
 
+void populateLiveStreamDescriptor(
+    const LiveProfile& profile,
+    const String& streamUri,
+    LiveStreamDescriptor& descriptor
+)
+{
+    copySettingText(descriptor.uri, streamUri);
+    copySettingText(descriptor.profileName, profile.name);
+
+    if (profile.token.length() <= LIVE_STREAM_PROFILE_TOKEN_MAX_LENGTH) {
+        copySettingText(descriptor.profileToken, profile.token);
+    } else {
+        descriptor.profileToken[0] = '\0';
+    }
+
+    copySettingText(descriptor.encoding, profile.encoding);
+    descriptor.width = profile.width;
+    descriptor.height = profile.height;
+    descriptor.declaredFps = profile.frameRate;
+    descriptor.declaredBitrateKbps = profile.bitrateKbps;
+}
+
 void invalidateLiveProfiles()
 {
+    lastRelayMediaEvidenceConsumedAtMs = 0;
+    resetMediaCanaryFailureEvidence();
+    liveStreamRelay.invalidateMediaEvidence();
+
     if (!takeLiveCatalogMutex()) {
         return;
     }
@@ -316,6 +342,29 @@ void publishLiveProfilesFromXml(
         return;
     }
 
+    bool profileIdentityChanged =
+        liveMediaUrl != mediaUrl ||
+        liveCameraIp != cameraIp ||
+        liveProfileCount != count;
+
+    if (!profileIdentityChanged) {
+        for (size_t index = 0; index < count; index++) {
+            if (
+                liveProfiles[index].valid != parsed[index].valid ||
+                liveProfiles[index].token != parsed[index].token ||
+                normalizedLiveEncoding(liveProfiles[index].encoding) !=
+                    normalizedLiveEncoding(parsed[index].encoding)
+            ) {
+                profileIdentityChanged = true;
+                break;
+            }
+        }
+    }
+
+    if (profileIdentityChanged) {
+        resetMediaCanaryFailureEvidence();
+    }
+
     if (liveMediaUrl == mediaUrl && liveCameraIp == cameraIp) {
         for (size_t parsedIndex = 0; parsedIndex < count; parsedIndex++) {
             for (size_t currentIndex = 0; currentIndex < liveProfileCount; currentIndex++) {
@@ -380,6 +429,75 @@ bool copyLiveProfile(
     }
 
     return valid;
+}
+
+size_t collectCompatibleLiveProfileIndices(
+    size_t* profileIndices,
+    size_t capacity
+)
+{
+    if (
+        profileIndices == nullptr ||
+        capacity == 0 ||
+        !takeLiveCatalogMutex()
+    ) {
+        return 0;
+    }
+
+    size_t count = 0;
+    int preferredIndex = -1;
+
+    for (size_t index = 0; index < liveProfileCount; index++) {
+        const LiveProfile& profile = liveProfiles[index];
+
+        if (
+            profile.valid &&
+            profile.preferred &&
+            liveEncodingCompatible(profile.encoding)
+        ) {
+            preferredIndex = static_cast<int>(index);
+            break;
+        }
+    }
+
+    if (preferredIndex >= 0 && count < capacity) {
+        profileIndices[count++] = static_cast<size_t>(preferredIndex);
+    }
+
+    for (
+        size_t index = 0;
+        index < liveProfileCount && count < capacity;
+        index++
+    ) {
+        const LiveProfile& profile = liveProfiles[index];
+
+        if (
+            static_cast<int>(index) != preferredIndex &&
+            profile.valid &&
+            liveEncodingCompatible(profile.encoding)
+        ) {
+            profileIndices[count++] = index;
+        }
+    }
+
+    giveLiveCatalogMutex();
+    return count;
+}
+
+bool findPreferredLiveProfileIndex(size_t& profileIndex)
+{
+    size_t indices[MAX_LIVE_PROFILES];
+    const size_t count = collectCompatibleLiveProfileIndices(
+        indices,
+        MAX_LIVE_PROFILES
+    );
+
+    if (count == 0) {
+        return false;
+    }
+
+    profileIndex = indices[0];
+    return true;
 }
 
 String normalizeLiveRtspUri(
@@ -461,9 +579,11 @@ String normalizeLiveRtspUri(
 bool provideLiveStreamDescriptor(
     size_t profileIndex,
     LiveStreamDescriptor& descriptor,
-    String& error
+    String& error,
+    uint32_t timeoutMs
 )
 {
+    const uint32_t descriptorStartedAtMs = millis();
     descriptor = LiveStreamDescriptor{};
     LiveProfile profile;
     String mediaUrl;
@@ -490,13 +610,7 @@ bool provideLiveStreamDescriptor(
     String streamUri = profile.streamUri;
 
     if (!streamUri.isEmpty()) {
-        copySettingText(descriptor.uri, streamUri);
-        copySettingText(descriptor.profileName, profile.name);
-        copySettingText(descriptor.encoding, profile.encoding);
-        descriptor.width = profile.width;
-        descriptor.height = profile.height;
-        descriptor.declaredFps = profile.frameRate;
-        descriptor.declaredBitrateKbps = profile.bitrateKbps;
+        populateLiveStreamDescriptor(profile, streamUri, descriptor);
         return true;
     }
 
@@ -513,6 +627,18 @@ bool provideLiveStreamDescriptor(
 
     String streamXml;
     int statusCode = 0;
+    const uint32_t descriptorElapsedMs = millis() - descriptorStartedAtMs;
+
+    if (descriptorElapsedMs >= timeoutMs) {
+        error = "Timeout antes de consultar GetStreamUri";
+        return false;
+    }
+
+    const uint32_t remainingTimeoutMs = timeoutMs - descriptorElapsedMs;
+    const uint32_t soapAttemptTimeoutMs =
+        cameraCredentialsConfigured() && remainingTimeoutMs > 500UL
+            ? remainingTimeoutMs / 2UL
+            : remainingTimeoutMs;
 
     if (!postOnvifSoap(
         mediaUrl,
@@ -520,7 +646,9 @@ bool provideLiveStreamDescriptor(
         requestBody,
         streamXml,
         true,
-        &statusCode
+        &statusCode,
+        nullptr,
+        soapAttemptTimeoutMs
     )) {
         error = String("GetStreamUri falhou; HTTP ") + String(statusCode);
         return false;
@@ -551,7 +679,7 @@ bool provideLiveStreamDescriptor(
         return false;
     }
 
-    if (takeLiveCatalogMutex()) {
+    if (takeLiveCatalogMutex(0)) {
         if (
             profileIndex < liveProfileCount &&
             liveProfiles[profileIndex].valid &&
@@ -567,13 +695,7 @@ bool provideLiveStreamDescriptor(
         giveLiveCatalogMutex();
     }
 
-    copySettingText(descriptor.uri, streamUri);
-    copySettingText(descriptor.profileName, profile.name);
-    copySettingText(descriptor.encoding, profile.encoding);
-    descriptor.width = profile.width;
-    descriptor.height = profile.height;
-    descriptor.declaredFps = profile.frameRate;
-    descriptor.declaredBitrateKbps = profile.bitrateKbps;
+    populateLiveStreamDescriptor(profile, streamUri, descriptor);
     return true;
 }
 
@@ -677,6 +799,25 @@ void appendLiveStatusJson(String& json)
     json += relayStats.sessions;
     json += ",\"failedSessions\":";
     json += relayStats.failedSessions;
+    json += ",\"syncAttempts\":";
+    json += relayStats.syncAttempts;
+    json += ",\"syncAccepted\":";
+    json += relayStats.syncAccepted;
+    json += ",\"syncFailed\":";
+    json += relayStats.syncFailed;
+    json += ",\"syncSkipped\":";
+    json += relayStats.syncSkipped;
+    json += ",\"lastSyncAtMs\":";
+    json += relayStats.lastSyncAtMs;
+    json += ",\"lastSyncAgeSeconds\":";
+    json += relayStats.lastSyncAtMs == 0
+        ? 0UL
+        : (millis() - relayStats.lastSyncAtMs) / 1000UL;
+    json += ",\"lastSyncAccepted\":";
+    json += relayStats.lastSyncAccepted ? "true" : "false";
+    json += ",\"lastSyncResult\":\"";
+    json += jsonEscape(relayStats.lastSyncResult);
+    json += '\"';
     json += ",\"packetsRelayed\":";
     json += relayStats.packetsRelayed;
     json += ",\"bytesRelayed\":";
@@ -751,6 +892,7 @@ void configureLiveRelay()
     liveRelayStarted = liveStreamRelay.begin(
         LIVE_STREAM_PORT,
         provideLiveStreamDescriptor,
+        requestLiveSynchronizationPoint,
         cameraIoMutex,
         CAMERA_RTSP_USERNAME_VALUE,
         CAMERA_RTSP_PASSWORD_VALUE,
