@@ -9,6 +9,12 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
   const RECORD_RTP = 2;
   const RECORD_ERROR = 3;
   const START_CODE = new Uint8Array([0, 0, 0, 1]);
+  const LIVE_INITIAL_BUFFER_SECONDS = 1.5;
+  const LIVE_PLAYBACK_STALL_TIMEOUT_MS = 8000;
+  const LIVE_MSE_BATCH_MAX_SECONDS = 0.5;
+  const LIVE_MSE_BATCH_MAX_ENTRIES = 12;
+  const LIVE_MSE_BATCH_MAX_BYTES = 512 * 1024;
+  const LIVE_MSE_BACKLOG_LIMIT_SECONDS = 6;
 
   function concatBytes(parts) {
     let length = 0;
@@ -390,6 +396,14 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.openPromise = null;
       this.destroyed = false;
       this.lastCleanupAt = 0;
+      this.playbackStarted = false;
+      this.pendingEntries = 0;
+      this.pendingBytes = 0;
+      this.latestMediaEndSeconds = 0;
+      this.backlogFailed = false;
+      this.appendOperations = 0;
+      this.batchOperations = 0;
+      this.batchedEntries = 0;
       this.reset();
     }
 
@@ -398,6 +412,15 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.destroyed = false;
       this.queue = [];
       this.currentItem = null;
+      this.playbackStarted = false;
+      this.pendingEntries = 0;
+      this.pendingBytes = 0;
+      this.latestMediaEndSeconds = 0;
+      this.backlogFailed = false;
+      this.appendOperations = 0;
+      this.batchOperations = 0;
+      this.batchedEntries = 0;
+      this.lastCleanupAt = 0;
       this.mediaSource = new MediaSource();
       this.objectUrl = URL.createObjectURL(this.mediaSource);
       this.video.src = this.objectUrl;
@@ -459,6 +482,10 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.sourceBuffer.addEventListener('updateend', () => {
         const completed = this.currentItem;
         this.currentItem = null;
+        if (completed && completed.mediaEntries) {
+          this.pendingEntries = Math.max(0, this.pendingEntries - completed.mediaEntries);
+          this.pendingBytes = Math.max(0, this.pendingBytes - completed.mediaBytes);
+        }
         if (completed && completed.resolve) completed.resolve();
         this.syncToLiveEdge();
         this.pump();
@@ -471,17 +498,41 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         if (this.callbacks.onError) this.callbacks.onError(error);
       });
       await this.appendAndWait(initSegment, 'o segmento inicial MP4');
-      try {
-        const playAttempt = this.video.play();
-        if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(function () {});
-      } catch (_) {
-        // O elemento permanece com controles; um clique do usuário libera autoplay quando necessário.
-      }
     }
 
-    enqueue(data, label = 'um fragmento de vídeo') {
+    enqueue(data, label = 'um fragmento de vídeo', mediaStartSeconds = null, mediaEndSeconds = null) {
       if (this.destroyed || !data || !data.byteLength) return;
-      this.queue.push({ data, label, resolve: null, reject: null });
+      const timedMedia = Number.isFinite(mediaStartSeconds) &&
+        Number.isFinite(mediaEndSeconds) && mediaEndSeconds > mediaStartSeconds;
+      this.queue.push({
+        data,
+        label,
+        resolve: null,
+        reject: null,
+        mediaEntries: timedMedia ? 1 : 0,
+        mediaBytes: timedMedia ? data.byteLength : 0,
+        mediaStartSeconds: timedMedia ? mediaStartSeconds : null,
+        mediaEndSeconds: timedMedia ? mediaEndSeconds : null
+      });
+
+      if (timedMedia) {
+        this.pendingEntries++;
+        this.pendingBytes += data.byteLength;
+        this.latestMediaEndSeconds = Math.max(this.latestMediaEndSeconds, mediaEndSeconds);
+        const pendingLatencySeconds = this.pendingLatencySeconds();
+        if (!this.backlogFailed && pendingLatencySeconds > LIVE_MSE_BACKLOG_LIMIT_SECONDS) {
+          this.backlogFailed = true;
+          const error = new Error(
+            'Fila MSE acumulou ' + pendingLatencySeconds.toFixed(1) + ' s em ' +
+            this.pendingEntries + ' fragmentos; reconectando a transmissão'
+          );
+          error.name = 'LiveBacklogError';
+          if (this.callbacks.onError) this.callbacks.onError(error);
+          else throw error;
+          return;
+        }
+      }
+
       this.pump();
     }
 
@@ -490,23 +541,147 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         return Promise.reject(new Error('Player encerrado'));
       }
       return new Promise((resolve, reject) => {
-        this.queue.push({ data, label, resolve, reject });
+        this.queue.push({
+          data,
+          label,
+          resolve,
+          reject,
+          mediaEntries: 0,
+          mediaBytes: 0,
+          mediaStartSeconds: null,
+          mediaEndSeconds: null
+        });
         this.pump();
       });
+    }
+
+    pendingLatencySeconds() {
+      let oldestStart = null;
+      if (this.currentItem && this.currentItem.mediaEntries) {
+        oldestStart = this.currentItem.mediaStartSeconds;
+      }
+      if (oldestStart == null) {
+        const oldestQueued = this.queue.find(item => item.mediaEntries);
+        if (oldestQueued) oldestStart = oldestQueued.mediaStartSeconds;
+      }
+      return oldestStart == null
+        ? 0
+        : Math.max(0, this.latestMediaEndSeconds - oldestStart);
+    }
+
+    getStats() {
+      const currentTime = Number(this.video && this.video.currentTime) || 0;
+      let mseLatencySeconds = 0;
+      try {
+        if (this.sourceBuffer && this.sourceBuffer.buffered.length) {
+          const last = this.sourceBuffer.buffered.length - 1;
+          mseLatencySeconds = Math.max(0, this.sourceBuffer.buffered.end(last) - currentTime);
+        }
+      } catch (_) {
+      }
+      return {
+        pendingEntries: this.pendingEntries,
+        pendingBytes: this.pendingBytes,
+        pendingLatencySeconds: this.pendingLatencySeconds(),
+        mseLatencySeconds,
+        liveLatencySeconds: Math.max(mseLatencySeconds, this.latestMediaEndSeconds - currentTime, 0),
+        mseAppendOperations: this.appendOperations,
+        mseBatchOperations: this.batchOperations,
+        mseBatchedEntries: this.batchedEntries
+      };
     }
 
     syncToLiveEdge() {
       if (!this.sourceBuffer || !this.sourceBuffer.buffered.length) return;
       try {
         const last = this.sourceBuffer.buffered.length - 1;
+        const start = this.sourceBuffer.buffered.start(last);
         const end = this.sourceBuffer.buffered.end(last);
         const lag = end - this.video.currentTime;
-        if ((this.video.currentTime === 0 && end > 0.2) || lag > 2.2) {
-          this.video.currentTime = Math.max(0, end - 0.25);
+
+        if (!this.playbackStarted) {
+          if (end - start < LIVE_INITIAL_BUFFER_SECONDS) return;
+          this.video.currentTime = Math.max(start, end - LIVE_INITIAL_BUFFER_SECONDS);
+          this.playbackStarted = true;
+          this.play();
+          return;
+        }
+
+        if (lag > LIVE_INITIAL_BUFFER_SECONDS + 3) {
+          this.video.currentTime = Math.max(start, end - LIVE_INITIAL_BUFFER_SECONDS);
         }
       } catch (_) {
         // O intervalo pode mudar enquanto o SourceBuffer conclui uma operação.
       }
+    }
+
+    play() {
+      try {
+        const playAttempt = this.video.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+          playAttempt.catch(function () {});
+        }
+      } catch (_) {
+        // O elemento permanece com controles; um clique do usuário libera autoplay quando necessário.
+      }
+    }
+
+    recoverPlayback() {
+      if (!this.sourceBuffer || !this.sourceBuffer.buffered.length) return false;
+      try {
+        const last = this.sourceBuffer.buffered.length - 1;
+        const start = this.sourceBuffer.buffered.start(last);
+        const end = this.sourceBuffer.buffered.end(last);
+        if (end - this.video.currentTime < 0.5) return false;
+        this.video.currentTime = Math.max(start, end - LIVE_INITIAL_BUFFER_SECONDS);
+        this.play();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    nextAppendItem() {
+      const first = this.queue.shift();
+      if (
+        !first ||
+        first.mediaEntries !== 1 ||
+        first.resolve ||
+        first.reject
+      ) return first;
+
+      const parts = [first.data];
+      let entries = 1;
+      let bytes = first.mediaBytes;
+      let mediaEndSeconds = first.mediaEndSeconds;
+
+      while (this.queue.length && entries < LIVE_MSE_BATCH_MAX_ENTRIES) {
+        const candidate = this.queue[0];
+        if (
+          candidate.mediaEntries !== 1 ||
+          candidate.resolve ||
+          candidate.reject ||
+          bytes + candidate.mediaBytes > LIVE_MSE_BATCH_MAX_BYTES ||
+          candidate.mediaEndSeconds - first.mediaStartSeconds > LIVE_MSE_BATCH_MAX_SECONDS
+        ) break;
+        this.queue.shift();
+        parts.push(candidate.data);
+        entries++;
+        bytes += candidate.mediaBytes;
+        mediaEndSeconds = candidate.mediaEndSeconds;
+      }
+
+      if (entries === 1) return first;
+      return {
+        data: concatBytes(parts),
+        label: 'um lote de ' + entries + ' fragmentos de vídeo',
+        resolve: null,
+        reject: null,
+        mediaEntries: entries,
+        mediaBytes: bytes,
+        mediaStartSeconds: first.mediaStartSeconds,
+        mediaEndSeconds
+      };
     }
 
     pump() {
@@ -523,7 +698,8 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       if (
         now - this.lastCleanupAt > 3000 &&
         this.video.currentTime > 12 &&
-        this.sourceBuffer.buffered.length
+        this.sourceBuffer.buffered.length &&
+        this.pendingEntries <= 1
       ) {
         const removeUntil = Math.min(this.video.currentTime - 8, this.sourceBuffer.buffered.end(0) - 2);
         if (removeUntil > this.sourceBuffer.buffered.start(0)) {
@@ -537,10 +713,17 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         }
       }
 
-      const next = this.queue.shift();
+      const next = this.nextAppendItem();
       this.currentItem = next;
       try {
         this.sourceBuffer.appendBuffer(next.data);
+        if (next.mediaEntries) {
+          this.appendOperations++;
+          if (next.mediaEntries > 1) {
+            this.batchOperations++;
+            this.batchedEntries += next.mediaEntries;
+          }
+        }
       } catch (original) {
         this.currentItem = null;
         const error = this.makeBufferError(next.label, original);
@@ -558,6 +741,10 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       }
       this.currentItem = null;
       this.queue = [];
+      this.pendingEntries = 0;
+      this.pendingBytes = 0;
+      this.latestMediaEndSeconds = 0;
+      this.backlogFailed = false;
       if (this.sourceBuffer) {
         try { this.sourceBuffer.abort(); } catch (_) {}
       }
@@ -675,8 +862,14 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         keyframe,
         sample
       );
+      const mediaStartSeconds = this.decodeTime / this.timescale;
       this.decodeTime += duration;
-      this.queue.enqueue(fragment);
+      this.queue.enqueue(
+        fragment,
+        'um fragmento de vídeo',
+        mediaStartSeconds,
+        this.decodeTime / this.timescale
+      );
     }
 
     reset() {
@@ -692,6 +885,14 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
 
     destroy() {
       this.queue.destroy();
+    }
+
+    recoverPlayback() {
+      return this.queue.recoverPlayback();
+    }
+
+    getStats() {
+      return this.queue.getStats();
     }
   }
 
@@ -778,13 +979,13 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       const payloadType = packet[1] & 0x7f;
       const sequence = (packet[2] << 8) | packet[3];
 
+      if (this.expectedPayloadType != null && payloadType !== this.expectedPayloadType) return;
+
       if (this.lastSequence != null && ((this.lastSequence + 1) & 0xffff) !== sequence) {
         this.damaged = true;
         this.currentFuParts = null;
       }
       this.lastSequence = sequence;
-
-      if (this.expectedPayloadType != null && payloadType !== this.expectedPayloadType) return;
 
       const rawTimestamp = (
         packet[4] * 0x1000000 +
@@ -923,6 +1124,10 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.textDecoder = new TextDecoder('utf-8');
       this.generation = 0;
       this.readyListener = null;
+      this.playbackMonitoring = false;
+      this.lastVideoTime = 0;
+      this.lastVideoProgressAt = 0;
+      this.playbackRecoveryAttempts = 0;
     }
 
     makeStats() {
@@ -941,6 +1146,7 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
 
     emitStats() {
       const elapsed = Math.max(1, (Date.now() - this.stats.startedAt) / 1000);
+      const mediaStats = this.muxer ? this.muxer.getStats() : {};
       const snapshot = {
         packets: this.stats.packets,
         frames: this.stats.frames,
@@ -949,12 +1155,70 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         fps: this.stats.frames - this.stats.previousFrames,
         packetsPerSecond: this.stats.packets - this.stats.previousPackets,
         bitrateKbps: Math.round((this.stats.bytes - this.stats.previousBytes) * 8 / 1000),
-        averageFps: this.stats.frames / elapsed
+        averageFps: this.stats.frames / elapsed,
+        pendingEntries: Number(mediaStats.pendingEntries || 0),
+        pendingBytes: Number(mediaStats.pendingBytes || 0),
+        pendingLatencySeconds: Number(mediaStats.pendingLatencySeconds || 0),
+        mseLatencySeconds: Number(mediaStats.mseLatencySeconds || 0),
+        liveLatencySeconds: Number(mediaStats.liveLatencySeconds || 0),
+        mseAppendOperations: Number(mediaStats.mseAppendOperations || 0),
+        mseBatchOperations: Number(mediaStats.mseBatchOperations || 0),
+        mseBatchedEntries: Number(mediaStats.mseBatchedEntries || 0)
       };
       this.stats.previousPackets = this.stats.packets;
       this.stats.previousBytes = this.stats.bytes;
       this.stats.previousFrames = this.stats.frames;
       this.onStats(snapshot);
+      return snapshot;
+    }
+
+    beginPlaybackMonitoring() {
+      this.playbackMonitoring = true;
+      this.lastVideoTime = Number(this.video.currentTime) || 0;
+      this.lastVideoProgressAt = performance.now();
+      this.playbackRecoveryAttempts = 0;
+    }
+
+    monitorPlayback(snapshot, generation) {
+      if (!this.playbackMonitoring || this.generation !== generation || !this.running) return;
+      const now = performance.now();
+      const currentTime = Number(this.video.currentTime) || 0;
+
+      if (this.video.paused) {
+        this.lastVideoTime = currentTime;
+        this.lastVideoProgressAt = now;
+        this.playbackRecoveryAttempts = 0;
+        return;
+      }
+
+      if (Math.abs(currentTime - this.lastVideoTime) >= 0.04) {
+        this.lastVideoTime = currentTime;
+        this.lastVideoProgressAt = now;
+        this.playbackRecoveryAttempts = 0;
+        return;
+      }
+
+      if (
+        !snapshot ||
+        Number(snapshot.packetsPerSecond || 0) <= 0 ||
+        now - this.lastVideoProgressAt < LIVE_PLAYBACK_STALL_TIMEOUT_MS
+      ) return;
+
+      if (
+        this.playbackRecoveryAttempts === 0 &&
+        this.muxer &&
+        this.muxer.recoverPlayback()
+      ) {
+        this.playbackRecoveryAttempts = 1;
+        this.lastVideoTime = Number(this.video.currentTime) || currentTime;
+        this.lastVideoProgressAt = now;
+        return;
+      }
+
+      this.fail(
+        new Error('RTP continua ativo, mas a imagem não avançou por 8 segundos'),
+        generation
+      );
     }
 
     configureFromStatus(status) {
@@ -1002,9 +1266,12 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.running = true;
       this.stats = this.makeStats();
       this.readyListener = () => {
-        if (this.generation === generation && this.running) this.onPlaybackReady();
+        if (this.generation === generation && this.running) {
+          this.beginPlaybackMonitoring();
+          this.onPlaybackReady();
+        }
       };
-      this.video.addEventListener('loadeddata', this.readyListener, { once: true });
+      this.video.addEventListener('playing', this.readyListener, { once: true });
       const abortController = new AbortController();
       this.abortController = abortController;
       const muxer = new FragmentedMp4Muxer(this.video, {
@@ -1038,7 +1305,10 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
         if (this.generation === generation && this.running) this.handleRecord(type, payload);
       });
       this.statsTimer = setInterval(() => {
-        if (this.generation === generation && this.running) this.emitStats();
+        if (this.generation === generation && this.running) {
+          const snapshot = this.emitStats();
+          this.monitorPlayback(snapshot, generation);
+        }
       }, 1000);
       this.onStatus({ state: 'connecting', detail: 'Conectando ao relay RTSP do ESP32' });
 
@@ -1097,8 +1367,12 @@ static const char LIVE_PLAYER_SCRIPT[] PROGMEM = R"CWJS((function (global) {
       this.reader = null;
       if (this.statsTimer) clearInterval(this.statsTimer);
       this.statsTimer = null;
-      if (this.readyListener) this.video.removeEventListener('loadeddata', this.readyListener);
+      if (this.readyListener) this.video.removeEventListener('playing', this.readyListener);
       this.readyListener = null;
+      this.playbackMonitoring = false;
+      this.lastVideoTime = 0;
+      this.lastVideoProgressAt = 0;
+      this.playbackRecoveryAttempts = 0;
       if (this.assembler) this.assembler.flush();
       this.assembler = null;
       if (this.muxer) this.muxer.destroy();

@@ -12,9 +12,11 @@
 #include <freertos/task.h>
 #include <esp_bt.h>
 #include <esp_ota_ops.h>
+#include <esp_sntp.h>
 #include <esp_system.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha1.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "app_config.h"
@@ -49,7 +51,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.8.2";
+constexpr char FIRMWARE_VERSION[] = "0.8.5";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -59,6 +61,13 @@ constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
 constexpr unsigned long ADMIN_RESTART_DELAY_MS = 1200UL;
 constexpr unsigned long ONVIF_CATALOG_FALLBACK_RETRY_MS =
     5UL * 60UL * 1000UL;
+constexpr unsigned long CAMERA_CLOCK_CHECK_INTERVAL_MS =
+    15UL * 60UL * 1000UL;
+constexpr unsigned long CAMERA_CLOCK_RETRY_INTERVAL_MS = 60UL * 1000UL;
+constexpr int32_t CAMERA_CLOCK_HEALTHY_DRIFT_MS = 5000L;
+constexpr uint32_t CAMERA_CLOCK_MAX_ROUND_TRIP_MS = 2000UL;
+constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS =
+    24UL * 60UL * 60UL * 1000UL;
 
 const IPAddress WS_DISCOVERY_MULTICAST(239, 255, 255, 250);
 
@@ -386,6 +395,26 @@ struct OnvifDeviceMetadata {
     String lastResult = "Ainda nao consultado";
 };
 
+struct CameraClockStatus {
+    bool checked = false;
+    bool utcValid = false;
+    bool daylightSavings = false;
+    int32_t driftMs = 0;
+    uint32_t roundTripMs = 0;
+    uint32_t checks = 0;
+    uint32_t failures = 0;
+    unsigned long lastCheckAtMs = 0;
+    String dateTimeType;
+    String timeZone;
+    String lastResult = "Ainda nao verificado";
+};
+
+struct SntpReferenceSnapshot {
+    bool synchronized = false;
+    unsigned long synchronizedAtMs = 0;
+    uint32_t generation = 0;
+};
+
 struct ServiceProbe {
     bool tcpConnected = false;
     bool protocolResponded = false;
@@ -435,6 +464,7 @@ WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 Preferences preferences;
 SemaphoreHandle_t cameraIoMutex = nullptr;
+SemaphoreHandle_t onvifActuationMutex = nullptr;
 
 bool ensureCameraIoMutex()
 {
@@ -472,6 +502,42 @@ private:
     bool acquired_ = false;
 };
 
+bool ensureOnvifActuationMutex()
+{
+    if (onvifActuationMutex != nullptr) {
+        return true;
+    }
+
+    onvifActuationMutex = xSemaphoreCreateMutex();
+    return onvifActuationMutex != nullptr;
+}
+
+class OnvifActuationGuard {
+public:
+    explicit OnvifActuationGuard(TickType_t timeout)
+        : acquired_(
+            ensureOnvifActuationMutex() &&
+            xSemaphoreTake(onvifActuationMutex, timeout) == pdTRUE
+        )
+    {
+    }
+
+    ~OnvifActuationGuard()
+    {
+        if (acquired_) {
+            xSemaphoreGive(onvifActuationMutex);
+        }
+    }
+
+    bool acquired() const
+    {
+        return acquired_;
+    }
+
+private:
+    bool acquired_ = false;
+};
+
 bool settingsLoadedFromNvs = false;
 uint32_t settingsRevision = 1;
 uint32_t settingsWriteCount = 0;
@@ -484,6 +550,7 @@ unsigned long espRestartRequestedAtMs = 0;
 CameraTarget camera;
 OnvifServiceCatalog onvifServices;
 OnvifDeviceMetadata onvifMetadata;
+CameraClockStatus cameraClockStatus;
 OnvifMetadataStage onvifMetadataStage =
     OnvifMetadataStage::DeviceInformation;
 SnapshotTarget snapshotTarget;
@@ -534,6 +601,9 @@ uint32_t mediaCanarySuccesses = 0;
 uint32_t mediaCanaryFailures = 0;
 uint32_t mediaCanaryInconclusive = 0;
 uint32_t mediaCanarySweepPending = 0;
+uint32_t ptzCommandAttempts = 0;
+uint32_t ptzCommandAccepted = 0;
+uint32_t ptzCommandErrors = 0;
 uint32_t previewClientAborts = 0;
 uint32_t previewHealthEvidenceUses = 0;
 uint32_t cameraRebootAttempts = 0;
@@ -565,6 +635,10 @@ bool bluetoothStartedBeforeRelease = false;
 bool connectedServicesInitialized = false;
 bool wifiWasConnected = false;
 bool healthCheckInProgress = false;
+portMUX_TYPE sntpReferenceMux = portMUX_INITIALIZER_UNLOCKED;
+bool espSntpSynchronized = false;
+unsigned long espSntpSynchronizedAtMs = 0;
+uint32_t espSntpSynchronizationGeneration = 0;
 esp_err_t bluetoothMemoryReleaseResult = ESP_ERR_NOT_SUPPORTED;
 esp_bt_controller_status_t bluetoothControllerStatusBeforeRelease =
     ESP_BT_CONTROLLER_STATUS_NUM;
@@ -576,6 +650,8 @@ String lastScanResult = "Ainda nao executada";
 String previousCameraIp;
 String lastSnapshotResult = "Ainda nao solicitada";
 String lastCameraRebootResult = "Ainda nao solicitado";
+String lastPtzCommand = "none";
+String lastPtzResult = "Ainda nao solicitado";
 String snapshotProfileTokenToSkip;
 unsigned long lastSnapshotResolveAttemptAtMs = 0;
 unsigned long lastBrowserSnapshotDeliveredAtMs = 0;
@@ -583,6 +659,7 @@ unsigned long lastRelayMediaEvidenceConsumedAtMs = 0;
 unsigned long lastHealthEvidenceAtMs = 0;
 unsigned long lastOnvifMetadataRequestAtMs = 0;
 unsigned long lastMediaCanaryAtMs = 0;
+unsigned long lastPtzCommandAtMs = 0;
 size_t lastMediaCanaryProfileIndex = 0;
 size_t mediaCanaryNextProfileOffset = 0;
 uint8_t lastMediaCanaryProfilesTested = 0;
@@ -595,6 +672,7 @@ static_assert(
 uint32_t lastBrowserSnapshotBytes = 0;
 uint32_t lastBrowserSnapshotLatencyMs = 0;
 int lastSnapshotResolveStatusCode = 0;
+int lastPtzStatusCode = 0;
 bool lastSnapshotResolveTransportFailure = false;
 bool snapshotProfileFailoverPending = false;
 bool lastOnvifMetadataRequestFailed = false;
@@ -603,7 +681,9 @@ HealthEvidenceSource lastHealthEvidenceSource = HealthEvidenceSource::None;
 void saveCameraTarget();
 void invalidateOnvifServiceCatalog();
 bool resolveOnvifServiceCatalog(bool forceRefresh = false);
+String limitedOnvifText(String value, size_t maximumLength = 120);
 void refreshOnvifDeviceMetadata();
+void maintainCameraClock();
 bool requestLiveSynchronizationPoint(
     const char* profileToken,
     String& result
@@ -1503,9 +1583,44 @@ bool cameraCredentialsConfigured()
     return strlen(CAMERA_ONVIF_USERNAME_VALUE) > 0;
 }
 
+void noteSntpSynchronization(struct timeval*)
+{
+    portENTER_CRITICAL(&sntpReferenceMux);
+    espSntpSynchronized = true;
+    espSntpSynchronizedAtMs = millis();
+
+    if (espSntpSynchronizationGeneration < UINT32_MAX) {
+        espSntpSynchronizationGeneration++;
+    } else {
+        espSntpSynchronizationGeneration = 1;
+    }
+
+    portEXIT_CRITICAL(&sntpReferenceMux);
+}
+
 bool clockSynchronized()
 {
     return time(nullptr) >= 1700000000;
+}
+
+SntpReferenceSnapshot snapshotSntpReference()
+{
+    SntpReferenceSnapshot snapshot;
+    portENTER_CRITICAL(&sntpReferenceMux);
+    snapshot.synchronized = espSntpSynchronized;
+    snapshot.synchronizedAtMs = espSntpSynchronizedAtMs;
+    snapshot.generation = espSntpSynchronizationGeneration;
+    portEXIT_CRITICAL(&sntpReferenceMux);
+    return snapshot;
+}
+
+bool sntpReferenceFresh(const SntpReferenceSnapshot& snapshot)
+{
+    return
+        snapshot.synchronized &&
+        millis() - snapshot.synchronizedAtMs <=
+            ESP_SNTP_REFERENCE_MAX_AGE_MS &&
+        clockSynchronized();
 }
 
 String makeWsseSecurityHeader()
@@ -2316,6 +2431,204 @@ bool findNextOpeningTag(
 void invalidateSnapshotTarget()
 {
     snapshotTarget = SnapshotTarget{};
+}
+
+bool extractLocalElementContent(
+    const String& xml,
+    const char* localName,
+    int fromPosition,
+    String& value,
+    int& nextPosition
+)
+{
+    int openingStart = 0;
+    int openingEnd = 0;
+
+    if (!findNextOpeningTag(
+        xml,
+        localName,
+        fromPosition,
+        openingStart,
+        openingEnd
+    )) {
+        return false;
+    }
+
+    const String closingMarker = String(localName) + '>';
+    int searchPosition = openingEnd + 1;
+
+    while (true) {
+        const int namePosition = xml.indexOf(closingMarker, searchPosition);
+
+        if (namePosition < 0) {
+            return false;
+        }
+
+        const int closingStart = xml.lastIndexOf('<', namePosition);
+        const char beforeLocalName = namePosition > closingStart
+            ? xml.charAt(namePosition - 1)
+            : '\0';
+
+        if (
+            closingStart >= 0 &&
+            closingStart + 1 < static_cast<int>(xml.length()) &&
+            xml.charAt(closingStart + 1) == '/' &&
+            (beforeLocalName == '/' || beforeLocalName == ':')
+        ) {
+            const int closingEnd = xml.indexOf('>', namePosition);
+
+            if (closingEnd < 0) {
+                return false;
+            }
+
+            value = xml.substring(openingEnd + 1, closingStart);
+            value.trim();
+            nextPosition = closingEnd + 1;
+            return true;
+        }
+
+        searchPosition = namePosition + closingMarker.length();
+    }
+}
+
+bool parseOnvifDateNumber(
+    const String& xml,
+    const char* localName,
+    int minimum,
+    int maximum,
+    int& result
+)
+{
+    String value;
+    int ignored = 0;
+
+    if (!extractLocalTag(xml, localName, 0, value, ignored)) {
+        return false;
+    }
+
+    value.trim();
+
+    if (value.isEmpty()) {
+        return false;
+    }
+
+    for (size_t index = 0; index < value.length(); index++) {
+        if (!isdigit(static_cast<unsigned char>(value.charAt(index)))) {
+            return false;
+        }
+    }
+
+    const long parsed = value.toInt();
+
+    if (parsed < minimum || parsed > maximum) {
+        return false;
+    }
+
+    result = static_cast<int>(parsed);
+    return true;
+}
+
+bool isLeapYear(int year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+int daysInMonth(int year, int month)
+{
+    static const uint8_t MONTH_DAYS[] = {
+        31,
+        28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31
+    };
+
+    if (month == 2 && isLeapYear(year)) {
+        return 29;
+    }
+
+    return MONTH_DAYS[month - 1];
+}
+
+int64_t civilDaysSinceUnixEpoch(int year, unsigned month, unsigned day)
+{
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yearOfEra = static_cast<unsigned>(year - era * 400);
+    const unsigned shiftedMonth = static_cast<unsigned>(
+        static_cast<int>(month) + (month > 2 ? -3 : 9)
+    );
+    const unsigned dayOfYear = (153U * shiftedMonth + 2U) / 5U + day - 1U;
+    const unsigned dayOfEra = yearOfEra * 365U + yearOfEra / 4U -
+        yearOfEra / 100U + dayOfYear;
+    return static_cast<int64_t>(era) * 146097LL + dayOfEra - 719468LL;
+}
+
+bool parseOnvifUtcDateTime(const String& xml, int64_t& unixTimeMs)
+{
+    String utcDateTime;
+    int ignored = 0;
+
+    if (!extractLocalElementContent(
+        xml,
+        "UTCDateTime",
+        0,
+        utcDateTime,
+        ignored
+    )) {
+        return false;
+    }
+
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+
+    if (
+        !parseOnvifDateNumber(utcDateTime, "Year", 1970, 2400, year) ||
+        !parseOnvifDateNumber(utcDateTime, "Month", 1, 12, month) ||
+        !parseOnvifDateNumber(utcDateTime, "Day", 1, 31, day) ||
+        !parseOnvifDateNumber(utcDateTime, "Hour", 0, 23, hour) ||
+        !parseOnvifDateNumber(utcDateTime, "Minute", 0, 59, minute) ||
+        !parseOnvifDateNumber(utcDateTime, "Second", 0, 60, second) ||
+        day > daysInMonth(year, month)
+    ) {
+        return false;
+    }
+
+    const int64_t days = civilDaysSinceUnixEpoch(
+        year,
+        static_cast<unsigned>(month),
+        static_cast<unsigned>(day)
+    );
+    unixTimeMs = (
+        days * 86400LL +
+        static_cast<int64_t>(hour) * 3600LL +
+        static_cast<int64_t>(minute) * 60LL +
+        second
+    ) * 1000LL;
+    return true;
+}
+
+int64_t synchronizedUnixTimeMs()
+{
+    struct timeval value;
+
+    if (gettimeofday(&value, nullptr) != 0) {
+        return 0;
+    }
+
+    return static_cast<int64_t>(value.tv_sec) * 1000LL +
+        value.tv_usec / 1000LL;
 }
 
 void resetSnapshotProfileFailover()
@@ -3671,10 +3984,198 @@ bool postOnvifSoap(
         (responseRead && !responseBody.isEmpty());
 }
 
+void noteCameraClockFailure(const String& result)
+{
+    cameraClockStatus.checked = true;
+    cameraClockStatus.utcValid = false;
+    cameraClockStatus.roundTripMs = 0;
+    cameraClockStatus.checks++;
+    cameraClockStatus.failures++;
+    cameraClockStatus.lastCheckAtMs = millis();
+    cameraClockStatus.lastResult = result;
+}
+
+bool recordCameraClockResponse(
+    const String& responseXml,
+    int64_t referenceUnixTimeMs,
+    uint32_t roundTripMs
+)
+{
+    String value;
+    int ignored = 0;
+
+    if (extractLocalTag(responseXml, "DateTimeType", 0, value, ignored)) {
+        cameraClockStatus.dateTimeType = limitedOnvifText(value, 32);
+        onvifMetadata.dateTimeType = cameraClockStatus.dateTimeType;
+    }
+
+    if (extractLocalTag(responseXml, "TZ", 0, value, ignored)) {
+        cameraClockStatus.timeZone = limitedOnvifText(value, 48);
+        onvifMetadata.timeZone = cameraClockStatus.timeZone;
+    }
+
+    if (extractLocalTag(
+        responseXml,
+        "DaylightSavings",
+        0,
+        value,
+        ignored
+    )) {
+        value.trim();
+        cameraClockStatus.daylightSavings =
+            value == "1" || value.equalsIgnoreCase("true");
+    }
+
+    cameraClockStatus.checked = true;
+    onvifMetadata.timeLoaded = true;
+    cameraClockStatus.checks++;
+    cameraClockStatus.lastCheckAtMs = millis();
+    cameraClockStatus.roundTripMs = roundTripMs;
+
+    int64_t cameraUnixTimeMs = 0;
+
+    if (
+        referenceUnixTimeMs <= 0 ||
+        roundTripMs > CAMERA_CLOCK_MAX_ROUND_TRIP_MS ||
+        !parseOnvifUtcDateTime(responseXml, cameraUnixTimeMs)
+    ) {
+        cameraClockStatus.utcValid = false;
+        cameraClockStatus.failures++;
+        cameraClockStatus.lastResult = roundTripMs >
+                CAMERA_CLOCK_MAX_ROUND_TRIP_MS
+            ? "Amostra de relogio descartada por latencia ONVIF alta"
+            : "UTCDateTime ONVIF ausente ou invalido";
+        return false;
+    }
+
+    const int64_t rawDriftMs = cameraUnixTimeMs - referenceUnixTimeMs;
+
+    if (rawDriftMs <= INT32_MIN || rawDriftMs > INT32_MAX) {
+        cameraClockStatus.utcValid = false;
+        cameraClockStatus.failures++;
+        cameraClockStatus.lastResult =
+            "Desvio do relogio fora do intervalo mensuravel";
+        return false;
+    }
+
+    cameraClockStatus.utcValid = true;
+    cameraClockStatus.driftMs = static_cast<int32_t>(rawDriftMs);
+    const int32_t absoluteDriftMs = cameraClockStatus.driftMs >= 0
+        ? cameraClockStatus.driftMs
+        : -cameraClockStatus.driftMs;
+    const String direction = cameraClockStatus.driftMs >= 0
+        ? " adiantada"
+        : " atrasada";
+
+    if (absoluteDriftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS) {
+        cameraClockStatus.lastResult =
+            "Relogio da camera alinhado ao NTP do ESP32; desvio " +
+            String(cameraClockStatus.driftMs / 1000.0F, 1) + " s";
+    } else {
+        cameraClockStatus.lastResult =
+            "Camera" + direction + " em " +
+            String(absoluteDriftMs / 1000.0F, 1) +
+            " s frente ao NTP do ESP32";
+    }
+
+    return true;
+}
+
+void maintainCameraClock()
+{
+    if (
+        !camera.valid ||
+        WiFi.status() != WL_CONNECTED ||
+        onvifMetadataStage != OnvifMetadataStage::Complete ||
+        !onvifServices.device.available ||
+        cameraRebootGraceActive() ||
+        healthCheckInProgress
+    ) {
+        return;
+    }
+
+    const unsigned long now = millis();
+    const bool clockHealthy =
+        cameraClockStatus.utcValid &&
+        cameraClockStatus.driftMs >= -CAMERA_CLOCK_HEALTHY_DRIFT_MS &&
+        cameraClockStatus.driftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS;
+    const unsigned long intervalMs =
+        cameraClockStatus.checked && clockHealthy
+            ? CAMERA_CLOCK_CHECK_INTERVAL_MS
+            : CAMERA_CLOCK_RETRY_INTERVAL_MS;
+
+    if (
+        cameraClockStatus.lastCheckAtMs != 0 &&
+        now - cameraClockStatus.lastCheckAtMs < intervalMs
+    ) {
+        return;
+    }
+
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired()) {
+        return;
+    }
+
+    const SntpReferenceSnapshot referenceBefore = snapshotSntpReference();
+
+    if (!sntpReferenceFresh(referenceBefore)) {
+        return;
+    }
+
+    const int64_t requestStartedAtMs = synchronizedUnixTimeMs();
+    const unsigned long requestStartedAtMonotonicMs = millis();
+    String responseXml;
+    int statusCode = 0;
+    const bool succeeded = postOnvifSoap(
+        onvifServices.device.url,
+        "http://www.onvif.org/ver10/device/wsdl/GetSystemDateAndTime",
+        "<tds:GetSystemDateAndTime/>",
+        responseXml,
+        true,
+        &statusCode,
+        nullptr,
+        1000UL
+    );
+    const int64_t requestFinishedAtMs = synchronizedUnixTimeMs();
+    const SntpReferenceSnapshot referenceAfter = snapshotSntpReference();
+    const uint32_t roundTripMs = millis() - requestStartedAtMonotonicMs;
+
+    if (
+        !succeeded ||
+        requestStartedAtMs <= 0 ||
+        requestFinishedAtMs < requestStartedAtMs
+    ) {
+        noteCameraClockFailure(
+            String("GetSystemDateAndTime falhou; HTTP ") + statusCode
+        );
+        return;
+    }
+
+    if (
+        referenceBefore.generation != referenceAfter.generation ||
+        !sntpReferenceFresh(referenceAfter)
+    ) {
+        noteCameraClockFailure(
+            "Amostra descartada: referencia SNTP mudou durante a consulta"
+        );
+        return;
+    }
+
+    const int64_t referenceUnixTimeMs =
+        requestStartedAtMs + (requestFinishedAtMs - requestStartedAtMs) / 2LL;
+    recordCameraClockResponse(
+        responseXml,
+        referenceUnixTimeMs,
+        roundTripMs
+    );
+}
+
 void invalidateOnvifServiceCatalog()
 {
     onvifServices = OnvifServiceCatalog{};
     onvifMetadata = OnvifDeviceMetadata{};
+    cameraClockStatus = CameraClockStatus{};
     onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
     onvifMetadataStageFailureStreak = 0;
     lastOnvifMetadataRequestAtMs = 0;
@@ -3690,7 +4191,7 @@ void invalidateOnvifServiceCatalog()
     lastHealthEvidenceAtMs = 0;
 }
 
-String limitedOnvifText(String value, size_t maximumLength = 120)
+String limitedOnvifText(String value, size_t maximumLength)
 {
     value = xmlUnescape(value);
     value.trim();
@@ -4409,6 +4910,13 @@ bool requestLiveSynchronizationPoint(
         return false;
     }
 
+    OnvifActuationGuard actuationGuard(pdMS_TO_TICKS(PTZ_MOVE_MUTEX_WAIT_MS));
+
+    if (!actuationGuard.acquired()) {
+        result = "Canal de atuacao ONVIF ocupado";
+        return false;
+    }
+
     const String token(profileToken);
 
     if (token.length() > 128) {
@@ -4442,6 +4950,146 @@ bool requestLiveSynchronizationPoint(
 }
 
 #include "live_catalog.h"
+
+bool requestPtzControl(
+    size_t profileIndex,
+    bool stop,
+    int16_t panPercent,
+    int16_t tiltPercent,
+    int16_t zoomPercent,
+    String& result
+)
+{
+    result = String();
+
+    if (
+        !camera.valid ||
+        !onvifServices.resolved ||
+        !onvifServices.ptz.available ||
+        onvifServices.ptz.url.isEmpty()
+    ) {
+        result = "Servico PTZ ONVIF indisponivel";
+        return false;
+    }
+
+    LiveProfile profile;
+    String mediaUrl;
+    IPAddress profileCameraIp;
+    uint16_t profileRtspPort = 0;
+    String profileError;
+
+    if (!copyLiveProfile(
+        profileIndex,
+        profile,
+        mediaUrl,
+        profileCameraIp,
+        profileRtspPort,
+        profileError
+    )) {
+        result = profileError;
+        return false;
+    }
+
+    if (
+        profileCameraIp != camera.ip ||
+        profile.token.isEmpty() ||
+        profile.token.length() > LIVE_STREAM_PROFILE_TOKEN_MAX_LENGTH
+    ) {
+        result = "Perfil ONVIF invalido para controle PTZ";
+        return false;
+    }
+
+    const TickType_t mutexWait = pdMS_TO_TICKS(
+        stop ? PTZ_STOP_MUTEX_WAIT_MS : PTZ_MOVE_MUTEX_WAIT_MS
+    );
+    OnvifActuationGuard actuationGuard(mutexWait);
+
+    if (!actuationGuard.acquired()) {
+        result = "Canal de atuacao ONVIF ocupado";
+        return false;
+    }
+
+    const String escapedToken = htmlEscape(profile.token);
+    String requestBody;
+    const char* action = nullptr;
+
+    if (stop) {
+        requestBody.reserve(escapedToken.length() + 170);
+        requestBody += "<tptz:Stop><tptz:ProfileToken>";
+        requestBody += escapedToken;
+        requestBody += "</tptz:ProfileToken><tptz:PanTilt>true";
+        requestBody += "</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>";
+        action = "http://www.onvif.org/ver20/ptz/wsdl/Stop";
+    } else {
+        if (
+            panPercent < -100 || panPercent > 100 ||
+            tiltPercent < -100 || tiltPercent > 100 ||
+            zoomPercent < -100 || zoomPercent > 100 ||
+            (panPercent == 0 && tiltPercent == 0 && zoomPercent == 0)
+        ) {
+            result = "Velocidade PTZ fora do intervalo permitido";
+            return false;
+        }
+
+        requestBody.reserve(escapedToken.length() + 420);
+        requestBody += "<tptz:ContinuousMove><tptz:ProfileToken>";
+        requestBody += escapedToken;
+        requestBody += "</tptz:ProfileToken><tptz:Velocity>";
+
+        if (panPercent != 0 || tiltPercent != 0) {
+            requestBody += "<tt:PanTilt x=\"";
+            requestBody += String(static_cast<float>(panPercent) / 100.0f, 3);
+            requestBody += "\" y=\"";
+            requestBody += String(static_cast<float>(tiltPercent) / 100.0f, 3);
+            requestBody += "\" space=\"http://www.onvif.org/ver10/tptz/";
+            requestBody += "PanTiltSpaces/VelocityGenericSpace\"/>";
+        }
+
+        if (zoomPercent != 0) {
+            requestBody += "<tt:Zoom x=\"";
+            requestBody += String(static_cast<float>(zoomPercent) / 100.0f, 3);
+            requestBody += "\" space=\"http://www.onvif.org/ver10/tptz/";
+            requestBody += "ZoomSpaces/VelocityGenericSpace\"/>";
+        }
+
+        requestBody += "</tptz:Velocity><tptz:Timeout>PT";
+        requestBody += PTZ_CONTINUOUS_MOVE_TIMEOUT_SECONDS;
+        requestBody += "S</tptz:Timeout></tptz:ContinuousMove>";
+        action = "http://www.onvif.org/ver20/ptz/wsdl/ContinuousMove";
+    }
+
+    String responseXml;
+    int statusCode = 0;
+    ptzCommandAttempts++;
+    lastPtzCommandAtMs = millis();
+    lastPtzCommand = stop ? "stop" : "continuous_move";
+    const bool accepted = postOnvifSoap(
+        onvifServices.ptz.url,
+        action,
+        requestBody,
+        responseXml,
+        false,
+        &statusCode,
+        nullptr,
+        PTZ_SOAP_TIMEOUT_MS
+    );
+    lastPtzStatusCode = statusCode;
+
+    if (accepted) {
+        ptzCommandAccepted++;
+        result = stop
+            ? String("Parada PTZ aceita; HTTP ") + String(statusCode)
+            : String("Movimento PTZ aceito; HTTP ") + String(statusCode);
+    } else {
+        ptzCommandErrors++;
+        result = stop
+            ? String("Parada PTZ falhou; HTTP ") + String(statusCode)
+            : String("Movimento PTZ falhou; HTTP ") + String(statusCode);
+    }
+
+    lastPtzResult = currentTimestamp() + " - " + result;
+    return accepted;
+}
 
 void clearMediaCanaryFailureEvidence()
 {
@@ -6475,10 +7123,12 @@ String buildStatusJson()
     const uint32_t psramFreeBytes = ESP.getFreePsram();
     const uint32_t psramMinimumFreeBytes = ESP.getMinFreePsram();
     const uint32_t psramLargestBlockBytes = ESP.getMaxAllocPsram();
+    const SntpReferenceSnapshot sntpReference = snapshotSntpReference();
     const unsigned long now = millis();
+    const bool sntpReferenceIsFresh = sntpReferenceFresh(sntpReference);
 
     String json;
-    json.reserve(14000);
+    json.reserve(15600);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -6696,6 +7346,53 @@ String buildStatusJson()
     json += onvifMetadata.failures;
     json += ",\"lastResult\":\"";
     json += jsonEscape(onvifMetadata.lastResult);
+    json += "\"},\"clock\":{";
+    json += "\"checked\":";
+    json += cameraClockStatus.checked ? "true" : "false";
+    json += ",\"utcValid\":";
+    json += cameraClockStatus.utcValid ? "true" : "false";
+    json += ",\"healthy\":";
+    json += (
+        cameraClockStatus.utcValid &&
+        sntpReferenceIsFresh &&
+        cameraClockStatus.driftMs >= -CAMERA_CLOCK_HEALTHY_DRIFT_MS &&
+        cameraClockStatus.driftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS
+    ) ? "true" : "false";
+    json += ",\"referenceSynchronized\":";
+    json += sntpReferenceIsFresh ? "true" : "false";
+    json += ",\"dateTimeType\":\"";
+    json += jsonEscape(cameraClockStatus.dateTimeType);
+    json += "\",\"reportedTimeZone\":\"";
+    json += jsonEscape(cameraClockStatus.timeZone);
+    json += "\",\"daylightSavings\":";
+    json += cameraClockStatus.daylightSavings ? "true" : "false";
+    json += ",\"driftMilliseconds\":";
+    if (cameraClockStatus.utcValid) {
+        json += cameraClockStatus.driftMs;
+    } else {
+        json += "null";
+    }
+    json += ",\"roundTripMs\":";
+    if (cameraClockStatus.utcValid) {
+        json += cameraClockStatus.roundTripMs;
+    } else {
+        json += "null";
+    }
+    json += ",\"checks\":";
+    json += cameraClockStatus.checks;
+    json += ",\"failures\":";
+    json += cameraClockStatus.failures;
+    json += ",\"lastCheckAgeSeconds\":";
+    json += cameraClockStatus.lastCheckAtMs == 0
+        ? 0UL
+        : (now - cameraClockStatus.lastCheckAtMs) / 1000UL;
+    json += ",\"referenceAgeSeconds\":";
+    json += !sntpReference.synchronized ||
+            sntpReference.synchronizedAtMs == 0
+        ? 0UL
+        : (now - sntpReference.synchronizedAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(cameraClockStatus.lastResult);
     json += "\"},\"events\":{";
     json += "\"propertiesLoaded\":";
     json += onvifMetadata.eventPropertiesLoaded ? "true" : "false";
@@ -6711,7 +7408,28 @@ String buildStatusJson()
     json += onvifMetadata.signalLossEvents ? "true" : "false";
     json += ",\"imageQuality\":";
     json += onvifMetadata.imageQualityEvents ? "true" : "false";
-    json += "}},";
+    json += "},\"ptzControl\":{";
+    json += "\"available\":";
+    json += (
+        onvifServices.resolved && onvifServices.ptz.available
+    ) ? "true" : "false";
+    json += ",\"attempts\":";
+    json += ptzCommandAttempts;
+    json += ",\"accepted\":";
+    json += ptzCommandAccepted;
+    json += ",\"errors\":";
+    json += ptzCommandErrors;
+    json += ",\"lastStatus\":";
+    json += lastPtzStatusCode;
+    json += ",\"lastCommand\":\"";
+    json += lastPtzCommand;
+    json += "\",\"lastCommandAgeSeconds\":";
+    json += lastPtzCommandAtMs == 0
+        ? 0UL
+        : (now - lastPtzCommandAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(lastPtzResult);
+    json += "\"}},";
 
     json += "\"probes\":{";
     json += "\"onvifTcp\":";
@@ -6991,9 +7709,9 @@ void sendApiError(
     sendJsonResponse(statusCode, json);
 }
 
-bool authorizeSettingsMutation(String& error)
+bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
 {
-    if (healthCheckInProgress) {
+    if (blockDuringHealthCheck && healthCheckInProgress) {
         error = "Verificacao de saude em andamento; tente novamente";
         return false;
     }
@@ -7023,6 +7741,11 @@ bool authorizeSettingsMutation(String& error)
     }
 
     return true;
+}
+
+bool authorizeSettingsMutation(String& error)
+{
+    return authorizeDashboardMutation(error, true);
 }
 
 bool readStringSettingArgument(
@@ -7132,6 +7855,158 @@ bool readBooleanSettingArgument(
 
     error = String("Opcao booleana invalida: ") + name;
     return false;
+}
+
+bool readSignedPercentArgument(
+    const char* name,
+    int16_t& value,
+    String& error
+)
+{
+    if (!httpServer.hasArg(name)) {
+        error = String("Campo ausente: ") + name;
+        return false;
+    }
+
+    String textValue = httpServer.arg(name);
+    textValue.trim();
+
+    if (textValue.isEmpty()) {
+        error = String("Campo vazio: ") + name;
+        return false;
+    }
+
+    size_t position = 0;
+    bool negative = false;
+
+    if (textValue.charAt(0) == '-') {
+        negative = true;
+        position = 1;
+    }
+
+    if (position >= textValue.length()) {
+        error = String("Campo numerico invalido: ") + name;
+        return false;
+    }
+
+    uint16_t parsed = 0;
+
+    for (; position < textValue.length(); position++) {
+        const char character = textValue.charAt(position);
+
+        if (character < '0' || character > '9') {
+            error = String("Campo numerico invalido: ") + name;
+            return false;
+        }
+
+        parsed = parsed * 10U + static_cast<uint8_t>(character - '0');
+
+        if (parsed > 100U) {
+            error = String("Campo fora do intervalo -100 a 100: ") + name;
+            return false;
+        }
+    }
+
+    value = negative
+        ? -static_cast<int16_t>(parsed)
+        : static_cast<int16_t>(parsed);
+    return true;
+}
+
+void handlePtzCommand()
+{
+    String authorizationError;
+
+    if (!authorizeDashboardMutation(authorizationError, false)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    if (!httpServer.hasArg("action")) {
+        sendApiError(422, "invalid_ptz_command", "Acao PTZ ausente");
+        return;
+    }
+
+    String action = httpServer.arg("action");
+    action.trim();
+    action.toLowerCase();
+    const bool stop = action == "stop";
+
+    if (!stop && action != "move") {
+        sendApiError(422, "invalid_ptz_command", "Acao PTZ invalida");
+        return;
+    }
+
+    uint32_t profileIndexValue = 0;
+    String validationError;
+
+    if (!readUnsignedSettingArgument(
+        "profile",
+        0,
+        MAX_LIVE_PROFILES - 1,
+        profileIndexValue,
+        validationError
+    )) {
+        sendApiError(422, "invalid_ptz_command", validationError);
+        return;
+    }
+
+    int16_t panPercent = 0;
+    int16_t tiltPercent = 0;
+    int16_t zoomPercent = 0;
+
+    if (
+        !stop &&
+        (
+            !readSignedPercentArgument("pan", panPercent, validationError) ||
+            !readSignedPercentArgument("tilt", tiltPercent, validationError) ||
+            !readSignedPercentArgument("zoom", zoomPercent, validationError)
+        )
+    ) {
+        sendApiError(422, "invalid_ptz_command", validationError);
+        return;
+    }
+
+    if (
+        !stop &&
+        panPercent == 0 &&
+        tiltPercent == 0 &&
+        zoomPercent == 0
+    ) {
+        sendApiError(
+            422,
+            "invalid_ptz_command",
+            "Movimento PTZ exige ao menos um eixo diferente de zero"
+        );
+        return;
+    }
+
+    String result;
+    const bool accepted = requestPtzControl(
+        static_cast<size_t>(profileIndexValue),
+        stop,
+        panPercent,
+        tiltPercent,
+        zoomPercent,
+        result
+    );
+
+    if (!accepted) {
+        const int responseStatus = result == "Canal de atuacao ONVIF ocupado"
+            ? 409
+            : 502;
+        sendApiError(responseStatus, "ptz_rejected", result);
+        return;
+    }
+
+    String json;
+    json.reserve(result.length() + 96);
+    json += "{\"ok\":true,\"action\":\"";
+    json += stop ? "stop" : "move";
+    json += "\",\"message\":\"";
+    json += jsonEscape(result);
+    json += "\"}";
+    sendJsonResponse(200, json);
 }
 
 bool parseRuntimeSettingsRequest(
@@ -7598,6 +8473,10 @@ void configureHttpServer()
         serveCameraSnapshot();
     });
 
+    httpServer.on("/api/camera/ptz", HTTP_POST, [] {
+        handlePtzCommand();
+    });
+
     httpServer.on("/api/settings", HTTP_GET, [] {
         sendJsonResponse(200, buildSettingsJson());
     });
@@ -7690,6 +8569,7 @@ void initializeConnectedServices()
     }
 
     connectedServicesInitialized = true;
+    esp_sntp_set_time_sync_notification_cb(noteSntpSynchronization);
     configTime(0, 0, "pool.ntp.org", "time.google.com");
 
     if (MDNS.begin(HOSTNAME)) {
@@ -7882,6 +8762,7 @@ void maintainWiFi()
 void setup()
 {
     Serial.begin(115200);
+    ensureOnvifActuationMutex();
     settingsWriteToken = makeSettingsWriteToken();
     loadRuntimeSettings();
     configureCameraAlertLed();
@@ -7915,6 +8796,7 @@ void loop()
     if (connectedServicesInitialized) {
         httpServer.handleClient();
         refreshOnvifDeviceMetadata();
+        maintainCameraClock();
     }
     processPendingEmails();
     processPendingAdminAction();

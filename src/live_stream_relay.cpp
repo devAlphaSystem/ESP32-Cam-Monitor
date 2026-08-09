@@ -4,7 +4,9 @@
 #include <MD5Builder.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <lwip/sockets.h>
 #include <mbedtls/base64.h>
+#include <errno.h>
 #include <memory>
 #include <new>
 
@@ -13,6 +15,7 @@ namespace {
 constexpr uint8_t LIVE_RECORD_STATUS = 1;
 constexpr uint8_t LIVE_RECORD_RTP = 2;
 constexpr uint8_t LIVE_RECORD_ERROR = 3;
+constexpr size_t LIVE_RECORD_HEADER_BYTES = 5;
 constexpr uint32_t BROWSER_REQUEST_TIMEOUT_MS = 3000UL;
 constexpr size_t MAX_BROWSER_REQUEST_BYTES = 2048;
 constexpr size_t MAX_RTSP_HEADER_BYTES = 8192;
@@ -21,7 +24,17 @@ constexpr UBaseType_t LIVE_TASK_PRIORITY = 1;
 constexpr BaseType_t LIVE_TASK_CORE = 0;
 constexpr uint32_t LIVE_SYNC_SUCCESS_MIN_INTERVAL_MS = 5000UL;
 constexpr uint32_t LIVE_SYNC_FAILURE_BACKOFF_MS = 5UL * 60UL * 1000UL;
+constexpr uint32_t LIVE_SYNC_KEYFRAME_WAIT_MS = 750UL;
+constexpr uint8_t LIVE_PACKETS_BEFORE_SCHEDULER_YIELD = 8;
 constexpr uint32_t LIVE_PROBE_TEARDOWN_RESERVE_MS = 25UL;
+constexpr uint32_t LIVE_BROWSER_SLOW_WRITE_MS = 250UL;
+constexpr uint32_t LIVE_BROWSER_RECORD_DEADLINE_MS = 1000UL;
+constexpr uint32_t LIVE_CAMERA_BACKLOG_SAMPLE_MS = 250UL;
+constexpr uint32_t LIVE_RTP_DRIFT_STARTUP_GRACE_MS = 3000UL;
+constexpr uint32_t LIVE_RTP_DRIFT_EVALUATION_MS = 2000UL;
+constexpr uint32_t LIVE_RTP_DRIFT_ABORT_MS = 3000UL;
+constexpr uint8_t LIVE_RTP_DRIFT_WINDOWS_BEFORE_ABORT = 2;
+constexpr uint32_t LIVE_RTP_DRIFT_REBASE_MS = 6UL * 60UL * 60UL * 1000UL;
 
 struct RtspDeadline {
     uint32_t startedAtMs = 0;
@@ -107,11 +120,37 @@ struct RtspSession {
 struct RelaySessionResult {
     bool started = false;
     bool normalBrowserClose = false;
+    bool latencyAbort = false;
     uint32_t packets = 0;
     uint64_t bytes = 0;
     uint32_t oversizedPackets = 0;
+    uint32_t invalidRtpPackets = 0;
+    int32_t latencyAbortDriftMs = 0;
     uint32_t durationSeconds = 0;
     String error;
+};
+
+struct RtpRecordWriteResult {
+    bool completed = false;
+    bool deadlineExceeded = false;
+    uint32_t durationMs = 0;
+};
+
+struct RtpClockDriftTracker {
+    bool initialized = false;
+    uint32_t ssrc = 0;
+    uint16_t lastSequence = 0;
+    uint32_t lastRawTimestamp = 0;
+    uint64_t elapsedTicks = 0;
+    uint32_t startedAtMs = 0;
+    uint32_t lastEvaluationAtMs = 0;
+    int32_t currentDriftMs = 0;
+    uint8_t consecutiveOverLimit = 0;
+};
+
+struct RtpPayloadView {
+    const uint8_t* data = nullptr;
+    size_t length = 0;
 };
 
 String trimmed(String value)
@@ -265,6 +304,296 @@ void requestSynchronizationPoint(
 
     Serial.print("LIVE: ");
     Serial.println(syncResult);
+}
+
+bool parseExpectedVideoRtpPayload(
+    const uint8_t* packet,
+    size_t length,
+    uint8_t expectedPayloadType,
+    RtpPayloadView& payload
+)
+{
+    payload = RtpPayloadView{};
+
+    if (
+        packet == nullptr ||
+        length < 12 ||
+        (packet[0] >> 6) != 2 ||
+        (packet[1] & 0x7F) != expectedPayloadType
+    ) {
+        return false;
+    }
+
+    size_t payloadOffset = 12 + static_cast<size_t>(packet[0] & 0x0F) * 4;
+
+    if (payloadOffset > length) {
+        return false;
+    }
+
+    if ((packet[0] & 0x10) != 0) {
+        if (payloadOffset + 4 > length) {
+            return false;
+        }
+
+        const size_t extensionWords =
+            (static_cast<size_t>(packet[payloadOffset + 2]) << 8) |
+            static_cast<size_t>(packet[payloadOffset + 3]);
+
+        if (extensionWords > (length - payloadOffset - 4) / 4) {
+            return false;
+        }
+
+        payloadOffset += 4 + extensionWords * 4;
+    }
+
+    if (payloadOffset >= length) {
+        return false;
+    }
+
+    size_t payloadEnd = length;
+
+    if ((packet[0] & 0x20) != 0) {
+        const size_t paddingLength = packet[length - 1];
+
+        if (paddingLength == 0 || paddingLength > payloadEnd - payloadOffset) {
+            return false;
+        }
+
+        payloadEnd -= paddingLength;
+    }
+
+    if (payloadOffset >= payloadEnd) {
+        return false;
+    }
+
+    payload.data = packet + payloadOffset;
+    payload.length = payloadEnd - payloadOffset;
+    return true;
+}
+
+bool inspectH264Payload(
+    const RtpPayloadView& payload,
+    bool& startsIdr
+)
+{
+    startsIdr = false;
+
+    if (payload.data == nullptr || payload.length == 0) {
+        return false;
+    }
+
+    const uint8_t nalType = payload.data[0] & 0x1F;
+
+    if (nalType >= 1 && nalType <= 23) {
+        startsIdr = nalType == 5;
+        return payload.length >= 2;
+    }
+
+    if (nalType == 28 || nalType == 29) {
+        const size_t fragmentOffset = nalType == 29 ? 4 : 2;
+
+        if (payload.length <= fragmentOffset) {
+            return false;
+        }
+
+        const uint8_t fuHeader = payload.data[1];
+        const uint8_t fragmentedNalType = fuHeader & 0x1F;
+        const bool starts = (fuHeader & 0x80) != 0;
+        const bool ends = (fuHeader & 0x40) != 0;
+
+        if (
+            (fuHeader & 0x20) != 0 ||
+            fragmentedNalType == 0 ||
+            fragmentedNalType > 23 ||
+            (starts && ends)
+        ) {
+            return false;
+        }
+
+        startsIdr = starts && fragmentedNalType == 5;
+        return true;
+    }
+
+    if (nalType != 24 && nalType != 25) {
+        return false;
+    }
+
+    size_t position = nalType == 25 ? 3 : 1;
+    bool hasNalUnit = false;
+
+    while (position < payload.length) {
+        if (position + 2 > payload.length) {
+            return false;
+        }
+
+        const size_t nalLength =
+            (static_cast<size_t>(payload.data[position]) << 8) |
+            static_cast<size_t>(payload.data[position + 1]);
+        position += 2;
+
+        if (nalLength == 0) {
+            while (position < payload.length) {
+                if (payload.data[position++] != 0) {
+                    return false;
+                }
+            }
+
+            return hasNalUnit;
+        }
+
+        if (position + nalLength > payload.length) {
+            return false;
+        }
+
+        const uint8_t aggregatedNalType = payload.data[position] & 0x1F;
+
+        if (aggregatedNalType == 0 || aggregatedNalType > 23) {
+            return false;
+        }
+
+        startsIdr = startsIdr || aggregatedNalType == 5;
+        hasNalUnit = true;
+        position += nalLength;
+    }
+
+    return hasNalUnit;
+}
+
+uint16_t readNetworkUint16(const uint8_t* value)
+{
+    return
+        (static_cast<uint16_t>(value[0]) << 8) |
+        static_cast<uint16_t>(value[1]);
+}
+
+uint32_t readNetworkUint32(const uint8_t* value)
+{
+    return
+        (static_cast<uint32_t>(value[0]) << 24) |
+        (static_cast<uint32_t>(value[1]) << 16) |
+        (static_cast<uint32_t>(value[2]) << 8) |
+        static_cast<uint32_t>(value[3]);
+}
+
+void resetRtpClockDriftTracker(
+    RtpClockDriftTracker& tracker,
+    const uint8_t* packet,
+    uint32_t now
+)
+{
+    tracker = RtpClockDriftTracker{};
+    tracker.initialized = true;
+    tracker.ssrc = readNetworkUint32(packet + 8);
+    tracker.lastSequence = readNetworkUint16(packet + 2);
+    tracker.lastRawTimestamp = readNetworkUint32(packet + 4);
+    tracker.startedAtMs = now;
+    tracker.lastEvaluationAtMs = now;
+}
+
+bool updateRtpClockDrift(
+    RtpClockDriftTracker& tracker,
+    const uint8_t* packet,
+    uint32_t clockRate,
+    uint32_t now
+)
+{
+    if (packet == nullptr || clockRate == 0) {
+        return false;
+    }
+
+    const uint32_t ssrc = readNetworkUint32(packet + 8);
+    const uint16_t sequence = readNetworkUint16(packet + 2);
+    const uint32_t rawTimestamp = readNetworkUint32(packet + 4);
+
+    if (!tracker.initialized || tracker.ssrc != ssrc) {
+        resetRtpClockDriftTracker(tracker, packet, now);
+        return false;
+    }
+
+    const uint16_t sequenceDelta = static_cast<uint16_t>(
+        sequence - tracker.lastSequence
+    );
+
+    if (sequenceDelta == 0 || sequenceDelta > 0x7FFFU) {
+        return false;
+    }
+
+    if (now - tracker.startedAtMs >= LIVE_RTP_DRIFT_REBASE_MS) {
+        resetRtpClockDriftTracker(tracker, packet, now);
+        return false;
+    }
+
+    const int32_t timestampDelta = static_cast<int32_t>(
+        rawTimestamp - tracker.lastRawTimestamp
+    );
+    const uint64_t maximumExpectedDelta =
+        static_cast<uint64_t>(clockRate) * 10ULL;
+
+    if (
+        timestampDelta < 0 ||
+        static_cast<uint64_t>(timestampDelta) > maximumExpectedDelta
+    ) {
+        resetRtpClockDriftTracker(tracker, packet, now);
+        return false;
+    }
+
+    tracker.lastSequence = sequence;
+    tracker.lastRawTimestamp = rawTimestamp;
+    tracker.elapsedTicks += static_cast<uint32_t>(timestampDelta);
+
+    const uint32_t wallElapsedMs = now - tracker.startedAtMs;
+    if (
+        wallElapsedMs < LIVE_RTP_DRIFT_STARTUP_GRACE_MS ||
+        now - tracker.lastEvaluationAtMs < LIVE_RTP_DRIFT_EVALUATION_MS
+    ) {
+        return false;
+    }
+
+    tracker.lastEvaluationAtMs = now;
+    const uint64_t mediaElapsedMs =
+        tracker.elapsedTicks * 1000ULL / clockRate;
+    const int64_t driftMs =
+        static_cast<int64_t>(wallElapsedMs) -
+        static_cast<int64_t>(mediaElapsedMs);
+
+    if (driftMs > INT32_MAX) {
+        tracker.currentDriftMs = INT32_MAX;
+    } else if (driftMs < INT32_MIN) {
+        tracker.currentDriftMs = INT32_MIN;
+    } else {
+        tracker.currentDriftMs = static_cast<int32_t>(driftMs);
+    }
+
+    if (tracker.currentDriftMs >= static_cast<int32_t>(LIVE_RTP_DRIFT_ABORT_MS)) {
+        if (tracker.consecutiveOverLimit < UINT8_MAX) {
+            tracker.consecutiveOverLimit++;
+        }
+    } else {
+        tracker.consecutiveOverLimit = 0;
+    }
+
+    return
+        tracker.consecutiveOverLimit >=
+            LIVE_RTP_DRIFT_WINDOWS_BEFORE_ABORT;
+}
+
+void recordSynchronizationAlreadySatisfied(
+    LiveRelayStats& relayStats,
+    portMUX_TYPE& statsMux
+)
+{
+    const String result =
+        "Sincronizacao ONVIF ignorada: a camera ja entregou um keyframe";
+    recordSynchronizationResult(
+        relayStats,
+        statsMux,
+        false,
+        false,
+        millis(),
+        result
+    );
+    Serial.print("LIVE: ");
+    Serial.println(result);
 }
 
 bool writeAll(
@@ -1059,7 +1388,7 @@ bool sendRecord(
     uint32_t length
 )
 {
-    uint8_t header[5] = {
+    uint8_t header[LIVE_RECORD_HEADER_BYTES] = {
         type,
         static_cast<uint8_t>((length >> 24) & 0xFF),
         static_cast<uint8_t>((length >> 16) & 0xFF),
@@ -1070,6 +1399,74 @@ bool sendRecord(
     return
         writeAll(browser, header, sizeof(header)) &&
         (length == 0 || writeAll(browser, payload, length));
+}
+
+RtpRecordWriteResult sendBufferedRtpRecord(
+    WiFiClient& browser,
+    uint8_t* record,
+    uint32_t payloadLength
+)
+{
+    RtpRecordWriteResult result;
+
+    if (record == nullptr) {
+        return result;
+    }
+
+    record[0] = LIVE_RECORD_RTP;
+    record[1] = static_cast<uint8_t>((payloadLength >> 24) & 0xFF);
+    record[2] = static_cast<uint8_t>((payloadLength >> 16) & 0xFF);
+    record[3] = static_cast<uint8_t>((payloadLength >> 8) & 0xFF);
+    record[4] = static_cast<uint8_t>(payloadLength & 0xFF);
+
+    const int socketDescriptor = browser.fd();
+
+    if (socketDescriptor < 0) {
+        return result;
+    }
+
+    const size_t recordLength = LIVE_RECORD_HEADER_BYTES + payloadLength;
+    size_t written = 0;
+    const uint32_t startedAtMs = millis();
+
+    while (written < recordLength) {
+        if (
+            !browser.connected() ||
+            millis() - startedAtMs >= LIVE_BROWSER_RECORD_DEADLINE_MS
+        ) {
+            break;
+        }
+
+        const int current = send(
+            socketDescriptor,
+            record + written,
+            recordLength - written,
+            MSG_DONTWAIT
+        );
+
+        if (current > 0) {
+            written += static_cast<size_t>(current);
+            continue;
+        }
+
+        if (
+            current < 0 &&
+            errno != EAGAIN &&
+            errno != EWOULDBLOCK
+        ) {
+            browser.stop();
+            break;
+        }
+
+        vTaskDelay(1);
+    }
+
+    result.durationMs = millis() - startedAtMs;
+    result.deadlineExceeded =
+        written < recordLength &&
+        result.durationMs >= LIVE_BROWSER_RECORD_DEADLINE_MS;
+    result.completed = written == recordLength;
+    return result;
 }
 
 bool sendRecord(WiFiClient& browser, uint8_t type, const String& text)
@@ -1849,7 +2246,10 @@ RelaySessionResult relayRtspToBrowser(
     RtspSession session;
 
     const auto finishSession = [&]() -> RelaySessionResult {
-        sendTeardown(session, username, password, userAgent);
+        if (!result.latencyAbort) {
+            sendTeardown(session, username, password, userAgent);
+        }
+
         session.cameraClient.stop();
         result.durationSeconds = (millis() - sessionStartedAt) / 1000UL;
         return result;
@@ -1918,7 +2318,9 @@ RelaySessionResult relayRtspToBrowser(
     describe = RtspResponse{};
 
     std::unique_ptr<uint8_t[]> packet(
-        new (std::nothrow) uint8_t[LIVE_RTP_PACKET_MAX_BYTES]
+        new (std::nothrow) uint8_t[
+            LIVE_RECORD_HEADER_BYTES + LIVE_RTP_PACKET_MAX_BYTES
+        ]
     );
 
     if (!packet) {
@@ -2000,7 +2402,12 @@ RelaySessionResult relayRtspToBrowser(
     result.started = true;
     unsigned long lastMediaAt = millis();
     unsigned long lastKeepaliveAt = millis();
-    bool synchronizationRequested = false;
+    unsigned long firstMediaAt = 0;
+    bool synchronizationResolved = false;
+    uint8_t packetsSinceSchedulerYield = 0;
+    RtpClockDriftTracker driftTracker;
+    uint32_t cameraBacklogBytes = 0;
+    uint32_t lastBacklogSampleAtMs = 0;
 
     while (browser.connected() && session.cameraClient.connected()) {
         const unsigned long now = millis();
@@ -2071,7 +2478,7 @@ RelaySessionResult relayRtspToBrowser(
 
             if (!readExact(
                 session.cameraClient,
-                packet.get(),
+                packet.get() + LIVE_RECORD_HEADER_BYTES,
                 length,
                 LIVE_RTSP_RESPONSE_TIMEOUT_MS
             )) {
@@ -2083,15 +2490,65 @@ RelaySessionResult relayRtspToBrowser(
                 continue;
             }
 
+            uint8_t* const rtpPacket =
+                packet.get() + LIVE_RECORD_HEADER_BYTES;
+            RtpPayloadView rtpPayload;
+            bool idrStarted = false;
+
+            if (
+                !parseExpectedVideoRtpPayload(
+                    rtpPacket,
+                    length,
+                    session.track.payloadType,
+                    rtpPayload
+                ) ||
+                !inspectH264Payload(rtpPayload, idrStarted)
+            ) {
+                result.invalidRtpPackets++;
+                continue;
+            }
+
             lastMediaAt = millis();
 
-            if (!sendRecord(
+            if (firstMediaAt == 0) {
+                firstMediaAt = lastMediaAt;
+            }
+
+            const RtpRecordWriteResult writeResult = sendBufferedRtpRecord(
                 browser,
-                LIVE_RECORD_RTP,
                 packet.get(),
                 static_cast<uint32_t>(length)
-            )) {
-                result.normalBrowserClose = true;
+            );
+
+            portENTER_CRITICAL(&statsMux);
+            relayStats.lastWriteDurationMs = writeResult.durationMs;
+
+            if (writeResult.durationMs > relayStats.maxWriteDurationMs) {
+                relayStats.maxWriteDurationMs = writeResult.durationMs;
+            }
+
+            if (writeResult.durationMs >= LIVE_BROWSER_SLOW_WRITE_MS) {
+                relayStats.slowWriteCount++;
+                relayStats.slowWriteTimeMs += writeResult.durationMs;
+            }
+
+            if (writeResult.deadlineExceeded) {
+                relayStats.writeDeadlineExceeded++;
+            }
+
+            portEXIT_CRITICAL(&statsMux);
+
+            if (!writeResult.completed) {
+                if (writeResult.deadlineExceeded && browser.connected()) {
+                    result.latencyAbort = true;
+                    result.error =
+                        String("Relay reiniciado: envio ao navegador excedeu ") +
+                        String(LIVE_BROWSER_RECORD_DEADLINE_MS) + " ms";
+                    browser.stop();
+                } else {
+                    result.normalBrowserClose = true;
+                }
+
                 break;
             }
 
@@ -2099,13 +2556,69 @@ RelaySessionResult relayRtspToBrowser(
             result.bytes += length;
             const uint32_t relayedAtMs = millis();
 
+            if (
+                lastBacklogSampleAtMs == 0 ||
+                relayedAtMs - lastBacklogSampleAtMs >=
+                    LIVE_CAMERA_BACKLOG_SAMPLE_MS
+            ) {
+                const int availableFromCamera =
+                    session.cameraClient.available();
+                cameraBacklogBytes = availableFromCamera > 0
+                    ? static_cast<uint32_t>(availableFromCamera)
+                    : 0;
+                lastBacklogSampleAtMs = relayedAtMs;
+            }
+
+            const bool driftLimitExceeded = updateRtpClockDrift(
+                driftTracker,
+                rtpPacket,
+                session.track.clockRate,
+                relayedAtMs
+            );
+
             portENTER_CRITICAL(&statsMux);
             relayStats.mediaActive = true;
             relayStats.lastMediaPacketAtMs = relayedAtMs;
+            relayStats.currentSessionPackets = result.packets;
+            relayStats.currentSessionBytes = result.bytes;
+            relayStats.currentCameraBacklogBytes = cameraBacklogBytes;
+
+            if (cameraBacklogBytes > relayStats.maxCameraBacklogBytes) {
+                relayStats.maxCameraBacklogBytes = cameraBacklogBytes;
+            }
+
+            relayStats.currentRtpClockDriftMs =
+                driftTracker.currentDriftMs;
+
+            if (
+                driftTracker.currentDriftMs > 0 &&
+                static_cast<uint32_t>(driftTracker.currentDriftMs) >
+                    relayStats.maxRtpClockDriftMs
+            ) {
+                relayStats.maxRtpClockDriftMs =
+                    static_cast<uint32_t>(driftTracker.currentDriftMs);
+            }
+
             portEXIT_CRITICAL(&statsMux);
 
-            if (!synchronizationRequested) {
-                synchronizationRequested = true;
+            if (driftLimitExceeded) {
+                result.latencyAbort = true;
+                result.latencyAbortDriftMs = driftTracker.currentDriftMs;
+                result.error =
+                    String("Relay reiniciado: atraso RTP acumulado excedeu ") +
+                    String(LIVE_RTP_DRIFT_ABORT_MS) + " ms";
+                browser.stop();
+                break;
+            }
+
+            if (!synchronizationResolved && idrStarted) {
+                synchronizationResolved = true;
+                recordSynchronizationAlreadySatisfied(relayStats, statsMux);
+            } else if (
+                !synchronizationResolved &&
+                millis() - firstMediaAt >= LIVE_SYNC_KEYFRAME_WAIT_MS
+            ) {
+                synchronizationResolved = true;
                 requestSynchronizationPoint(
                     descriptor,
                     synchronizationRequester,
@@ -2115,6 +2628,16 @@ RelaySessionResult relayRtspToBrowser(
                     relayStats,
                     statsMux
                 );
+            }
+
+            packetsSinceSchedulerYield++;
+
+            if (
+                packetsSinceSchedulerYield >=
+                LIVE_PACKETS_BEFORE_SCHEDULER_YIELD
+            ) {
+                packetsSinceSchedulerYield = 0;
+                vTaskDelay(1);
             }
 
             continue;
@@ -2650,6 +3173,11 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     portENTER_CRITICAL(&statsMux_);
     stats_.clientActive = true;
     stats_.mediaActive = false;
+    stats_.currentSessionPackets = 0;
+    stats_.currentSessionBytes = 0;
+    stats_.lastWriteDurationMs = 0;
+    stats_.currentCameraBacklogBytes = 0;
+    stats_.currentRtpClockDriftMs = 0;
     stats_.sessions++;
     portEXIT_CRITICAL(&statsMux_);
 
@@ -2683,7 +3211,12 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
         sendRecord(browserClient, LIVE_RECORD_ERROR, json);
     }
 
-    if (!result.error.isEmpty()) {
+    if (result.latencyAbort) {
+        Serial.printf(
+            "LIVE: sessao reiniciada para limitar latencia: %s\n",
+            result.error.c_str()
+        );
+    } else if (!result.error.isEmpty()) {
         Serial.printf("LIVE: sessão encerrada com erro: %s\n", result.error.c_str());
     } else {
         Serial.printf(
@@ -2697,12 +3230,27 @@ void LiveStreamRelay::handleBrowserClient(WiFiClient browserClient)
     portENTER_CRITICAL(&statsMux_);
     stats_.clientActive = false;
     stats_.mediaActive = false;
+    stats_.currentSessionPackets = 0;
+    stats_.currentSessionBytes = 0;
+    stats_.currentCameraBacklogBytes = 0;
+    stats_.currentRtpClockDriftMs = 0;
     stats_.packetsRelayed += result.packets;
     stats_.bytesRelayed += result.bytes;
     stats_.oversizedPackets += result.oversizedPackets;
+    stats_.invalidRtpPackets += result.invalidRtpPackets;
     stats_.lastSessionDurationSeconds = result.durationSeconds;
 
-    if (!result.error.isEmpty()) {
+    if (result.latencyAbort) {
+        stats_.latencyAborts++;
+        stats_.lastLatencyAbortAtMs = millis();
+        stats_.lastLatencyAbortDriftMs = result.latencyAbortDriftMs;
+        copyText(
+            stats_.lastLatencyAbortReason,
+            sizeof(stats_.lastLatencyAbortReason),
+            result.error
+        );
+        stats_.lastError[0] = '\0';
+    } else if (!result.error.isEmpty()) {
         stats_.failedSessions++;
         copyText(stats_.lastError, sizeof(stats_.lastError), result.error);
     } else if (result.started || result.normalBrowserClose) {

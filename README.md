@@ -1,85 +1,116 @@
-# ESP32 Camera Watchdog 0.8.2
+# ESP32 Camera Watchdog 0.8.5
 
-Firmware para ESP32 que monitora uma câmera IP ONVIF/RTSP, oferece painel web local, valida snapshots JPEG, retransmite vídeo H.264 para o navegador e tenta recuperar automaticamente a câmera com `ONVIF SystemReboot`.
+Firmware para ESP32 que monitora uma câmera IP ONVIF/RTSP, oferece um painel web local, valida snapshots JPEG, retransmite vídeo H.264 para o navegador, controla PTZ e executa recuperação automática com limites de segurança.
 
-A versão `0.8.2` prioriza a reprodução real: reduz as sondas RTSP quando uma evidência recente já validou a câmera, alterna automaticamente entre perfis H.264 e só solicita quadro-chave depois que a sessão entrega o primeiro pacote RTP.
+A versão 0.8.5 concentra as correções de estabilidade e baixa latência do Ao Vivo. O navegador e o relay agora têm limites explícitos de backlog, encerrando uma sessão atrasada e reconectando em mídia atual. O firmware também compara o relógio UTC da câmera com uma referência SNTP obtida pelo próprio ESP32, sem confiar no relógio do computador ou do navegador.
 
-## Recursos
+## Funcionalidades
 
-- descoberta ONVIF por WS-Discovery e varredura opcional da sub-rede;
-- catálogo dinâmico por `GetServices`, com validação dos endpoints no IP da câmera;
-- inventário de capacidades, identificação, scopes e tópicos de eventos ONVIF;
-- persistência da câmera e das configurações na NVS;
-- sondas ONVIF, RTSP e JPEG com telemetria de latência;
-- seleção automática de perfil JPEG e failover entre perfis;
-- relay HTTP/RTP de vídeo H.264 para reprodução MSE/fMP4 no navegador;
-- solicitação best-effort de quadro-chave com `SetSynchronizationPoint` após o primeiro RTP;
-- reconhecimento de pacotes RTP reais como evidência de vídeo ativo;
-- recuperação automática por `ONVIF SystemReboot`;
-- cooldown e limite de comandos de reboot aceitos;
-- período de silêncio após reboot para a câmera inicializar sem novas sondas;
-- painel responsivo com Câmera, Prévia, Ao Vivo, Recursos, Configurações e Ações;
-- alertas e notificações de recuperação por Resend;
+- descoberta da câmera por ONVIF WS-Discovery;
+- varredura opcional da sub-rede quando a descoberta não encontra a câmera;
+- catálogo dinâmico com `GetServices(true)` e validação dos endpoints anunciados;
+- inventário de identificação, scopes, capacidades e tópicos de eventos ONVIF;
+- seleção e failover de perfis JPEG;
+- Prévia JPEG retransmitida sem manter a imagem inteira na RAM;
+- Ao Vivo H.264 por RTSP/RTP sobre TCP, ESP32 e MSE/fMP4 no navegador;
+- proteção contra acúmulo de vídeo antigo no relay e no navegador;
+- controle PTZ de pan, tilt e zoom na tela Ao Vivo;
+- solicitação best-effort de quadro-chave com `SetSynchronizationPoint`;
+- health-check com evidências independentes de JPEG e RTP;
+- recuperação automática por `ONVIF SystemReboot`, com graça, cooldown e janela móvel;
+- alertas por e-mail usando Resend;
 - LED local de estado no GPIO 2;
-- diagnóstico JSON com heap, flash, Wi-Fi, câmera, relay, incidentes, contadores e motivo do último reset do ESP32.
+- configurações persistidas na NVS;
+- diagnóstico JSON detalhado de câmera, rede, memória, relay, relógio e recuperação.
 
-## O que mudou na versão 0.8.2
+## Arquitetura
 
-- o player alterna automaticamente para outro perfil H.264 quando o selecionado não entrega mídia;
-- receber apenas SDP não zera mais o backoff: a reconexão só é considerada estável depois que o navegador reproduz vídeo;
-- um canário RTP bem-sucedido adia novas sondas por 60 segundos quando não existe incidente;
-- a Prévia passa a usar intervalo de fábrica de 5 segundos, reduzindo em 60% os GETs em relação ao padrão anterior de 2 segundos;
-- `SetSynchronizationPoint` só é enviado depois do primeiro pacote RTP, evitando bloquear uma sessão ainda sem mídia;
+```mermaid
+flowchart LR
+    CAMERA["Câmera IP<br>ONVIF + RTSP/H.264"]
+    ESP["ESP32 Camera Watchdog"]
+    PANEL["Painel web<br>porta 80"]
+    PLAYER["Player MSE/fMP4<br>porta 81"]
+    NTP["Servidores NTP"]
+    EMAIL["Resend"]
 
-Mantém também as correções conservadoras introduzidas na versão 0.8.1:
+    CAMERA -->|SOAP, JPEG e RTSP/RTP| ESP
+    ESP --> PANEL
+    ESP -->|RTP encapsulado em HTTP| PLAYER
+    NTP -->|UTC de referência| ESP
+    ESP -->|alertas opcionais| EMAIL
+```
 
-- `GetServices(true)` substitui o caminho de mídia fixo quando a câmera anuncia seus serviços;
-- XAddr só é aceito em HTTP, sem credenciais embutidas e no mesmo IP já selecionado;
-- `GetDeviceInformation`, `GetScopes`, `GetSystemDateAndTime` e `GetEventProperties` são consultados uma vez por alvo;
-- `SetSynchronizationPoint` é solicitado após o primeiro RTP, com timeout de 0,5 s por tentativa; uma nova sessão pode solicitá-lo novamente após 5 s de um sucesso, enquanto uma falha aplica backoff de 5 min; o resultado nunca encerra a sessão;
-- RTP entregue nos últimos 30 segundos continua sendo evidência de saúde durante reconexões;
-- dois ciclos de RTP saudável encerram também um incidente anterior de snapshot;
-- uma Prévia entregue recentemente substitui a sonda JPEG duplicada do health-check;
-- fechamento da aba passa a ser telemetria neutra (`clientAborts`), não erro da câmera;
-- reboot automático exige falha JPEG e três varreduras completas em que todos os perfis H.264 compatíveis aceitam `PLAY`, recebem ao menos 0,5 s de observação e não entregam RTP;
-- o canário distribui os perfis entre ciclos e limita a contenção total do canal da câmera a 6 s por verificação;
-- o limitador de reboots usa uma janela móvel baseada apenas em comandos aceitos;
-- sequências conclusivas são zeradas quando um reboot é aceito;
-- ciclos inconclusivos preservam o último estado definitivo quando ainda não existe incidente;
-- o LED pisca por incidente confirmado, offline, recuperação ou perda de Wi-Fi, não por contenção transitória;
-- horários humanos usam automaticamente o timezone do navegador; UTC permanece no JSON e no WS-Security;
-- o diagnóstico expõe catálogo ONVIF, tópicos, sincronização, origem da última evidência de saúde e motivo do LED;
-- versão do firmware e cache do player atualizados para `0.8.2`.
+O relay integrado atende um navegador por vez. O canal de acesso à câmera é serializado para impedir que Prévia, health-check, PTZ e relay corrompam a mesma sessão de rede.
+
+## Principais mudanças da 0.8.5
+
+### Latência do Ao Vivo
+
+- o player inicia com aproximadamente 1,5 s de mídia acumulada;
+- fragmentos MSE são agrupados em lotes limitados a 0,5 s, 12 entradas ou 512 KiB;
+- uma fila JavaScript acima de 6 s gera `LiveBacklogError` e reconecta em uma sessão nova;
+- o player nunca descarta P-frames ou fragmentos FU-A isoladamente para tentar alcançar o tempo real;
+- o watchdog acompanha `video.currentTime`; oito segundos sem progresso acionam recuperação e, se necessário, reconexão;
+- a interface mostra a latência estimada no navegador, incluindo mídia ainda não anexada ao `SourceBuffer`.
+
+### Proteção no relay
+
+- cada registro enviado ao navegador possui deadline total de 1 s;
+- a escrita usa socket não bloqueante, evitando que um cliente lento retenha indefinidamente o RTP da câmera;
+- o relay compara o avanço do timestamp RTP com o tempo monotônico;
+- atraso RTP acima de 3 s em duas janelas consecutivas encerra a sessão e força reconexão fresca;
+- pacotes duplicados ou atrasados não alimentam o detector de drift;
+- RTP v2, payload type, extensão, padding e H.264 são validados antes da retransmissão;
+- NAL simples, STAP-A, STAP-B, FU-A e FU-B são aceitos; formatos não suportados são contabilizados como inválidos;
+- abortos por latência têm telemetria própria e não contam como falha da câmera, incidente, LED ou gatilho de reboot.
+
+### Relógio da câmera
+
+- o ESP32 registra quando recebeu uma sincronização SNTP nesta inicialização;
+- `GetSystemDateAndTime` é executado periodicamente, fora do inventário ONVIF inicial;
+- o desvio é calculado entre `UTCDateTime` da câmera e o ponto médio da consulta usando a referência SNTP do ESP32;
+- alterações da referência SNTP durante a consulta invalidam a amostra;
+- o painel mostra modo, timezone reportado, desvio e validade da referência;
+- a verificação é somente leitura: o firmware não muda automaticamente NTP para Manual e não envia `SetSystemDateAndTime`;
+- datas humanas no painel usam automaticamente o timezone do navegador; o JSON e o WS-Security continuam em UTC.
+
+NTP fornece UTC, mas não determina o timezone geográfico da câmera. O timezone do OSD continua sendo configuração da própria câmera.
 
 ## Requisitos
 
 ### ESP32
 
 - placa compatível com o ambiente PlatformIO `esp32dev`;
-- flash de 4 MB com a tabela de partições incluída;
-- conexão Wi-Fi de 2,4 GHz;
+- flash de 4 MB usando `partitions.csv`;
+- Wi-Fi de 2,4 GHz;
 - PSRAM não é obrigatória.
 
 ### Câmera
 
-- câmera acessível na mesma rede local do ESP32;
-- serviço ONVIF para descoberta, perfis e snapshot;
-- RTSP H.264 para o player integrado;
-- `SystemReboot` ONVIF se a recuperação automática for utilizada.
+- acesso pela mesma rede local do ESP32;
+- serviço ONVIF Device Management;
+- Media1 com perfis e `GetSnapshotUri` para a Prévia;
+- RTSP H.264 para o Ao Vivo;
+- RTP sobre RTSP/TCP para o relay integrado;
+- serviço PTZ ONVIF para pan, tilt e zoom;
+- `SystemReboot` apenas se a recuperação automática for utilizada.
 
-O relay integrado aceita H.264. Perfis H.265/HEVC não são reproduzidos por este player.
+O player integrado aceita H.264. H.265/HEVC e áudio não são reproduzidos.
 
 ## Configuração inicial
 
-Copie o arquivo de exemplo:
+Crie o arquivo local de segredos a partir do exemplo:
 
 ```powershell
 Copy-Item include\secrets.example.h include\secrets.h
 ```
 
-Edite somente `include/secrets.h` e preencha os valores necessários:
+Preencha `include/secrets.h`:
 
 ```cpp
+#pragma once
+
 constexpr char WIFI_SSID[] = "NOME_DA_REDE";
 constexpr char WIFI_PASSWORD[] = "SENHA_DA_REDE";
 
@@ -96,25 +127,17 @@ constexpr char RESEND_FROM[] = "Camera Watchdog <watchdog@example.com>";
 constexpr char ALERT_EMAIL[] = "recipient@example.com";
 ```
 
-Não versione nem compartilhe `include/secrets.h`. O arquivo já está ignorado pelo Git.
+Regras:
 
-As credenciais ONVIF podem ficar vazias quando a câmera não exige autenticação. As credenciais RTSP reutilizam as ONVIF por padrão, mas podem ser configuradas separadamente.
-
-O Resend é opcional. Sem uma configuração válida, o monitor continua funcionando e apenas o envio de e-mails fica desativado.
+- não versione nem compartilhe `include/secrets.h`;
+- credenciais ONVIF podem ficar vazias quando a câmera não exige autenticação;
+- credenciais RTSP reutilizam ONVIF por padrão, mas podem ser diferentes;
+- Resend é opcional; sem chave válida, somente o envio de e-mail fica indisponível;
+- configure `DASHBOARD_ADMIN_PASSWORD_VALUE` para proteger ações sensíveis.
 
 ## Compilar, gravar e monitorar
 
-No terminal do projeto:
-
-```powershell
-pio run
-pio run --target upload
-pio device monitor
-```
-
-Também podem ser utilizadas as tarefas Build, Upload e Monitor da extensão PlatformIO.
-
-Configuração atual do ambiente:
+O ambiente atual está em `platformio.ini`:
 
 ```ini
 [env:esp32dev]
@@ -123,7 +146,25 @@ board = esp32dev
 framework = arduino
 monitor_speed = 115200
 upload_speed = 460800
+board_build.partitions = partitions.csv
 ```
+
+Comandos básicos:
+
+```powershell
+pio run
+pio run --target upload
+pio device monitor
+```
+
+Para selecionar explicitamente a COM5:
+
+```powershell
+pio run --target upload --upload-port COM5
+pio device monitor --port COM5 --baud 115200
+```
+
+Também podem ser usadas as tarefas Build, Upload e Monitor da extensão PlatformIO.
 
 ## Acesso ao painel
 
@@ -133,45 +174,131 @@ Depois da conexão Wi-Fi, abra:
 http://camera-watchdog.local
 ```
 
-Se o mDNS não estiver disponível, use o endereço IP exibido no monitor serial.
-
-Portas utilizadas:
+Se o mDNS não estiver disponível, use o IP informado no monitor serial.
 
 | Porta | Uso |
 |---:|---|
-| 80 | painel e API HTTP |
-| 81 | relay HTTP/RTP para o player ao vivo |
+| 80/TCP | painel e API HTTP |
+| 81/TCP | relay HTTP/RTP do Ao Vivo |
 | 3702/UDP | WS-Discovery ONVIF |
 | 554/TCP | RTSP da câmera por padrão |
 
-O endpoint consumido pelo player é semelhante a:
+O player abre uma URL semelhante a:
 
 ```text
 http://IP_DO_ESP32:81/stream?profile=1
 ```
 
-## Como o monitor decide o estado
+## Módulos do painel
 
-A cada ciclo, o firmware executa esta sequência:
+### Câmera
 
-1. verifica Wi-Fi e o período de graça pós-reboot;
-2. consulta o relay;
-3. considera sucesso quando o relay entregou RTP nos últimos 30 segundos;
-4. reutiliza um JPEG completo entregue recentemente pela Prévia;
-5. impede I/O concorrente entre relay, health-check, prévia e ações manuais;
-6. verifica ONVIF e a URI RTSP real com `DESCRIBE` quando disponível;
-7. resolve o perfil e o URI de snapshot quando necessário;
-8. baixa e valida um JPEG completo quando ainda falta evidência recente;
-9. atualiza contadores, incidente, alerta e recuperação.
+Apresenta estado global, disponibilidade, resultados das sondas, incidentes, última evidência de saúde, recuperação e diagnóstico bruto.
 
-Os incidentes são separados:
+### Prévia
 
-- `snapshot_unavailable`: a câmera responde, mas o monitor não recebeu um JPEG válido;
-- `camera_offline`: a câmera não respondeu aos controles e também não entregou imagem.
+A Prévia executa um GET HTTP no snapshot da câmera e retransmite o JPEG conforme os bytes chegam:
 
-Uma espera de retry, um catálogo ocupado ou uma resolução adiada é inconclusiva. Esses ciclos aparecem na telemetria, mas não incrementam a sequência de falhas JPEG nem autorizam reboot.
+- o perfil e a URI ONVIF são mantidos em cache e não são resolvidos a cada quadro;
+- o JPEG completo não é armazenado na RAM;
+- o buffer de retransmissão possui 2 KiB;
+- o padrão é um quadro a cada 5 s, no máximo 0,2 FPS;
+- a Prévia para ao sair da tela ou ocultar a aba;
+- um quadro completamente entregue pode ser reutilizado como evidência do health-check;
+- fechamento do navegador incrementa `clientAborts`, não `snapshot.errors`.
 
-## Valores padrão de conectividade
+### Ao Vivo
+
+Fluxo do vídeo:
+
+1. o firmware obtém o URI RTSP do perfil H.264 selecionado;
+2. abre `DESCRIBE`, `SETUP` interleaved e `PLAY`;
+3. valida os pacotes RTP/H.264;
+4. encapsula cada pacote em um registro HTTP binário;
+5. o navegador reconstrói os access units e gera fMP4 para MSE;
+6. watchdogs de progresso, fila e drift encerram sessões atrasadas.
+
+Se nenhum IDR chegar nos primeiros 750 ms, o relay tenta `SetSynchronizationPoint`. A falha desse comando é best-effort e não encerra a sessão.
+
+O player alterna para outro perfil H.264 quando uma tentativa não chega à reprodução real. Receber apenas SDP ou bitrate não é considerado sucesso suficiente.
+
+### Controle PTZ
+
+Quando a câmera anuncia serviço PTZ:
+
+- botões pressionados enviam `ContinuousMove`;
+- soltar envia `Stop`;
+- velocidade é ajustável entre 10% e 100%;
+- a câmera recebe timeout de segurança de 2 s para o movimento;
+- ocultar a aba ou sair do Ao Vivo também tenta enviar `Stop`;
+- comandos exigem `writeToken` e, quando configurada, senha administrativa.
+
+### Recursos
+
+Mostra heap, maior bloco, mínimo histórico, PSRAM, flash, Wi-Fi, catálogo ONVIF, eventos anunciados, sincronização de quadro-chave e relógio da câmera.
+
+O card do relógio usa a referência SNTP do ESP32. Se o OSD da câmera e o relógio do computador divergirem, consulte `onvif.clock` antes de concluir que o vídeo está atrasado.
+
+### Configurações e Ações
+
+Configurações são validadas pelo firmware e persistidas na NVS. Ações manuais permitem executar health-check, redescobrir a câmera, solicitar reboot ONVIF, limpar o limitador e reiniciar o ESP32.
+
+## Como o health-check decide o estado
+
+O monitor combina várias evidências, em vez de depender apenas do snapshot:
+
+1. novo RTP entregue pelo relay;
+2. relay ativo ou período curto de graça após uma sessão;
+3. JPEG completo entregue recentemente pela Prévia;
+4. disponibilidade ONVIF e RTSP;
+5. resolução e validação do snapshot JPEG;
+6. canário `DESCRIBE`/`SETUP`/`PLAY` com primeiro RTP nos perfis H.264 compatíveis.
+
+Fontes positivas aparecem em `healthEvidence.source`:
+
+- `relay_rtp`;
+- `preview_jpeg`;
+- `snapshot_jpeg`;
+- `media_canary_rtp`.
+
+Ciclos inconclusivos, mutex ocupado, autenticação inválida, HTTP 4xx ou transporte não suportado não comprovam falha de mídia e não autorizam reboot.
+
+Incidentes possíveis:
+
+- `snapshot_unavailable`: controles respondem, mas JPEG e canário de mídia falharam de forma conclusiva;
+- `camera_offline`: a câmera não responde aos controles e não existe evidência recente de imagem.
+
+O LED pisca por incidente confirmado, câmera offline, recuperação, perda de Wi-Fi ou outra condição global real. Uma reconexão de baixa latência do relay não é incidente.
+
+## Recuperação automática
+
+O comando utilizado é:
+
+```text
+ONVIF Device Management / SystemReboot
+```
+
+Um reboot automático exige, em conjunto:
+
+- ONVIF ainda acessível;
+- falha JPEG conclusiva;
+- ausência de RTP recente no relay;
+- varreduras completas sem RTP em todos os perfis H.264 compatíveis;
+- limiar de falhas consecutivas;
+- fim da graça inicial e da graça pós-reboot;
+- cooldown e cota da janela ainda disponíveis.
+
+Regras de segurança:
+
+- falha isolada do snapshot não autoriza reboot;
+- somente comandos aceitos consomem a cota da janela móvel;
+- um reboot aceito zera sequências conclusivas e inicia graça silenciosa;
+- autenticação, configuração inválida e recurso não suportado são inconclusivos para ação destrutiva;
+- aborto por latência do Ao Vivo não incrementa `failedSessions` nem contadores do health-check.
+
+O ESP32 não corta a energia da câmera. Se ela perder toda a conectividade, `SystemReboot` não pode ser entregue; esse cenário exige relé, MOSFET ou tomada inteligente externa.
+
+## Valores padrão
 
 | Configuração | Padrão |
 |---|---:|
@@ -180,83 +307,41 @@ Uma espera de retry, um catálogo ocupado ou uma resolução adiada é inconclus
 | Falhas para redescoberta | 2 |
 | Falhas para declarar offline | 3 |
 | Sucessos para confirmar recuperação | 2 |
-| Falhas JPEG para alerta | 2 |
-| Falhas conclusivas para reboot | 3 |
-| Graça silenciosa após reboot | 60 s |
+| Falhas de vídeo para alerta | 2 |
+| Falhas de vídeo para reboot | 3 |
+| Graça após reboot | 60 s |
 | Cooldown entre reboots | 5 min |
-| Janela de contabilização | 1 h |
-| Comandos aceitos por janela | 12 |
-| Intervalo entre redescobertas | 30 s |
-| Timeout de resposta ONVIF/RTSP | 3 s |
-| Timeout do JPEG | 5 s |
-| Retry da resolução de snapshot | 15 s |
-| Falhas antes de trocar o perfil | 2 |
-| Ciclo padrão da prévia | 2 s, até 0,5 FPS |
+| Janela móvel de reboots | 1 h |
+| Máximo de reboots aceitos na janela | 12 |
+| Timeout genérico ONVIF/RTSP | 3 s |
+| Timeout HTTP do snapshot | 5 s |
+| Retry de resolução do snapshot | 15 s |
+| Ciclo da Prévia | 5 s, até 0,2 FPS |
+| Atualização do painel | 3 s |
+| Evidência recente de RTP | 30 s |
+| Reuso do canário RTP | 60 s |
+| Timeout de pacote do Ao Vivo | 12 s |
+| Buffer inicial do player | 1,5 s |
+| Limite da fila MSE | 6 s |
+| Deadline de escrita do relay | 1 s |
+| Drift RTP que força reconexão | 3 s em 2 janelas |
+| Timeout de segurança PTZ | 2 s |
+| Verificação periódica do relógio | 15 min |
+| Retry de relógio inconclusivo | 60 s |
 
-O alerta normalmente ocorre após cerca de 30 segundos de falhas conclusivas. Um reboot só fica elegível quando o snapshot falha e três varreduras completas do canário RTP confirmam silêncio em todos os perfis H.264 compatíveis, além do failover de perfil, da graça inicial e do cooldown.
-
-## Failover de snapshot
-
-O firmware consulta os perfis ONVIF e aplica esta prioridade:
-
-1. perfil JPEG cujo nome contém o filtro configurado;
-2. perfil cujo nome contém o filtro configurado;
-3. qualquer perfil JPEG;
-4. perfil de menor resolução como fallback.
-
-Com o padrão `snap`, uma câmera que publique `snapStream/JPEG` utilizará esse perfil antes de `subStream` ou `mainStream`.
-
-Após o limiar de falhas, o token atual é temporariamente ignorado e um perfil alternativo é testado. O reboot somente fica elegível depois que o alternativo também falha ou quando o serviço de mídia ONVIF falha repetidamente.
-
-## Recuperação automática
-
-O firmware envia:
-
-```text
-ONVIF Device Management / SystemReboot
-```
-
-Regras importantes:
-
-- somente respostas aceitas incrementam `attemptsInWindow`;
-- tentativas rejeitadas aplicam cooldown para evitar martelamento;
-- a cota não é apagada apenas porque a câmera voltou por alguns segundos;
-- durante a graça pós-reboot não são realizadas sondas;
-- RTP recente ou recebido pelo canário independente impede reboot automático;
-- falha isolada do snapshot nunca autoriza `SystemReboot`;
-- autenticação, HTTP 4xx, recurso não suportado e configuração inválida não são tratados como falhas recuperáveis da câmera.
-
-### Limitação física
-
-O firmware não corta a energia da câmera. O GPIO 2 é utilizado somente pelo LED de alerta.
-
-Se a câmera travar completamente e deixar de responder pela rede, o ESP32 não consegue entregar `SystemReboot`. Recuperação desse cenário exige hardware externo, como relé, MOSFET ou tomada inteligente, com GPIO, nível ativo e tempo de corte definidos para a instalação.
+Esses valores podem ser alterados pelo painel quando pertencem a `RuntimeSettings`. Limites internos do player, relay, PTZ e observação do relógio permanecem definidos no firmware.
 
 ## Configurações e NVS
 
-As configurações editadas no painel são validadas e gravadas no namespace NVS `camcfg`.
-
-- esquema persistido: `1`;
-- revisão dos defaults: `2`;
+- namespace: `camcfg`;
 - chave principal: `runtime`;
-- chave da revisão de defaults: `defaults_rev`.
+- chave da revisão: `defaults_rev`;
+- schema: `1`;
+- revisão dos defaults: `2`.
 
-Na primeira inicialização da versão 0.8.2, intervalos da Prévia que ainda forem exatamente iguais aos defaults anteriores são migrados para 5 segundos. Valores personalizados diferentes dos defaults antigos são preservados.
+Na migração para a revisão 2, intervalos da Prévia ainda iguais aos defaults antigos são atualizados para 5 s. Valores personalizados são preservados.
 
-O diagnóstico esperado depois da migração contém:
-
-```json
-{
-  "firmwareVersion": "0.8.2",
-  "settings": {
-    "defaultsRevision": 2,
-    "source": "nvs",
-    "lastResult": "Configuracoes carregadas; novos padroes de conectividade aplicados"
-  }
-}
-```
-
-O botão Restaurar padrões limpa a configuração persistida e reaplica os valores de fábrica atuais.
+Restaurar padrões limpa a configuração persistida e reaplica os valores de `include/app_config.h`.
 
 ## API HTTP
 
@@ -265,36 +350,73 @@ O botão Restaurar padrões limpa a configuração persistida e reaplica os valo
 | GET | `/` | painel web |
 | GET | `/health` | resposta simples `ok` |
 | GET | `/api/status` | diagnóstico completo |
-| GET | `/api/camera/snapshot` | snapshot JPEG validado |
-| GET | `/api/settings` | configuração, limites e token temporário de escrita |
-| POST | `/api/settings` | grava configurações na NVS |
+| GET | `/api/camera/snapshot` | JPEG validado e retransmitido |
+| POST | `/api/camera/ptz` | `ContinuousMove` ou `Stop` |
+| GET | `/api/settings` | valores, limites e token temporário de escrita |
+| POST | `/api/settings` | valida e grava configurações na NVS |
 | POST | `/api/settings/reset` | restaura padrões |
-| POST | `/api/actions/health-check` | solicita verificação manual |
-| POST | `/api/actions/rediscover` | solicita redescoberta ONVIF |
+| POST | `/api/actions/health-check` | agenda verificação manual |
+| POST | `/api/actions/rediscover` | agenda redescoberta ONVIF |
 | POST | `/api/actions/reboot-camera` | solicita `SystemReboot` |
 | POST | `/api/actions/reset-reboot-limiter` | limpa cooldown e janela |
 | POST | `/api/actions/reboot-esp32` | reinicia o ESP32 |
 | GET | `/assets/live-player.js` | player JavaScript embarcado |
 
-Operações de escrita exigem o `writeToken` fornecido por `/api/settings`. Quando `DASHBOARD_ADMIN_PASSWORD_VALUE` está configurado, a senha administrativa também é obrigatória.
+Operações de escrita exigem o `writeToken` fornecido por `/api/settings`. Quando `DASHBOARD_ADMIN_PASSWORD_VALUE` não está vazio, a senha administrativa também é obrigatória.
 
-## Diagnóstico
+## Diagnóstico `/api/status`
 
-Os campos mais úteis de `/api/status` são:
+Campos importantes:
 
-- `firmwareVersion` e `settings.defaultsRevision`;
-- `resources.heap`, `resources.flash` e `resources.chip.resetReason`;
-- `wifi.rssi`, IP e gateway;
-- `probes.onvif*`, `probes.rtsp*` e `mediaCanary`;
-- `onvif.services`, `capabilities`, `deviceInfo` e `events`;
-- `snapshot.conclusive`, `cameraHttpRequests`, `clientAborts`, `healthEvidenceUses`, `bytesRelayed` e `detail`;
-- `healthEvidence.source` e `healthEvidence.ageSeconds`, que registram a última decisão positiva do monitor;
-- `live.relay.mediaActive`, `mediaRecentlyDelivered`, sincronização, pacotes e bytes;
-- `incident.kind` e duração;
-- `recovery.attemptsInWindow`, `maxAttemptsInWindow`, graça e último resultado;
-- contadores de sucesso, falha, inconclusivos e sequências atuais.
+- `firmwareVersion`, `state`, `lastEvent` e `uptimeSeconds`;
+- `resources.heap`, `resources.psram`, `resources.flash` e `resources.chip.resetReason`;
+- `wifi.connected`, `wifi.rssi`, IP e gateway;
+- `onvif.services`, `onvif.capabilities`, `onvif.deviceInfo` e `onvif.events`;
+- `onvif.clock.referenceSynchronized`, `healthy`, `driftMilliseconds`, `dateTimeType` e `reportedTimeZone`;
+- `onvif.ptzControl.attempts`, `accepted`, `errors` e `lastResult`;
+- `snapshot.healthy`, `conclusive`, `served`, `clientAborts`, `cameraHttpRequests` e `healthEvidenceUses`;
+- `healthEvidence.source` e `healthEvidence.ageSeconds`;
+- `mediaCanary.playAccepted`, `mediaReceived`, `profilesTested` e `observedAfterPlayMs`;
+- `live.relay.mediaActive`, `currentSessionPackets`, `currentSessionBytes` e `lastMediaPacketAgeSeconds`;
+- `live.relay.currentRtpClockDriftMs`, `slowWriteCount`, `writeDeadlineExceeded` e `latencyAborts`;
+- `live.relay.lastLatencyAbortReason`, `invalidRtpPackets`, `syncAccepted`, `syncFailed` e `syncSkipped`;
+- `incident.kind`, `incident.durationSeconds` e estado do alerta;
+- `recovery.graceActive`, `attemptsInWindow`, limites e último resultado;
+- contadores de verificações bem-sucedidas, falhas e inconclusivas.
 
-O motivo do último reset ajuda a separar problemas do ESP32:
+Exemplo reduzido:
+
+```json
+{
+  "firmwareVersion": "0.8.5",
+  "state": "online",
+  "onvif": {
+    "clock": {
+      "referenceSynchronized": true,
+      "utcValid": true,
+      "healthy": true,
+      "driftMilliseconds": -620,
+      "dateTimeType": "NTP",
+      "reportedTimeZone": "BRT3"
+    }
+  },
+  "snapshot": {
+    "healthy": true,
+    "clientAborts": 0
+  },
+  "live": {
+    "relay": {
+      "mediaActive": true,
+      "currentRtpClockDriftMs": 140,
+      "latencyAborts": 0
+    }
+  }
+}
+```
+
+`driftMilliseconds` e `roundTripMs` são `null` quando a amostra do relógio é inconclusiva.
+
+### Motivo do reset
 
 | `resetReason` | Indicação |
 |---|---|
@@ -306,41 +428,75 @@ O motivo do último reset ajuda a separar problemas do ESP32:
 
 ## Solução de problemas
 
-### Snapshot retorna HTTP 500
+### O OSD parece dezenas de segundos atrasado
 
-1. confira `live.profiles` e confirme a existência de perfil JPEG;
-2. verifique `snapshot.profile` e `profileFailoverPending`;
-3. confirme se o vídeo ao vivo entrega pacotes RTP;
-4. aguarde o teste do perfil alternativo antes de concluir que a câmera está offline;
-5. verifique `recovery.lastResult` para saber se o reboot foi aceito, bloqueado por cooldown ou recusado.
+1. consulte `onvif.clock.referenceSynchronized`;
+2. confira `onvif.clock.driftMilliseconds`;
+3. se a câmera estiver alinhada ao ESP32, sincronize o relógio do computador ou celular;
+4. não use somente o relógio da barra de tarefas para medir latência do vídeo;
+5. use os indicadores `Latência no navegador` e `Atraso no relay` da tela Ao Vivo.
 
-### A câmera continua sem reiniciar
+### O Ao Vivo mostra bitrate, mas a imagem congela
 
-- confirme que o ONVIF ainda responde e aceita `SystemReboot`;
-- confira credenciais e `recovery.credentialsConfigured`;
-- confira cooldown, janela e número de comandos aceitos;
-- se a câmera estiver totalmente fora da rede, utilize power-cycle externo.
+1. confira FPS e latência no navegador;
+2. consulte `pendingLatencySeconds`, `mseLatencySeconds` e `liveLatencySeconds` no callback do player durante depuração;
+3. confira `currentRtpClockDriftMs`, `slowWriteCount` e `latencyAborts` no status;
+4. confirme se o player reconecta quando a fila ultrapassa 6 s;
+5. verifique `invalidRtpPackets` e `lastError`.
 
-### Suspeita de fonte ou falha do ESP32
+### O Ao Vivo entra em reconexão contínua
 
-- procure `brownout`, `watchdog` ou `panic` em `resources.chip.resetReason`;
+- verifique sinal Wi-Fi, `maxWriteDurationMs` e `writeDeadlineExceeded`;
+- confirme que o navegador alcança a porta 81 diretamente;
+- teste outro perfil H.264;
+- procure limite de sessões simultâneas na câmera, especialmente se o iCSee também estiver aberto;
+- encerre outras conexões RTSP antes de concluir que o perfil está defeituoso.
+
+### A Prévia não mostra imagem
+
+- confira `snapshot.profile`, `targetResolved`, `status` e `detail`;
+- verifique `busyResponses` para identificar contenção com o Ao Vivo;
+- confira `cameraHttpRequests`, `previewFetchOperations` e `clientAborts`;
+- aguarde o failover de perfil antes de reiniciar a câmera.
+
+### A câmera não reinicia automaticamente
+
+- confirme que ONVIF ainda responde;
+- verifique credenciais e o resultado de `SystemReboot`;
+- confira graça, cooldown, janela e cota;
+- valide que todos os perfis H.264 falharam de forma conclusiva;
+- se a câmera estiver totalmente fora da rede, use power-cycle externo.
+
+### Suspeita de alimentação ou travamento do ESP32
+
+- consulte `resources.chip.resetReason`;
 - acompanhe `minimumFreeBytes` e `largestBlockBytes`;
-- verifique estabilidade de 5 V/3,3 V, cabos, regulador e aterramento;
-- compare o horário do reset do ESP32 com a queda da câmera.
+- procure `brownout`, `watchdog` ou `panic`;
+- verifique fonte, cabos, regulador e aterramento.
+
+## Limitações atuais
+
+- apenas H.264 é reproduzido no navegador;
+- áudio não é retransmitido;
+- somente um navegador usa o relay por vez;
+- eventos ONVIF são inventariados por `GetEventProperties`, mas ainda não existe assinatura PullPoint em runtime;
+- Media2 é catalogado, porém os fluxos atuais usam Media1;
+- o firmware observa o relógio da câmera, mas não o corrige automaticamente;
+- não existe power-cycle físico da câmera;
+- o painel e o relay usam HTTP sem TLS.
 
 ## Segurança
 
-Este projeto foi projetado para uma LAN confiável e não deve ser exposto diretamente à internet.
+O projeto foi projetado para uma LAN confiável. Não exponha as portas 80, 81 ou ONVIF diretamente à internet.
 
-Limitações atuais:
-
-- painel e API utilizam HTTP sem TLS;
+- painel e API não usam TLS;
 - o relay da porta 81 não possui autenticação HTTP própria;
-- a resposta do Resend ainda utiliza cliente TLS sem validação de certificado;
-- o token de escrita é entregue ao navegador por `/api/settings`;
-- credenciais da câmera devem permanecer somente em `include/secrets.h`.
+- o cliente HTTPS do Resend está configurado com `setInsecure()`;
+- o token de escrita é entregue pelo endpoint local `/api/settings` e deve permanecer restrito à LAN confiável;
+- credenciais permanecem compiladas em `include/secrets.h`;
+- câmeras que aceitam comandos ONVIF sem autenticação devem ficar isoladas por firewall ou VLAN.
 
-Configure uma senha administrativa, restrinja a rede e utilize firewall/VLAN quando a câmera estiver em ambiente sensível.
+Use senha administrativa, rede segmentada e regras de firewall em instalações sensíveis.
 
 ## Estrutura do projeto
 
@@ -348,15 +504,15 @@ Configure uma senha administrativa, restrinja a rede e utilize firewall/VLAN qua
 ESP32/
 ├── src/
 │   ├── main.cpp                  # estado, ONVIF, snapshot, API e recuperação
-│   └── live_stream_relay.cpp     # cliente RTSP/RTP e relay para o navegador
+│   └── live_stream_relay.cpp     # RTSP/RTP e relay de baixa latência
 ├── include/
 │   ├── app_config.h              # defaults e limites
 │   ├── dashboard_page.h          # painel web embarcado
-│   ├── live_catalog.h            # catálogo ONVIF e descritores de stream
+│   ├── live_catalog.h            # perfis ONVIF e status do relay
 │   ├── live_player.js            # fonte JavaScript do player
-│   ├── live_player_script.h      # player embarcado em PROGMEM
-│   ├── live_stream_relay.h       # tipos públicos do relay
-│   ├── secrets.example.h         # modelo de configuração privada
+│   ├── live_player_script.h      # cópia do player em PROGMEM
+│   ├── live_stream_relay.h       # contratos públicos do relay
+│   ├── secrets.example.h         # exemplo de configuração privada
 │   └── secrets.h                 # configuração local ignorada pelo Git
 ├── partitions.csv
 ├── platformio.ini
@@ -364,21 +520,25 @@ ESP32/
 └── README.md
 ```
 
-Ao alterar `live_player.js`, mantenha o conteúdo correspondente em `live_player_script.h`, pois o firmware serve a versão embarcada no header.
+`include/live_player.js` e o conteúdo JavaScript de `include/live_player_script.h` devem permanecer idênticos.
 
-## Validação recomendada antes de instalar
+## Validação recomendada
 
 1. compile o ambiente `esp32dev`;
-2. grave o firmware e abra o monitor serial em 115200 baud;
-3. confirme `firmwareVersion: 0.8.2` em `/api/status`;
-4. confirme a migração NVS em `settings.lastResult`;
-5. abra a Prévia e o Ao Vivo separadamente;
-6. valide `onvif.serviceCount`, tópicos de eventos e endpoints normalizados;
-7. confirme que `mediaActive` fica verdadeiro enquanto há pacotes RTP;
-8. confirme um `syncAccepted` depois do primeiro RTP ou uma falha best-effort sem interromper o vídeo;
-9. simule falha do endpoint JPEG e observe o failover sem reboot quando RTSP continuar acessível;
-10. confirme que um reboot aceito inicia 60 segundos de graça silenciosa;
-11. confira o motivo do reset do ESP32 após reinicializações inesperadas.
+2. grave o firmware e abra o monitor em 115200 baud;
+3. confirme `firmwareVersion: 0.8.5` em `/api/status`;
+4. valide heap, maior bloco e motivo do reset;
+5. confirme catálogo ONVIF e perfis H.264/JPEG;
+6. abra a Prévia e confirme JPEG válido a cada 5 s;
+7. abra o Ao Vivo e confirme FPS, bitrate e latência limitada;
+8. mantenha o vídeo aberto por pelo menos 30 minutos e confirme que o atraso não cresce continuamente;
+9. confira `latencyAborts`, `writeDeadlineExceeded` e `invalidRtpPackets`;
+10. valide pan, tilt, zoom e parada ao soltar;
+11. oculte a aba durante movimento e confirme a parada de segurança;
+12. confirme `onvif.clock.referenceSynchronized: true` e um drift saudável;
+13. teste falha de snapshot mantendo RTSP disponível e confirme ausência de reboot falso;
+14. valide graça, cooldown e janela antes de testar `SystemReboot`;
+15. confirme que abortos do navegador e reconexões por latência não acionam LED ou incidente.
 
 ## Licença
 

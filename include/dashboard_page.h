@@ -114,7 +114,8 @@ background:#05070a;overflow:hidden}
 padding:13px 15px;border-top:1px solid var(--line);background:rgba(255,255,255,.012)}
 .live-toolbar .form-result{flex:1 1 260px;text-align:right}
 .live-config{margin:0;min-width:0}
-.live-config .settings-card-h{margin-bottom:15px}
+.live-config .live-config-tabbar{margin:0 0 15px;box-shadow:none}
+.live-config-panel[hidden]{display:none!important}
 .live-info{display:grid;gap:9px;padding:12px 13px;border:1px solid var(--line);border-radius:9px;
 background:rgba(255,255,255,.018)}
 .live-info-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:11.5px}
@@ -124,6 +125,25 @@ background:rgba(255,255,255,.018)}
 .live-kpi{padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.018)}
 .live-kpi span{display:block;color:var(--dim);font-size:9.8px;letter-spacing:.06em;text-transform:uppercase}
 .live-kpi b{display:block;margin-top:3px;color:var(--text);font:600 15px/1.3 var(--mono);overflow-wrap:anywhere}
+.ptz-control{padding:13px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.018)}
+.ptz-control-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px}
+.ptz-control-h h3{margin:0;color:var(--text);font-size:13px}
+.ptz-control-h p{margin:2px 0 0;color:var(--dim);font-size:10.8px;line-height:1.4}
+.ptz-pad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-width:280px;margin:0 auto}
+.ptz-btn{min-height:43px;border:1px solid var(--line2);border-radius:9px;background:#0e141d;color:var(--muted);
+cursor:pointer;font:600 11.5px/1.2 inherit;touch-action:none;user-select:none;transition:.14s ease}
+.ptz-btn:hover{border-color:#456078;background:#202b3a;color:var(--text)}
+.ptz-btn:active,.ptz-btn.active{border-color:var(--accent);background:rgba(56,189,248,.13);color:var(--accent)}
+.ptz-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ptz-btn:disabled{opacity:.42;cursor:not-allowed}
+.ptz-up{grid-column:2}.ptz-left{grid-column:1}.ptz-stop{grid-column:2;color:var(--warn)}.ptz-right{grid-column:3}.ptz-down{grid-column:2}
+.ptz-zoom{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+.ptz-speed{margin-top:12px}.ptz-speed label{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:11.5px}
+.ptz-speed output{color:var(--info);font-family:var(--mono)}
+.ptz-speed input{width:100%;margin:8px 0 0;accent-color:var(--accent)}
+.ptz-authorize{width:100%;margin-top:10px}
+.ptz-status{min-height:18px;margin-top:9px;color:var(--dim);font-size:10.8px;line-height:1.45}
+.ptz-status.ok{color:var(--ok)}.ptz-status.warn{color:var(--warn)}.ptz-status.bad{color:var(--bad)}
 
 /* metricas */
 .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 0}
@@ -410,33 +430,64 @@ main{padding:14px 12px 36px}
       </div>
     </section>
 
-    <aside class="settings-card live-config" aria-labelledby="liveConfigTitle">
-      <div class="settings-card-h"><div><h2 id="liveConfigTitle">Relay integrado</h2><p>Sem gateway, servidor ou configuração externa.</p></div></div>
-      <div class="form-grid">
-        <div class="field">
-          <label for="liveProfile">Perfil de vídeo ONVIF</label>
-          <select id="liveProfile" disabled><option>aguardando perfis…</option></select>
-          <small>Selecione um perfil H.264. O perfil recomendado segue o filtro da prévia. O relay atende um navegador por vez.</small>
-        </div>
-        <div class="field">
-          <div class="checkline">
-            <input id="liveAutostart" type="checkbox" checked>
-            <label for="liveAutostart"><b>Iniciar ao abrir a aba</b><span>O RTSP e a resposta HTTP são encerrados ao sair da aba ou ocultar a página.</span></label>
+    <aside class="settings-card live-config" aria-label="Informações e controle da transmissão ao vivo">
+      <div class="settings-tabbar live-config-tabbar">
+        <nav class="settings-tablist" role="tablist" aria-label="Detalhes da transmissão ao vivo">
+          <button class="settings-tab live-config-tab" id="liveInfoTab" type="button" role="tab" data-live-config-section="info" aria-controls="liveInfoPanel" aria-selected="true" tabindex="0">Informações</button>
+          <button class="settings-tab live-config-tab" id="livePtzTab" type="button" role="tab" data-live-config-section="ptz" aria-controls="livePtzPanel" aria-selected="false" tabindex="-1">Controle PTZ</button>
+        </nav>
+      </div>
+      <section class="live-config-panel" id="liveInfoPanel" role="tabpanel" aria-labelledby="liveInfoTab" data-live-config-panel="info">
+        <div class="form-grid">
+          <div class="field">
+            <label for="liveProfile">Perfil de vídeo ONVIF</label>
+            <select id="liveProfile" disabled><option>aguardando perfis…</option></select>
+            <small>Selecione um perfil H.264. O perfil recomendado segue o filtro da prévia. O relay atende um navegador por vez.</small>
+          </div>
+          <div class="field">
+            <div class="checkline">
+              <input id="liveAutostart" type="checkbox" checked>
+              <label for="liveAutostart"><b>Iniciar ao abrir a aba</b><span>O RTSP e a resposta HTTP são encerrados ao sair da aba ou ocultar a página.</span></label>
+            </div>
+          </div>
+          <div class="live-info">
+            <div class="live-info-row"><span>Câmera</span><b id="liveCameraAddress">—</b></div>
+            <div class="live-info-row"><span>Relay HTTP do ESP32</span><b id="liveSocketAddress">—</b></div>
+            <div class="live-info-row"><span>Estado do relay</span><b id="liveRelayState">aguardando</b></div>
+            <div class="live-info-row"><span>Codec ativo</span><b id="liveCodecState">—</b></div>
+          </div>
+          <div class="live-kpis">
+            <div class="live-kpi"><span>FPS no navegador</span><b id="liveFpsValue">—</b></div>
+            <div class="live-kpi"><span>Bitrate recebido</span><b id="liveBitrateValue">—</b></div>
+            <div class="live-kpi"><span>Latência no navegador</span><b id="liveLatencyValue">—</b></div>
+            <div class="live-kpi"><span>Atraso no relay</span><b id="liveRelayLatencyValue">—</b></div>
+            <div class="live-kpi"><span>Pacotes RTP</span><b id="liveLossValue">0</b></div>
+            <div class="live-kpi"><span>Correções / descartes RTP</span><b id="liveBrowserDropValue">0 / 0</b></div>
           </div>
         </div>
-        <div class="live-info">
-          <div class="live-info-row"><span>Câmera</span><b id="liveCameraAddress">—</b></div>
-          <div class="live-info-row"><span>Relay HTTP do ESP32</span><b id="liveSocketAddress">—</b></div>
-          <div class="live-info-row"><span>Estado do relay</span><b id="liveRelayState">aguardando</b></div>
-          <div class="live-info-row"><span>Codec ativo</span><b id="liveCodecState">—</b></div>
-        </div>
-        <div class="live-kpis">
-          <div class="live-kpi"><span>FPS no navegador</span><b id="liveFpsValue">—</b></div>
-          <div class="live-kpi"><span>Bitrate recebido</span><b id="liveBitrateValue">—</b></div>
-          <div class="live-kpi"><span>Pacotes RTP</span><b id="liveLossValue">0</b></div>
-          <div class="live-kpi"><span>Correções / descartes RTP</span><b id="liveBrowserDropValue">0 / 0</b></div>
-        </div>
-      </div>
+      </section>
+      <section class="live-config-panel" id="livePtzPanel" role="tabpanel" aria-labelledby="livePtzTab" data-live-config-panel="ptz" hidden>
+        <section class="ptz-control" id="ptzControl" aria-labelledby="ptzTitle">
+          <div class="ptz-control-h"><div><h3 id="ptzTitle">Posição da câmera</h3><p>Mantenha pressionado para mover. Ao soltar, o ESP32 envia Stop.</p></div></div>
+          <div class="ptz-pad">
+            <button class="ptz-btn ptz-up" type="button" data-ptz-pan="0" data-ptz-tilt="1" data-ptz-zoom="0" aria-label="Mover a câmera para cima" disabled>Cima</button>
+            <button class="ptz-btn ptz-left" type="button" data-ptz-pan="-1" data-ptz-tilt="0" data-ptz-zoom="0" aria-label="Mover a câmera para a esquerda" disabled>Esquerda</button>
+            <button class="ptz-btn ptz-stop" id="ptzStop" type="button" aria-label="Parar movimento da câmera" disabled>Parar</button>
+            <button class="ptz-btn ptz-right" type="button" data-ptz-pan="1" data-ptz-tilt="0" data-ptz-zoom="0" aria-label="Mover a câmera para a direita" disabled>Direita</button>
+            <button class="ptz-btn ptz-down" type="button" data-ptz-pan="0" data-ptz-tilt="-1" data-ptz-zoom="0" aria-label="Mover a câmera para baixo" disabled>Baixo</button>
+          </div>
+          <div class="ptz-zoom">
+            <button class="ptz-btn" type="button" data-ptz-pan="0" data-ptz-tilt="0" data-ptz-zoom="-1" aria-label="Diminuir o zoom" disabled>Zoom menos</button>
+            <button class="ptz-btn" type="button" data-ptz-pan="0" data-ptz-tilt="0" data-ptz-zoom="1" aria-label="Aumentar o zoom" disabled>Zoom mais</button>
+          </div>
+          <div class="ptz-speed">
+            <label for="ptzSpeed"><span>Velocidade</span><output id="ptzSpeedValue" for="ptzSpeed">50%</output></label>
+            <input id="ptzSpeed" type="range" min="10" max="100" step="5" value="50" disabled>
+          </div>
+          <button class="btn ptz-authorize" id="ptzAuthorize" type="button" hidden>Autorizar PTZ nesta sessão</button>
+          <div class="ptz-status" id="ptzStatus" aria-live="polite">Aguardando o serviço PTZ ONVIF.</div>
+        </section>
+      </section>
     </aside>
   </div>
 </div>
@@ -492,6 +543,11 @@ main{padding:14px 12px 36px}
       <div class="card-h">Catálogo ONVIF<i class="pip" id="p-ronvif"></i></div>
       <div class="card-v info" id="r-onvif">—</div>
       <div class="card-m" id="r-onvif-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Relógio da câmera<i class="pip" id="p-rclock"></i></div>
+      <div class="card-v info" id="r-clock">—</div>
+      <div class="card-m" id="r-clock-meta">—</div>
     </article>
     <article class="card">
       <div class="card-h">Eventos anunciados<i class="pip" id="p-revents"></i></div>
@@ -664,7 +720,7 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
-<script src="/assets/live-player.js?v=0.8.2"></script>
+<script src="/assets/live-player.js?v=0.8.5"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -826,6 +882,34 @@ function renderResources(d) {
       ? 'Media1 convencional em uso · ' + (onvif.lastResult || 'catálogo indisponível')
       : (onvif.lastLatencyMs || 0) + ' ms · endpoints validados no IP da câmera';
   pip('p-ronvif', onvifTone);
+
+  const cameraClock = onvif.clock || {};
+  const clockDriftMs = Number(cameraClock.driftMilliseconds || 0);
+  const absoluteClockDriftMs = Math.abs(clockDriftMs);
+  const clockTone = !cameraClock.checked
+    ? 'info'
+    : !cameraClock.referenceSynchronized || !cameraClock.utcValid
+      ? 'warn'
+      : cameraClock.healthy ? 'ok' : absoluteClockDriftMs <= 30000 ? 'warn' : 'bad';
+  $('r-clock').textContent = !cameraClock.checked
+    ? 'aguardando amostra'
+    : !cameraClock.referenceSynchronized
+      ? 'referência NTP indisponível'
+      : !cameraClock.utcValid
+      ? 'amostra inconclusiva'
+      : absoluteClockDriftMs < 1000
+        ? 'alinhado'
+        : (absoluteClockDriftMs / 1000).toFixed(1) + ' s '
+          + (clockDriftMs > 0 ? 'adiantada' : 'atrasada');
+  $('r-clock').className = 'card-v ' + clockTone;
+  const cameraClockResult = cameraClock.referenceSynchronized
+    ? (cameraClock.lastResult || 'aguardando observação do relógio')
+    : 'Referência NTP do ESP32 indisponível; desvio não avaliado';
+  $('r-clock-meta').textContent = cameraClockResult
+    + ' · ' + (cameraClock.dateTimeType || 'modo não informado')
+    + ' · ' + (cameraClock.reportedTimeZone || 'timezone não informado')
+    + (cameraClock.referenceSynchronized ? ' · referência NTP do ESP32' : '');
+  pip('p-rclock', clockTone);
 
   const events = onvif.events || {};
   const eventsServiceAvailable = Boolean(
@@ -1105,9 +1189,199 @@ let liveReconnectTimer = null;
 let liveReconnectAttempt = 0;
 let liveFailedProfileIndices = [];
 let liveLastStatus = null;
-let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0 };
+let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0, liveLatencySeconds: 0 };
 let liveMarkerCompatibilityNotified = false;
 let livePreferences = { autostart: true, profileIndex: null };
+let ptzServiceAvailable = false;
+let ptzAdminPassword = '';
+let ptzMoveActive = false;
+let ptzActiveButton = null;
+let ptzActiveCommand = null;
+let ptzRepeatTimer = null;
+let ptzMoveRequestInFlight = false;
+let ptzPendingStopProfileIndex = -1;
+let ptzStopRequestInFlight = false;
+
+function setPtzStatus(message, tone) {
+  const target = $('ptzStatus');
+  target.textContent = message;
+  target.className = 'ptz-status' + (tone ? ' ' + tone : '');
+}
+
+function ptzAuthorizationReady() {
+  return Boolean(
+    settingsWriteToken &&
+    (!settingsPasswordRequired || ptzAdminPassword)
+  );
+}
+
+function updatePtzControlAvailability() {
+  const profileReady = selectedLiveProfileIndex() >= 0;
+  const authorized = ptzAuthorizationReady();
+  const enabled = ptzServiceAvailable && profileReady && authorized;
+  document.querySelectorAll('[data-ptz-pan]').forEach(button => {
+    button.disabled = !enabled;
+  });
+  $('ptzStop').disabled = !enabled;
+  $('ptzSpeed').disabled = !enabled;
+  $('ptzAuthorize').hidden = !(
+    ptzServiceAvailable &&
+    settingsPasswordRequired &&
+    !ptzAdminPassword
+  );
+  $('ptzAuthorize').disabled = !settingsWriteToken;
+
+  if (ptzMoveActive) return;
+  if (!ptzServiceAvailable) {
+    setPtzStatus('A câmera não anunciou um serviço PTZ ONVIF.', 'warn');
+  } else if (!settingsWriteToken) {
+    setPtzStatus('Carregando a autorização do painel…', 'warn');
+  } else if (settingsPasswordRequired && !ptzAdminPassword) {
+    setPtzStatus('Autorize o PTZ uma vez para esta sessão do navegador.', 'warn');
+  } else if (!profileReady) {
+    setPtzStatus('Aguardando um perfil ONVIF compatível.', 'warn');
+  } else {
+    setPtzStatus('PTZ pronto. Mantenha um botão pressionado para mover.', 'ok');
+  }
+}
+
+function ptzMutationParams(command, password) {
+  const params = collectMutationParams(false, password == null ? ptzAdminPassword : password);
+  params.set('action', command.action);
+  params.set('profile', String(command.profileIndex));
+  if (command.action === 'move') {
+    params.set('pan', String(command.pan));
+    params.set('tilt', String(command.tilt));
+    params.set('zoom', String(command.zoom));
+  }
+  return params;
+}
+
+async function postPtzCommand(command, password, keepalive) {
+  const controller = typeof AbortController === 'function'
+    ? new AbortController()
+    : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 3000) : null;
+  try {
+    return await postForm(
+      '/api/camera/ptz',
+      ptzMutationParams(command, password),
+      {
+        keepalive: Boolean(keepalive),
+        signal: controller ? controller.signal : undefined
+      }
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function notePtzAuthorizationFailure(error) {
+  const message = error && error.message ? error.message : String(error);
+  if (/senha|token|forbidden/i.test(message)) {
+    ptzAdminPassword = '';
+    if (/token/i.test(message)) {
+      settingsWriteToken = '';
+      settingsLoaded = false;
+      loadSettings(true);
+    }
+    updatePtzControlAvailability();
+  }
+  return message;
+}
+
+async function sendPtzMove(command) {
+  if (ptzMoveRequestInFlight || !ptzMoveActive) return;
+  ptzMoveRequestInFlight = true;
+  try {
+    await postPtzCommand(command, null, false);
+    if (ptzMoveActive) setPtzStatus('Movendo a câmera; solte para parar.', 'ok');
+  } catch (error) {
+    setPtzStatus('Movimento recusado: ' + notePtzAuthorizationFailure(error), 'bad');
+  } finally {
+    ptzMoveRequestInFlight = false;
+    if (ptzPendingStopProfileIndex >= 0) {
+      const profileIndex = ptzPendingStopProfileIndex;
+      ptzPendingStopProfileIndex = -1;
+      sendPtzStop(profileIndex, null, false);
+    }
+  }
+}
+
+async function sendPtzStop(profileIndex, password, quiet) {
+  if (profileIndex < 0 || !settingsWriteToken || ptzStopRequestInFlight) return false;
+  ptzStopRequestInFlight = true;
+  try {
+    await postPtzCommand({ action: 'stop', profileIndex }, password, true);
+    if (!quiet) setPtzStatus('Movimento interrompido.', 'ok');
+    return true;
+  } catch (error) {
+    setPtzStatus('Parada PTZ recusada: ' + notePtzAuthorizationFailure(error), 'bad');
+    return false;
+  } finally {
+    ptzStopRequestInFlight = false;
+  }
+}
+
+function beginPtzMove(button, event) {
+  if (
+    button.disabled ||
+    ptzMoveActive ||
+    ptzMoveRequestInFlight ||
+    ptzPendingStopProfileIndex >= 0 ||
+    ptzStopRequestInFlight
+  ) return;
+  if (event && event.type === 'pointerdown' && event.button !== 0) return;
+  if (event) event.preventDefault();
+  const profileIndex = selectedLiveProfileIndex();
+  const speed = Math.max(10, Math.min(100, Number($('ptzSpeed').value) || 50));
+  ptzActiveCommand = {
+    action: 'move',
+    profileIndex,
+    pan: Number(button.dataset.ptzPan) * speed,
+    tilt: Number(button.dataset.ptzTilt) * speed,
+    zoom: Number(button.dataset.ptzZoom) * speed
+  };
+  ptzMoveActive = true;
+  ptzActiveButton = button;
+  button.classList.add('active');
+  if (event && event.pointerId != null && button.setPointerCapture) {
+    try { button.setPointerCapture(event.pointerId); } catch (_) {}
+  }
+  sendPtzMove(ptzActiveCommand);
+  clearInterval(ptzRepeatTimer);
+  ptzRepeatTimer = setInterval(() => {
+    if (ptzMoveActive && ptzActiveCommand) sendPtzMove(ptzActiveCommand);
+  }, 800);
+}
+
+function endPtzMove(sendStop) {
+  if (!ptzMoveActive) return;
+  const command = ptzActiveCommand;
+  ptzMoveActive = false;
+  ptzActiveCommand = null;
+  clearInterval(ptzRepeatTimer);
+  ptzRepeatTimer = null;
+  if (ptzActiveButton) ptzActiveButton.classList.remove('active');
+  ptzActiveButton = null;
+  if (sendStop && command) {
+    if (ptzMoveRequestInFlight) {
+      ptzPendingStopProfileIndex = command.profileIndex;
+      setPtzStatus('Finalizando o comando e enviando Stop…', 'warn');
+    } else {
+      sendPtzStop(command.profileIndex, null, false);
+    }
+  }
+}
+
+async function authorizePtz(password) {
+  const profileIndex = selectedLiveProfileIndex();
+  setPtzStatus('Validando a autorização e enviando uma parada de segurança…', 'warn');
+  const accepted = await sendPtzStop(profileIndex, password, true);
+  if (!accepted) return;
+  ptzAdminPassword = password || '';
+  updatePtzControlAvailability();
+}
 
 function loadLivePreferences() {
   try {
@@ -1260,8 +1534,10 @@ function ensureLivePlayer() {
       liveBrowserStats = stats;
       const corrections = Number(stats.markerCorrections || 0);
       const dropped = Number(stats.dropped || 0);
+      const liveLatencySeconds = Number(stats.liveLatencySeconds || 0);
       $('liveFpsValue').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS';
       $('liveBitrateValue').textContent = Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps';
+      $('liveLatencyValue').textContent = liveLatencySeconds.toFixed(1) + ' s';
       $('liveLossValue').textContent = Number(stats.packets || 0).toLocaleString('pt-BR');
       $('liveBrowserDropValue').textContent = corrections.toLocaleString('pt-BR')
         + ' corr. · ' + dropped.toLocaleString('pt-BR') + ' desc.';
@@ -1271,13 +1547,14 @@ function ensureLivePlayer() {
       }
       if (liveVideo.classList.contains('ready')) {
         $('liveStamp').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS · '
-          + Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps';
+          + Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps · '
+          + liveLatencySeconds.toFixed(1) + ' s';
       }
     },
     onVideoInfo(info) {
       $('liveCodecState').textContent = info.codec + ' · ' + info.width + '×' + info.height;
-      setLiveOverlay('Segmento H.264 aceito; aguardando o primeiro quadro decodificado…', false);
-      setLivePlayerStatus('Inicializando o decodificador H.264 do navegador.', 'warn');
+      setLiveOverlay('Segmento H.264 aceito; formando a margem inicial de reprodução…', false);
+      setLivePlayerStatus('Acumulando vídeo para evitar interrupções.', 'warn');
     },
     onPlaybackReady() {
       liveReconnectAttempt = 0;
@@ -1354,6 +1631,7 @@ function startLivePlayer() {
 }
 
 function stopLivePlayer(userInitiated) {
+  endPtzMove(true);
   liveShouldRun = false;
   resetLiveProfileAttempts();
   clearLiveReconnectTimer();
@@ -1364,8 +1642,9 @@ function stopLivePlayer(userInitiated) {
   $('liveStop').disabled = true;
   $('liveStamp').textContent = 'relay parado';
   liveMarkerCompatibilityNotified = false;
-  liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0 };
+  liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0, liveLatencySeconds: 0 };
   $('liveBrowserDropValue').textContent = '0 corr. · 0 desc.';
+  $('liveLatencyValue').textContent = '—';
   if (userInitiated) {
     $('liveAutostart').checked = false;
     saveLivePreferences();
@@ -1384,9 +1663,15 @@ function liveProfileLabel(profile) {
   return profile.name + ' · ' + profile.encoding + ' · ' + dimensions + fps + bitrate + recommended;
 }
 
-function renderLiveStatus(live, camera) {
+function renderLiveStatus(live, camera, onvif) {
   if (!live) return;
   liveLastStatus = live;
+  ptzServiceAvailable = Boolean(
+    onvif &&
+    onvif.services &&
+    onvif.services.ptz &&
+    onvif.services.ptz.available
+  );
   liveStreamPort = Number(live.streamPort) || Number(live.relay && live.relay.port) || 81;
   $('liveCameraAddress').textContent = camera && camera.known
     ? camera.ip + ':' + camera.rtspPort
@@ -1402,6 +1687,12 @@ function renderLiveStatus(live, camera) {
       : relay.running ? 'aguardando navegador' : 'parado';
   $('liveRelayState').textContent = relayState
     + (!relay.mediaActive && relay.lastError ? ' · ' + relay.lastError : '');
+  const relayDriftMs = Math.max(0, Number(relay.currentRtpClockDriftMs || 0));
+  $('liveRelayLatencyValue').textContent = relay.clientActive
+    ? (relayDriftMs / 1000).toFixed(1) + ' s'
+    : Number(relay.latencyAborts || 0) > 0
+      ? Number(relay.latencyAborts).toLocaleString('pt-BR') + ' reconexões por latência'
+      : '—';
 
   const compatibleProfiles = Array.isArray(live.profiles)
     ? live.profiles.filter(profile => profile.relayCompatible)
@@ -1461,6 +1752,8 @@ function renderLiveStatus(live, camera) {
     }
   }
 
+  updatePtzControlAvailability();
+
   if (
     activeView === 'stream' &&
     $('liveAutostart').checked &&
@@ -1482,8 +1775,10 @@ $('liveReload').addEventListener('click', () => {
 });
 $('liveStop').addEventListener('click', () => stopLivePlayer(true));
 $('liveProfile').addEventListener('change', () => {
+  endPtzMove(true);
   resetLiveProfileAttempts();
   saveLivePreferences();
+  updatePtzControlAvailability();
   if (liveShouldRun && activeView === 'stream') openLiveStream();
 });
 $('liveAutostart').addEventListener('change', () => {
@@ -1491,6 +1786,75 @@ $('liveAutostart').addEventListener('change', () => {
   if (!$('liveAutostart').checked && liveShouldRun) stopLivePlayer(false);
   else if ($('liveAutostart').checked && activeView === 'stream') startLivePlayer();
 });
+
+function activateLiveConfigSection(name, focusTab) {
+  const available = [...document.querySelectorAll('[data-live-config-panel]')];
+  const target = available.find(panel => panel.dataset.liveConfigPanel === name);
+  if (!target) return;
+  if (name !== 'ptz') endPtzMove(true);
+
+  available.forEach(panel => {
+    panel.hidden = panel !== target;
+  });
+  document.querySelectorAll('.live-config-tab[data-live-config-section]').forEach(tab => {
+    const selected = tab.dataset.liveConfigSection === name;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focusTab) tab.focus();
+  });
+}
+
+document.querySelectorAll('.live-config-tab[data-live-config-section]').forEach((tab, index, tabs) => {
+  tab.addEventListener('click', () => activateLiveConfigSection(tab.dataset.liveConfigSection, false));
+  tab.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    let nextIndex = index;
+    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = tabs.length - 1;
+    activateLiveConfigSection(tabs[nextIndex].dataset.liveConfigSection, true);
+  });
+});
+
+document.querySelectorAll('[data-ptz-pan]').forEach(button => {
+  button.addEventListener('pointerdown', event => beginPtzMove(button, event));
+  button.addEventListener('pointerup', () => endPtzMove(true));
+  button.addEventListener('pointercancel', () => endPtzMove(true));
+  button.addEventListener('pointerleave', () => endPtzMove(true));
+  button.addEventListener('lostpointercapture', () => endPtzMove(true));
+  button.addEventListener('keydown', event => {
+    if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+      beginPtzMove(button, event);
+    }
+  });
+  button.addEventListener('keyup', event => {
+    if (event.key === ' ' || event.key === 'Enter') endPtzMove(true);
+  });
+  button.addEventListener('dragstart', event => event.preventDefault());
+});
+
+$('ptzStop').addEventListener('click', () => {
+  if (ptzMoveActive) endPtzMove(true);
+  else sendPtzStop(selectedLiveProfileIndex(), null, false);
+});
+$('ptzSpeed').addEventListener('input', () => {
+  $('ptzSpeedValue').textContent = $('ptzSpeed').value + '%';
+});
+$('ptzAuthorize').addEventListener('click', () => {
+  if (!settingsWriteToken) {
+    loadSettings(true);
+    return;
+  }
+  openConfirmModal(
+    'Autorizar os controles de posição da câmera somente nesta sessão do navegador.',
+    password => authorizePtz(password)
+  );
+});
+window.addEventListener('pointerup', () => endPtzMove(true));
+window.addEventListener('blur', () => endPtzMove(true));
+window.addEventListener('pagehide', () => endPtzMove(true));
 
 function isLiveNativeFullscreen() {
   return document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage;
@@ -1689,6 +2053,7 @@ function populateSettings(payload) {
 
   settingsWriteToken = payload.security ? payload.security.writeToken || '' : '';
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
+  if (!settingsPasswordRequired) ptzAdminPassword = '';
   $('settingsSource').textContent = payload.source === 'nvs'
     ? 'configurações salvas na NVS'
     : 'valores padrão de fábrica';
@@ -1702,6 +2067,7 @@ function populateSettings(payload) {
   settingsLoaded = true;
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
+  updatePtzControlAvailability();
   if (activeView === 'actions') {
     setAdminActionStatus('Autorização carregada. Escolha uma ação administrativa.', 'ok');
   } else {
@@ -1724,6 +2090,7 @@ async function loadSettings(force) {
     populateSettings(payload);
   } catch (error) {
     setMutationControlsEnabled(false);
+    updatePtzControlAvailability();
     if (activeView === 'actions') {
       setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
     } else {
@@ -1757,10 +2124,11 @@ function collectMutationParams(includeSettings, password) {
   return params;
 }
 
-async function postForm(url, params) {
+async function postForm(url, params, options) {
   const response = await fetch(url, {
     method: 'POST',
     cache: 'no-store',
+    ...(options || {}),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: params.toString()
   });
@@ -1944,7 +2312,7 @@ function render(d) {
   $('availValue').textContent = c.totalChecks ? rate.toFixed(rate >= 99.95 ? 0 : 1) + '%' : '—';
 
   const p = d.probes;
-  renderLiveStatus(d.live, d.camera);
+  renderLiveStatus(d.live, d.camera, d.onvif);
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
   setProbe('rtsp', p.rtspTcp, p.rtspProtocol, p.rtspStatus, p.rtspLatencyMs, 'RTSP');
   setImageProbe(d.snapshot, d.recovery);
@@ -2082,7 +2450,9 @@ function activateView(name, updateHash) {
           : nextView === 'feed' ? 'Prévia' : 'Câmera';
   document.title = viewTitle + ' · Camera Watchdog';
 
-  if (nextView === 'settings' || nextView === 'actions') loadSettings(false);
+  if (nextView === 'settings' || nextView === 'actions' || nextView === 'stream') {
+    loadSettings(false);
+  }
 
   if (nextView === 'feed') {
     $('feedState').textContent = cameraRecovering

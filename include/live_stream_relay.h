@@ -12,6 +12,7 @@ constexpr size_t LIVE_STREAM_PROFILE_TOKEN_MAX_LENGTH = 128;
 constexpr size_t LIVE_STREAM_ENCODING_MAX_LENGTH = 16;
 constexpr size_t LIVE_RELAY_ERROR_MAX_LENGTH = 160;
 constexpr size_t LIVE_RELAY_SYNC_RESULT_MAX_LENGTH = 160;
+constexpr size_t LIVE_RELAY_LATENCY_RESULT_MAX_LENGTH = 160;
 constexpr size_t LIVE_MEDIA_PROBE_DETAIL_MAX_LENGTH = 160;
 
 struct LiveStreamDescriptor {
@@ -35,6 +36,21 @@ struct LiveRelayStats {
     uint32_t packetsRelayed = 0;
     uint64_t bytesRelayed = 0;
     uint32_t oversizedPackets = 0;
+    uint32_t invalidRtpPackets = 0;
+    uint32_t currentSessionPackets = 0;
+    uint64_t currentSessionBytes = 0;
+    uint32_t slowWriteCount = 0;
+    uint64_t slowWriteTimeMs = 0;
+    uint32_t writeDeadlineExceeded = 0;
+    uint32_t lastWriteDurationMs = 0;
+    uint32_t maxWriteDurationMs = 0;
+    uint32_t currentCameraBacklogBytes = 0;
+    uint32_t maxCameraBacklogBytes = 0;
+    int32_t currentRtpClockDriftMs = 0;
+    uint32_t maxRtpClockDriftMs = 0;
+    uint32_t latencyAborts = 0;
+    uint32_t lastLatencyAbortAtMs = 0;
+    int32_t lastLatencyAbortDriftMs = 0;
     uint32_t lastSessionDurationSeconds = 0;
     uint32_t lastMediaPacketAtMs = 0;
     uint32_t syncAttempts = 0;
@@ -45,6 +61,9 @@ struct LiveRelayStats {
     bool lastSyncAccepted = false;
     char lastError[LIVE_RELAY_ERROR_MAX_LENGTH + 1] = {0};
     char lastSyncResult[LIVE_RELAY_SYNC_RESULT_MAX_LENGTH + 1] = {0};
+    char lastLatencyAbortReason[
+        LIVE_RELAY_LATENCY_RESULT_MAX_LENGTH + 1
+    ] = {0};
 };
 
 struct LiveMediaProbeResult {
