@@ -63,9 +63,10 @@ border:1px solid var(--sbd,rgba(148,163,184,.22))}
 .gauge{position:relative;width:112px;height:112px;flex:none;margin:0 auto}
 .arc{position:absolute;inset:0;border-radius:50%;transition:background .5s ease;
 background:conic-gradient(var(--sc,var(--dim)) calc(var(--p,0)*3.6deg),rgba(255,255,255,.06) 0)}
-.hole{position:absolute;inset:10px;border-radius:50%;background:var(--surface);display:grid;place-items:center;line-height:1.15}
-.hole b{font-size:22px;font-weight:680;letter-spacing:-.02em}
-.hole span{font-size:10.5px;color:var(--dim);letter-spacing:.05em;text-transform:uppercase}
+.hole{position:absolute;inset:10px;border-radius:50%;background:var(--surface);display:grid;place-items:center;line-height:1.15;overflow:hidden}
+.hole>div{width:100%;min-width:0;padding:0 4px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-align:center}
+.hole b{display:block;font-size:22px;font-weight:680;letter-spacing:-.02em;line-height:1}
+.hole span{display:block;max-width:100%;font-size:10.5px;color:var(--dim);letter-spacing:.05em;line-height:1.2;text-transform:uppercase}
 
 /* previa da camera */
 .viewer{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
@@ -339,7 +340,7 @@ main{padding:14px 12px 36px}
   <div>
     <div class="gauge">
       <div class="arc" id="arc"></div>
-      <div class="hole"><div><b id="availValue">—</b><br><span>sucesso</span></div></div>
+      <div class="hole"><div><b id="availValue">—</b><span>conclusivos OK</span></div></div>
     </div>
   </div>
 </section>
@@ -502,7 +503,7 @@ main{padding:14px 12px 36px}
     <div>
       <div class="gauge">
         <div class="arc" id="resourcesArc"></div>
-        <div class="hole"><div><b id="resourcesHeapPercent">—</b><br><span>heap livre</span></div></div>
+        <div class="hole"><div><b id="resourcesHeapPercent">—</b><span>heap livre</span></div></div>
       </div>
     </div>
   </section>
@@ -559,6 +560,16 @@ main{padding:14px 12px 36px}
       <div class="card-v info" id="r-sync">—</div>
       <div class="card-m" id="r-sync-meta">—</div>
     </article>
+    <article class="card">
+      <div class="card-h">Canário RTP<i class="pip" id="p-rcanary"></i></div>
+      <div class="card-v info" id="r-canary">—</div>
+      <div class="card-m" id="r-canary-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Relay ao vivo<i class="pip" id="p-rrelay"></i></div>
+      <div class="card-v info" id="r-relay">—</div>
+      <div class="card-m" id="r-relay-meta">—</div>
+    </article>
   </div>
 
   <section class="chart-card" aria-labelledby="historyTitle">
@@ -600,6 +611,7 @@ main{padding:14px 12px 36px}
       <nav class="settings-tablist" role="tablist" aria-label="Categorias das configurações">
         <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="true" tabindex="0">Identificação</button>
         <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoramento</button>
+        <button class="settings-tab" id="settingsLiveTab" type="button" role="tab" data-settings-section="live" aria-controls="settingsLivePanel" aria-selected="false" tabindex="-1">Ao Vivo</button>
         <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recuperação</button>
         <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Rede e notificações</button>
         <button class="settings-tab" id="settingsCommunicationTab" type="button" role="tab" data-settings-section="communication" aria-controls="settingsCommunicationPanel" aria-selected="false" tabindex="-1">Comunicação</button>
@@ -614,8 +626,8 @@ main{padding:14px 12px 36px}
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
-          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo permitido: 1 s; padrão estável: 2 s.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Padrão: 2 s, limitando a prévia a 0,5 FPS.</small></div>
+          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo permitido: 1 s; padrão estável: 5 s.</small></div>
+          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Padrão: 5 s, limitando a prévia a 0,2 FPS.</small></div>
           <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
         </div>
       </section>
@@ -634,6 +646,15 @@ main{padding:14px 12px 36px}
         </div>
       </section>
 
+      <section class="settings-card settings-panel" id="settingsLivePanel" role="tabpanel" aria-labelledby="settingsLiveTab" data-settings-section-panel="live" hidden>
+        <div class="settings-card-h"><div><h2>Troca de perfil ao vivo</h2><p>Reconexão no perfil atual e failover entre perfis H.264.</p></div></div>
+        <div class="form-grid">
+          <div class="field"><div class="checkline"><input id="cfgLiveProfileFailover" type="checkbox"><label for="cfgLiveProfileFailover"><b>Trocar de perfil automaticamente</b><span>Quando desativado, o player continua reconectando apenas o perfil escolhido.</span></label></div></div>
+          <div class="field"><label for="cfgLiveProfileFailoverDelay">Espera antes de trocar <span>5–300 s</span></label><input id="cfgLiveProfileFailoverDelay" type="number" min="5" max="300" step="1" required><small>Padrão: 30 s de falha contínua no mesmo perfil.</small></div>
+          <div class="field"><label for="cfgLiveProfileSweepRetry">Repetir perfis esgotados <span>30–3600 s</span></label><input id="cfgLiveProfileSweepRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 300 s; impede alternância infinita entre mainStream e subStream.</small></div>
+        </div>
+      </section>
+
       <section class="settings-card settings-panel" id="settingsRecoveryPanel" role="tabpanel" aria-labelledby="settingsRecoveryTab" data-settings-section-panel="recovery" hidden>
         <div class="settings-card-h"><div><h2>Recuperação automática</h2><p>Limites contra ciclos de reinicialização.</p></div></div>
         <div class="form-grid">
@@ -641,7 +662,7 @@ main{padding:14px 12px 36px}
           <div class="field"><label for="cfgRebootGrace">Tolerância após reboot <span>30–600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Padrão: 60 s sem sondas, protegendo a partida da câmera.</small></div>
           <div class="field"><label for="cfgRebootCooldown">Cooldown entre reboots <span>2–1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Padrão: 5 min.</small></div>
           <div class="field"><label for="cfgRebootWindow">Janela de contabilização <span>1–168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Padrão: 1 h; somente comandos ONVIF aceitos consomem a cota.</small></div>
-          <div class="field"><label for="cfgMaxReboots">Máximo de reboots na janela <span>1–20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Padrão: 12 comandos aceitos; no máximo um a cada 5 min.</small></div>
+          <div class="field"><label for="cfgMaxReboots">Máximo de reboots na janela <span>1–20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Padrão: 3 comandos aceitos por hora; no máximo um a cada 5 min.</small></div>
         </div>
       </section>
 
@@ -694,7 +715,7 @@ main{padding:14px 12px 36px}
   <section class="settings-card actions-card">
     <div class="settings-card-h"><div><h2>Controle manual</h2><p>Ações sensíveis exigem confirmação e respeitam os limites de segurança do firmware.</p></div></div>
     <div class="action-grid">
-      <div class="action-item"><b>Verificar agora</b><span>Executa ONVIF, RTSP e validação JPEG.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
+      <div class="action-item"><b>Verificar agora</b><span>Executa ONVIF, RTSP quando necessário e validação JPEG.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
       <div class="action-item"><b>Redescobrir câmera</b><span>Repete WS-Discovery e confirma o endpoint.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
       <div class="action-item"><b>Reiniciar câmera</b><span>Envia ONVIF SystemReboot respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
       <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas registradas na janela atual.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
@@ -720,7 +741,7 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
-<script src="/assets/live-player.js?v=0.8.5"></script>
+<script src="/assets/live-player.js?v=0.9.0"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -744,8 +765,8 @@ function viewFromHash() {
 
 let activeView = viewFromHash();
 let activeSettingsSection = 'identification';
-let feedMinimumIntervalMs = 2000;
-let feedTargetCycleMs = 2000;
+let feedMinimumIntervalMs = 5000;
+let feedTargetCycleMs = 5000;
 let statusRefreshIntervalMs = 3000;
 let snapshotHttpTimeoutMs = 5000;
 let statusRefreshTimer;
@@ -754,6 +775,7 @@ let statusAbortController = null;
 let statusRequestGeneration = 0;
 let settingsLoaded = false;
 let settingsLoading = false;
+let settingsLoadPromise = null;
 let settingsBusy = false;
 let settingsWriteToken = '';
 let settingsPasswordRequired = false;
@@ -954,6 +976,50 @@ function renderResources(d) {
       : 'será solicitado logo após o PLAY do RTSP';
   pip('p-rsync', !syncAttempts ? 'info' : lastSyncAccepted ? 'ok' : 'warn');
 
+  const canary = d.mediaCanary || {};
+  const canarySuccesses = Number(canary.successes || 0);
+  const canaryFailures = Number(canary.failures || 0);
+  const canaryInconclusive = Number(canary.inconclusive || 0);
+  const canaryTone = !canary.attempted
+    ? 'info'
+    : canary.mediaReceived
+      ? 'ok'
+      : canary.conclusiveSilence ? 'bad' : 'warn';
+  $('r-canary').textContent = !canary.attempted
+    ? 'aguardando sonda'
+    : canary.mediaReceived
+      ? 'RTP recebido'
+      : canary.conclusiveSilence ? 'RTP ausente' : 'sonda inconclusiva';
+  $('r-canary').className = 'card-v ' + canaryTone;
+  $('r-canary-meta').textContent = canarySuccesses.toLocaleString('pt-BR')
+    + ' sucessos · ' + canaryFailures.toLocaleString('pt-BR') + ' falhas · '
+    + canaryInconclusive.toLocaleString('pt-BR') + ' inconclusivas'
+    + (canary.playAccepted
+      ? ' · ' + Number(canary.observedAfterPlayMs || 0).toLocaleString('pt-BR') + ' ms pós-PLAY'
+      : '')
+    + (canary.attempted ? ' · há ' + duration(Number(canary.ageSeconds || 0)) : '');
+  pip('p-rcanary', canaryTone);
+
+  const relaySessions = Number(relay.sessions || 0);
+  const relayLatencyAborts = Number(relay.latencyAborts || 0);
+  const relayDeadlineExceeded = Number(relay.writeDeadlineExceeded || 0);
+  const relayAbortPercent = relaySessions
+    ? relayLatencyAborts / relaySessions * 100
+    : 0;
+  const relayTone = !relaySessions
+    ? 'info'
+    : relayAbortPercent >= 50 ? 'bad' : relayAbortPercent >= 10 ? 'warn' : 'ok';
+  $('r-relay').textContent = relaySessions
+    ? relayAbortPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% com abortos'
+    : 'aguardando sessões';
+  $('r-relay').className = 'card-v ' + relayTone;
+  $('r-relay-meta').textContent = relaySessions
+    ? relayLatencyAborts.toLocaleString('pt-BR') + ' de '
+      + relaySessions.toLocaleString('pt-BR') + ' sessões · '
+      + relayDeadlineExceeded.toLocaleString('pt-BR') + ' prazos de escrita excedidos'
+    : 'o histórico será preenchido ao usar a aba Ao Vivo';
+  pip('p-rrelay', relayTone);
+
   resourceHistory.heap.push(heapPercent);
   resourceHistory.rssi.push(d.wifi.connected ? d.wifi.rssi : -100);
   if (resourceHistory.heap.length > HISTORY_LIMIT) resourceHistory.heap.shift();
@@ -982,6 +1048,40 @@ function setProbe(prefix, tcp, spoke, code, latency, protocol) {
     pip('p-' + prefix, 'bad');
     meta.textContent = 'sem conexão TCP';
   }
+}
+
+function setRtspProbe(probes, canary) {
+  const value = $('v-rtsp'), meta = $('m-rtsp');
+  const canaryAgeSeconds = Number(canary && canary.ageSeconds || 0);
+  const canaryRecent = Boolean(
+    canary && canary.mediaReceived && canaryAgeSeconds <= 60
+  );
+  if (canaryRecent) {
+    value.textContent = 'RTP recebido';
+    value.className = 'card-v ok';
+    pip('p-rtsp', 'ok');
+    meta.textContent = 'canário autenticado · primeiro RTP em '
+      + Number(canary.observedAfterPlayMs || 0).toLocaleString('pt-BR')
+      + ' ms pós-PLAY · há ' + duration(canaryAgeSeconds);
+    return;
+  }
+  if (probes.rtspAttempted) {
+    setProbe(
+      'rtsp',
+      probes.rtspTcp,
+      probes.rtspProtocol,
+      probes.rtspStatus,
+      probes.rtspLatencyMs,
+      'RTSP'
+    );
+    return;
+  }
+  value.textContent = probes.onvifHttp ? 'sonda dispensada' : 'aguardando';
+  value.className = 'card-v info';
+  pip('p-rtsp', 'info');
+  meta.textContent = probes.onvifHttp
+    ? 'ONVIF respondeu; a sonda RTSP bruta não foi necessária'
+    : 'a sonda RTSP ainda não foi executada';
 }
 
 function setImageProbe(snapshot, recovery) {
@@ -1188,6 +1288,12 @@ let liveShouldRun = false;
 let liveReconnectTimer = null;
 let liveReconnectAttempt = 0;
 let liveFailedProfileIndices = [];
+let liveProfileFailureStartedAtMs = 0;
+let liveProfileFailureIndex = -1;
+let liveProfileSweepExhaustedAtMs = 0;
+let enableLiveProfileFailover = true;
+let liveProfileFailoverDelayMs = 30000;
+let liveProfileSweepRetryIntervalMs = 300000;
 let liveLastStatus = null;
 let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0, liveLatencySeconds: 0 };
 let liveMarkerCompatibilityNotified = false;
@@ -1448,6 +1554,16 @@ function selectedLiveProfileIndex() {
 
 function resetLiveProfileAttempts() {
   liveFailedProfileIndices = [];
+  liveProfileFailureStartedAtMs = 0;
+  liveProfileFailureIndex = -1;
+  liveProfileSweepExhaustedAtMs = 0;
+}
+
+function restoreLivePreferredProfile() {
+  const preferred = liveProfiles.find(
+    profile => profile.index === livePreferences.profileIndex
+  );
+  if (preferred) $('liveProfile').value = String(preferred.index);
 }
 
 function noteLiveProfileAttempt(profileIndex) {
@@ -1456,20 +1572,103 @@ function noteLiveProfileAttempt(profileIndex) {
   }
 }
 
-function selectLiveFallbackProfile() {
+function selectLiveFallbackProfile(now) {
   const currentProfileIndex = selectedLiveProfileIndex();
   if (currentProfileIndex >= 0) noteLiveProfileAttempt(currentProfileIndex);
-  const fallback = liveProfiles.find(
+  let fallback = liveProfiles.find(
     profile => !liveFailedProfileIndices.includes(profile.index)
   );
 
   if (!fallback) {
-    resetLiveProfileAttempts();
-    return null;
+    if (!liveProfileSweepExhaustedAtMs) {
+      liveProfileSweepExhaustedAtMs = now;
+    }
+    if (
+      now - liveProfileSweepExhaustedAtMs <
+      liveProfileSweepRetryIntervalMs
+    ) return null;
+
+    liveFailedProfileIndices = [];
+    liveProfileSweepExhaustedAtMs = 0;
+    if (currentProfileIndex >= 0) noteLiveProfileAttempt(currentProfileIndex);
+    fallback = liveProfiles.find(
+      profile => !liveFailedProfileIndices.includes(profile.index)
+    );
+    if (!fallback) {
+      liveProfileSweepExhaustedAtMs = now;
+      return null;
+    }
   }
 
   $('liveProfile').value = String(fallback.index);
+  liveReconnectAttempt = 0;
+  liveProfileFailureIndex = fallback.index;
+  liveProfileFailureStartedAtMs = now;
   return fallback;
+}
+
+function applyLiveProfileFailoverSettings(values) {
+  if (!values) return;
+  const nextEnabled = typeof values.enableLiveProfileFailover === 'boolean'
+    ? values.enableLiveProfileFailover
+    : enableLiveProfileFailover;
+  const nextDelay = Number(values.liveProfileFailoverDelayMs)
+    || liveProfileFailoverDelayMs;
+  const nextSweepRetry = Number(values.liveProfileSweepRetryIntervalMs)
+    || liveProfileSweepRetryIntervalMs;
+  const changed = nextEnabled !== enableLiveProfileFailover
+    || nextDelay !== liveProfileFailoverDelayMs
+    || nextSweepRetry !== liveProfileSweepRetryIntervalMs;
+  enableLiveProfileFailover = nextEnabled;
+  liveProfileFailoverDelayMs = nextDelay;
+  liveProfileSweepRetryIntervalMs = nextSweepRetry;
+  if (changed) resetLiveProfileAttempts();
+}
+
+function liveProfileFailureMessage() {
+  const profileIndex = selectedLiveProfileIndex();
+  const profile = liveProfiles.find(item => item.index === profileIndex);
+  const profileName = profile ? profile.name : 'perfil selecionado';
+  const now = Date.now();
+
+  if (
+    liveProfileFailureIndex !== profileIndex ||
+    !liveProfileFailureStartedAtMs
+  ) {
+    liveProfileFailureIndex = profileIndex;
+    liveProfileFailureStartedAtMs = now;
+  }
+
+  if (!enableLiveProfileFailover) {
+    return 'Reconectando ' + profileName
+      + '; troca automática de perfil desativada.';
+  }
+
+  const failureElapsedMs = now - liveProfileFailureStartedAtMs;
+  if (failureElapsedMs < liveProfileFailoverDelayMs) {
+    const remainingSeconds = Math.max(
+      1,
+      Math.ceil((liveProfileFailoverDelayMs - failureElapsedMs) / 1000)
+    );
+    return 'Reconectando ' + profileName + '; troca automática em '
+      + remainingSeconds + ' s se a falha persistir.';
+  }
+
+  const fallback = selectLiveFallbackProfile(now);
+  if (fallback) {
+    return 'Falha persistente em ' + profileName + '; tentando '
+      + fallback.name + ' automaticamente.';
+  }
+
+  const sweepRemainingSeconds = Math.max(
+    1,
+    Math.ceil((
+      liveProfileSweepRetryIntervalMs -
+      (now - liveProfileSweepExhaustedAtMs)
+    ) / 1000)
+  );
+  return 'Todos os perfis foram testados; mantendo ' + profileName
+    + ' e repetindo a varredura em ' + sweepRemainingSeconds + ' s.';
 }
 
 function liveHostForUrl() {
@@ -1559,7 +1758,6 @@ function ensureLivePlayer() {
     onPlaybackReady() {
       liveReconnectAttempt = 0;
       resetLiveProfileAttempts();
-      saveLivePreferences();
       liveVideo.classList.add('ready');
       setLiveOverlay('', true);
       setLivePlayerStatus(
@@ -1578,12 +1776,7 @@ function ensureLivePlayer() {
       setLivePlayerStatus(error.message || String(error), 'bad');
       setLiveOverlay('A transmissão foi interrompida: ' + (error.message || String(error)), false);
       if (liveShouldRun) {
-        const fallback = selectLiveFallbackProfile();
-        scheduleLiveReconnect(
-          fallback
-            ? 'Perfil sem mídia; tentando ' + fallback.name + ' automaticamente…'
-            : null
-        );
+        scheduleLiveReconnect(liveProfileFailureMessage());
       }
     }
   });
@@ -1604,8 +1797,6 @@ function openLiveStream() {
     setLivePlayerStatus('Navegador sem suporte ao player integrado.', 'bad');
     return;
   }
-  noteLiveProfileAttempt(profileIndex);
-
   liveVideo.classList.remove('ready');
   liveMarkerCompatibilityNotified = false;
   setLiveOverlay('Conectando ao relay HTTP integrado do ESP32…', false);
@@ -1618,16 +1809,41 @@ function openLiveStream() {
     liveVideo.classList.remove('ready');
     setLivePlayerStatus(error.message || String(error), 'bad');
     setLiveOverlay(error.message || String(error), false);
-    scheduleLiveReconnect();
+    if (liveShouldRun) scheduleLiveReconnect(liveProfileFailureMessage());
   });
 }
 
 function startLivePlayer() {
   if (activeView !== 'stream') return;
+  if (!settingsLoaded) {
+    startLivePlayerWhenSettingsReady(loadSettings(false), true);
+    return;
+  }
   resetLiveProfileAttempts();
+  restoreLivePreferredProfile();
   liveShouldRun = true;
   liveReconnectAttempt = 0;
   openLiveStream();
+}
+
+function startLivePlayerWhenSettingsReady(settingsReady, forceStart = false) {
+  Promise.resolve(settingsReady).finally(() => {
+    if (activeView !== 'stream' || document.hidden) return;
+    if (!settingsLoaded) {
+      liveShouldRun = false;
+      setLiveOverlay(
+        'As configurações persistidas não puderam ser carregadas.',
+        false
+      );
+      setLivePlayerStatus(
+        'Ao Vivo mantido parado para não ignorar a política de troca de perfil.',
+        'bad'
+      );
+      return;
+    }
+    if (forceStart || $('liveAutostart').checked) startLivePlayer();
+    else stopLivePlayer(false);
+  });
 }
 
 function stopLivePlayer(userInitiated) {
@@ -1756,6 +1972,7 @@ function renderLiveStatus(live, camera, onvif) {
 
   if (
     activeView === 'stream' &&
+    settingsLoaded &&
     $('liveAutostart').checked &&
     compatibleProfiles.length &&
     !(livePlayer && livePlayer.running) &&
@@ -1983,7 +2200,10 @@ const SETTINGS_FIELDS = {
   cameraAlertLedBlinkIntervalMs: { id: 'cfgLedBlink' },
   feedMinIntervalMs: { id: 'cfgFeedMinimum', scale: 1000 },
   feedTargetCycleMs: { id: 'cfgFeedTarget', scale: 1000 },
-  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 }
+  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 },
+  enableLiveProfileFailover: { id: 'cfgLiveProfileFailover', kind: 'bool' },
+  liveProfileFailoverDelayMs: { id: 'cfgLiveProfileFailoverDelay', scale: 1000 },
+  liveProfileSweepRetryIntervalMs: { id: 'cfgLiveProfileSweepRetry', scale: 1000 }
 };
 
 function formatSettingNumber(value) {
@@ -2064,6 +2284,7 @@ function populateSettings(payload) {
   feedMinimumIntervalMs = Number(values.feedMinIntervalMs) || feedMinimumIntervalMs;
   feedTargetCycleMs = Number(values.feedTargetCycleMs) || feedTargetCycleMs;
   statusRefreshIntervalMs = Number(values.statusRefreshIntervalMs) || statusRefreshIntervalMs;
+  applyLiveProfileFailoverSettings(values);
   settingsLoaded = true;
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
@@ -2075,30 +2296,35 @@ function populateSettings(payload) {
   }
 }
 
-async function loadSettings(force) {
-  if (settingsLoading || (settingsLoaded && !force)) return;
+function loadSettings(force) {
+  if (settingsLoading) return settingsLoadPromise || Promise.resolve();
+  if (settingsLoaded && !force) return Promise.resolve();
   settingsLoading = true;
-  if (activeView === 'actions') {
-    setAdminActionStatus('Carregando autorização administrativa…', 'warn');
-  } else {
-    setSettingsStatus('Lendo configurações do ESP32…', 'warn');
-  }
-  try {
-    const response = await fetch('/api/settings', { cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.detail || 'HTTP ' + response.status);
-    populateSettings(payload);
-  } catch (error) {
-    setMutationControlsEnabled(false);
-    updatePtzControlAvailability();
+  settingsLoadPromise = (async () => {
     if (activeView === 'actions') {
-      setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
+      setAdminActionStatus('Carregando autorização administrativa…', 'warn');
     } else {
-      setSettingsStatus('Falha ao carregar: ' + error.message, 'bad');
+      setSettingsStatus('Lendo configurações do ESP32…', 'warn');
     }
-  } finally {
-    settingsLoading = false;
-  }
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.detail || 'HTTP ' + response.status);
+      populateSettings(payload);
+    } catch (error) {
+      setMutationControlsEnabled(false);
+      updatePtzControlAvailability();
+      if (activeView === 'actions') {
+        setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
+      } else {
+        setSettingsStatus('Falha ao carregar: ' + error.message, 'bad');
+      }
+    } finally {
+      settingsLoading = false;
+      settingsLoadPromise = null;
+    }
+  })();
+  return settingsLoadPromise;
 }
 
 function collectMutationParams(includeSettings, password) {
@@ -2284,6 +2510,7 @@ function render(d) {
     feedTargetCycleMs = Number(d.ui.feedTargetCycleMs) || feedTargetCycleMs;
     statusRefreshIntervalMs = Number(d.ui.statusRefreshIntervalMs) || statusRefreshIntervalMs;
     snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
+    applyLiveProfileFailoverSettings(d.ui);
   }
 
   if (d.adminAction && d.adminAction.lastResult && activeView === 'actions') {
@@ -2307,14 +2534,15 @@ function render(d) {
   if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
 
   const c = d.counters;
-  const rate = c.totalChecks ? c.successfulChecks / c.totalChecks * 100 : 0;
-  $('arc').style.setProperty('--p', c.totalChecks ? rate : 0);
-  $('availValue').textContent = c.totalChecks ? rate.toFixed(rate >= 99.95 ? 0 : 1) + '%' : '—';
+  const conclusiveChecks = c.successfulChecks + c.failedChecks;
+  const rate = conclusiveChecks ? c.successfulChecks / conclusiveChecks * 100 : 0;
+  $('arc').style.setProperty('--p', conclusiveChecks ? rate : 0);
+  $('availValue').textContent = conclusiveChecks ? rate.toFixed(rate >= 99.95 ? 0 : 1) + '%' : '—';
 
   const p = d.probes;
   renderLiveStatus(d.live, d.camera, d.onvif);
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
-  setProbe('rtsp', p.rtspTcp, p.rtspProtocol, p.rtspStatus, p.rtspLatencyMs, 'RTSP');
+  setRtspProbe(p, d.mediaCanary);
   setImageProbe(d.snapshot, d.recovery);
 
   const rssi = d.wifi.rssi;
@@ -2450,9 +2678,10 @@ function activateView(name, updateHash) {
           : nextView === 'feed' ? 'Prévia' : 'Câmera';
   document.title = viewTitle + ' · Camera Watchdog';
 
-  if (nextView === 'settings' || nextView === 'actions' || nextView === 'stream') {
-    loadSettings(false);
-  }
+  const settingsReady =
+    nextView === 'settings' || nextView === 'actions' || nextView === 'stream'
+      ? loadSettings(false)
+      : Promise.resolve();
 
   if (nextView === 'feed') {
     $('feedState').textContent = cameraRecovering
@@ -2475,8 +2704,7 @@ function activateView(name, updateHash) {
 
   if (nextView === 'stream') {
     updateLiveBrowserSupport();
-    if ($('liveAutostart').checked) startLivePlayer();
-    else stopLivePlayer(false);
+    startLivePlayerWhenSettingsReady(settingsReady);
   } else {
     if (isLiveNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     if (liveStage.classList.contains('fs-fallback')) exitLiveFallbackFullscreen();
@@ -2492,7 +2720,8 @@ document.querySelectorAll('.tab[data-view]').forEach(tab => {
 });
 
 window.addEventListener('hashchange', () => {
-  activateView(viewFromHash(), false);
+  const nextView = viewFromHash();
+  if (nextView !== activeView) activateView(nextView, false);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -2517,7 +2746,9 @@ document.addEventListener('visibilitychange', () => {
 
   refresh();
   if (activeView === 'feed') scheduleFeed(0);
-  if (activeView === 'stream' && $('liveAutostart').checked) startLivePlayer();
+  if (activeView === 'stream') {
+    startLivePlayerWhenSettingsReady(loadSettings(false));
+  }
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
 });
 

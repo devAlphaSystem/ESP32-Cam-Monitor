@@ -72,7 +72,9 @@ struct LiveMediaProbeResult {
     bool rtspResponded = false;
     bool playAccepted = false;
     bool mediaReceived = false;
+    bool conclusiveSilence = false;
     int statusCode = 0;
+    uint32_t handshakeLatencyMs = 0;
     uint32_t latencyMs = 0;
     uint32_t observedAfterPlayMs = 0;
     uint32_t bytes = 0;
@@ -109,7 +111,8 @@ public:
     void invalidateMediaEvidence();
     bool probeMedia(
         size_t profileIndex,
-        uint32_t timeoutMs,
+        uint32_t handshakeTimeoutMs,
+        uint32_t observationTimeoutMs,
         LiveMediaProbeResult& result
     );
 

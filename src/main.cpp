@@ -51,7 +51,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.8.5";
+constexpr char FIRMWARE_VERSION[] = "0.9.0";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -166,6 +166,53 @@ struct RuntimeSettings {
     uint32_t feedMinIntervalMs;
     uint32_t feedTargetCycleMs;
     uint32_t statusRefreshIntervalMs;
+
+    uint8_t enableLiveProfileFailover;
+    uint32_t liveProfileFailoverDelayMs;
+    uint32_t liveProfileSweepRetryIntervalMs;
+};
+
+struct RuntimeSettingsSchema1 {
+    char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
+    char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
+    uint16_t cameraRtspPort;
+
+    uint32_t healthCheckIntervalMs;
+    uint32_t startupGraceMs;
+    uint8_t failuresBeforeRediscovery;
+    uint8_t failuresBeforeOffline;
+    uint8_t successesBeforeRecovery;
+    uint8_t videoFailuresBeforeAlert;
+    uint8_t videoFailuresBeforeReboot;
+
+    uint8_t enableOnvifAutoReboot;
+    uint32_t onvifRebootGraceMs;
+    uint32_t onvifRebootCooldownMs;
+    uint32_t onvifRebootWindowMs;
+    uint8_t maxOnvifRebootAttemptsPerWindow;
+
+    uint32_t wifiConnectTimeoutMs;
+    uint8_t enableAutomaticSubnetScan;
+    uint32_t discoveryTimeoutMs;
+    uint32_t rediscoveryIntervalMs;
+    uint32_t subnetScanIntervalMs;
+
+    uint8_t enableEmailAlerts;
+    uint8_t emailOnIpChange;
+    uint32_t emailRetryIntervalMs;
+
+    uint32_t tcpConnectTimeoutMs;
+    uint32_t serviceResponseTimeoutMs;
+    uint32_t scanConnectTimeoutMs;
+    uint32_t snapshotHttpTimeoutMs;
+    uint32_t snapshotResolveRetryIntervalMs;
+    uint8_t snapshotFailuresBeforeReresolve;
+
+    uint8_t enableCameraAlertLed;
+    uint32_t cameraAlertLedBlinkIntervalMs;
+    uint32_t feedMinIntervalMs;
+    uint32_t feedTargetCycleMs;
+    uint32_t statusRefreshIntervalMs;
 };
 
 struct StoredSettingsBlob {
@@ -175,6 +222,24 @@ struct StoredSettingsBlob {
     RuntimeSettings values;
     uint32_t checksum;
 };
+
+struct StoredSettingsBlobSchema1 {
+    uint32_t magic;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    RuntimeSettingsSchema1 values;
+    uint32_t checksum;
+};
+
+static_assert(
+    sizeof(RuntimeSettingsSchema1) == 184,
+    "Layout persistido do schema 1 foi alterado"
+);
+static_assert(
+    offsetof(RuntimeSettings, enableLiveProfileFailover) ==
+        sizeof(RuntimeSettingsSchema1),
+    "Novos campos devem permanecer apos o payload do schema 1"
+);
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)
@@ -254,6 +319,11 @@ RuntimeSettings makeDefaultRuntimeSettings()
     values.feedMinIntervalMs = FEED_MIN_INTERVAL_MS;
     values.feedTargetCycleMs = FEED_TARGET_CYCLE_MS;
     values.statusRefreshIntervalMs = STATUS_REFRESH_INTERVAL_MS;
+    values.enableLiveProfileFailover =
+        ENABLE_LIVE_PROFILE_FAILOVER ? 1 : 0;
+    values.liveProfileFailoverDelayMs = LIVE_PROFILE_FAILOVER_DELAY_MS;
+    values.liveProfileSweepRetryIntervalMs =
+        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     return values;
 }
 
@@ -303,6 +373,12 @@ static_assert(
 #define FEED_MIN_INTERVAL_MS (settings.feedMinIntervalMs)
 #define FEED_TARGET_CYCLE_MS (settings.feedTargetCycleMs)
 #define STATUS_REFRESH_INTERVAL_MS (settings.statusRefreshIntervalMs)
+#define ENABLE_LIVE_PROFILE_FAILOVER \
+    (settings.enableLiveProfileFailover != 0)
+#define LIVE_PROFILE_FAILOVER_DELAY_MS \
+    (settings.liveProfileFailoverDelayMs)
+#define LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS \
+    (settings.liveProfileSweepRetryIntervalMs)
 
 struct ParsedUrl {
     bool valid = false;
@@ -451,6 +527,26 @@ struct SnapshotProbe {
     String detail = "Ainda nao executado";
 };
 
+constexpr size_t CAMERA_REBOOT_HISTORY_CAPACITY = 8;
+
+struct CameraRebootEvidence {
+    char timestamp[25] = {0};
+    char snapshotProfile[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1] = {0};
+    uint32_t uptimeSeconds = 0;
+    uint32_t snapshotLatencyMs = 0;
+    uint32_t snapshotBytes = 0;
+    uint32_t canaryHandshakeLatencyMs = 0;
+    uint32_t canaryObservedAfterPlayMs = 0;
+    uint32_t mediaFailureDurationSeconds = 0;
+    uint32_t freeHeapBytes = 0;
+    int16_t snapshotStatus = 0;
+    int16_t esp32WifiRssi = 0;
+    uint8_t consecutiveImageFailures = 0;
+    uint8_t consecutiveMediaFailures = 0;
+    bool manual = false;
+    bool canaryConclusiveSilence = false;
+};
+
 struct DigestChallenge {
     bool valid = false;
     String realm;
@@ -558,6 +654,7 @@ SnapshotProbe lastSnapshotProbe;
 LiveMediaProbeResult lastMediaCanaryProbe;
 ServiceProbe lastOnvifProbe;
 ServiceProbe lastRtspProbe;
+bool lastRtspProbeAttempted = false;
 CameraState cameraState = CameraState::Starting;
 IncidentKind activeIncident = IncidentKind::None;
 IncidentKind recoveryIncident = IncidentKind::None;
@@ -609,6 +706,12 @@ uint32_t previewHealthEvidenceUses = 0;
 uint32_t cameraRebootAttempts = 0;
 uint32_t cameraRebootAccepted = 0;
 uint32_t cameraRebootErrors = 0;
+uint32_t automaticCameraRebootAttempts = 0;
+uint32_t automaticCameraRebootAccepted = 0;
+uint32_t automaticCameraRebootErrors = 0;
+uint32_t manualCameraRebootAttempts = 0;
+uint32_t manualCameraRebootAccepted = 0;
+uint32_t manualCameraRebootErrors = 0;
 uint32_t heapBeforeBluetoothReleaseBytes = 0;
 uint32_t heapAfterBluetoothReleaseBytes = 0;
 uint32_t bluetoothMemoryReleasedBytes = 0;
@@ -624,6 +727,11 @@ uint8_t onvifMetadataStageFailureStreak = 0;
 unsigned long cameraRebootAcceptedAtMs[
     MAX_ONVIF_REBOOT_ATTEMPTS_MAX
 ] = {0};
+CameraRebootEvidence cameraRebootHistory[
+    CAMERA_REBOOT_HISTORY_CAPACITY
+];
+size_t cameraRebootHistoryCount = 0;
+size_t cameraRebootHistoryNext = 0;
 
 bool incidentAlertSent = false;
 bool pendingIncidentEmail = false;
@@ -650,6 +758,7 @@ String lastScanResult = "Ainda nao executada";
 String previousCameraIp;
 String lastSnapshotResult = "Ainda nao solicitada";
 String lastCameraRebootResult = "Ainda nao solicitado";
+String lastCameraRebootEvidence = "Nenhum reboot aceito nesta inicializacao";
 String lastPtzCommand = "none";
 String lastPtzResult = "Ainda nao solicitado";
 String snapshotProfileTokenToSkip;
@@ -659,6 +768,7 @@ unsigned long lastRelayMediaEvidenceConsumedAtMs = 0;
 unsigned long lastHealthEvidenceAtMs = 0;
 unsigned long lastOnvifMetadataRequestAtMs = 0;
 unsigned long lastMediaCanaryAtMs = 0;
+unsigned long independentMediaFailureStartedAtMs = 0;
 unsigned long lastPtzCommandAtMs = 0;
 size_t lastMediaCanaryProfileIndex = 0;
 size_t mediaCanaryNextProfileOffset = 0;
@@ -699,17 +809,23 @@ void publishLiveProfilesFromXml(
 void appendLiveStatusJson(String& json);
 void configureLiveRelay();
 
-uint32_t settingsChecksum(const RuntimeSettings& values)
+uint32_t settingsChecksumBytes(const void* values, size_t valueSize)
 {
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&values);
+    const uint8_t* bytes = static_cast<const uint8_t*>(values);
     uint32_t hash = 2166136261UL;
 
-    for (size_t index = 0; index < sizeof(RuntimeSettings); index++) {
+    for (size_t index = 0; index < valueSize; index++) {
         hash ^= bytes[index];
         hash *= 16777619UL;
     }
 
     return hash;
+}
+
+template <typename T>
+uint32_t settingsChecksum(const T& values)
+{
+    return settingsChecksumBytes(&values, sizeof(T));
 }
 
 size_t boundedTextLength(const char* value, size_t capacity)
@@ -950,6 +1066,18 @@ bool validateRuntimeSettings(
         STATUS_REFRESH_INTERVAL_MAX_MS,
         "Atualizacao do painel fora do limite"
     );
+    CHECK_SETTING_RANGE(
+        liveProfileFailoverDelayMs,
+        LIVE_PROFILE_FAILOVER_DELAY_MIN_MS,
+        LIVE_PROFILE_FAILOVER_DELAY_MAX_MS,
+        "Espera para troca de perfil fora do limite"
+    );
+    CHECK_SETTING_RANGE(
+        liveProfileSweepRetryIntervalMs,
+        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MIN_MS,
+        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MAX_MS,
+        "Intervalo para repetir perfis fora do limite"
+    );
 
 #undef CHECK_SETTING_RANGE
 
@@ -958,7 +1086,8 @@ bool validateRuntimeSettings(
         values.enableAutomaticSubnetScan > 1 ||
         values.enableEmailAlerts > 1 ||
         values.emailOnIpChange > 1 ||
-        values.enableCameraAlertLed > 1
+        values.enableCameraAlertLed > 1 ||
+        values.enableLiveProfileFailover > 1
     ) {
         error = "Opcao booleana invalida";
         return false;
@@ -987,42 +1116,64 @@ bool validateRuntimeSettings(
     return true;
 }
 
-bool migrateLegacyConnectivityDefaults(RuntimeSettings& values)
+bool migrateRuntimeDefaults(
+    RuntimeSettings& values,
+    uint16_t storedDefaultsRevision
+)
 {
     const RuntimeSettings defaults = makeDefaultRuntimeSettings();
     bool changed = false;
 
-    if (strcmp(values.snapshotProfileMatch, "sub") == 0) {
-        copySettingText(
-            values.snapshotProfileMatch,
-            defaults.snapshotProfileMatch
-        );
-        changed = true;
-    }
+    if (storedDefaultsRevision < 2) {
+        if (strcmp(values.snapshotProfileMatch, "sub") == 0) {
+            copySettingText(
+                values.snapshotProfileMatch,
+                defaults.snapshotProfileMatch
+            );
+            changed = true;
+        }
 
 #define MIGRATE_LEGACY_DEFAULT(field, legacyValue) \
-    if (values.field == legacyValue) { \
-        values.field = defaults.field; \
-        changed = true; \
-    }
+        if (values.field == legacyValue) { \
+            values.field = defaults.field; \
+            changed = true; \
+        }
 
-    MIGRATE_LEGACY_DEFAULT(healthCheckIntervalMs, 30000UL);
-    MIGRATE_LEGACY_DEFAULT(startupGraceMs, 45000UL);
-    MIGRATE_LEGACY_DEFAULT(videoFailuresBeforeAlert, 3);
-    MIGRATE_LEGACY_DEFAULT(onvifRebootGraceMs, 90000UL);
-    MIGRATE_LEGACY_DEFAULT(onvifRebootCooldownMs, 15UL * 60UL * 1000UL);
-    MIGRATE_LEGACY_DEFAULT(onvifRebootWindowMs, 24UL * 60UL * 60UL * 1000UL);
-    MIGRATE_LEGACY_DEFAULT(maxOnvifRebootAttemptsPerWindow, 3);
-    MIGRATE_LEGACY_DEFAULT(rediscoveryIntervalMs, 60000UL);
-    MIGRATE_LEGACY_DEFAULT(serviceResponseTimeoutMs, 1500UL);
-    MIGRATE_LEGACY_DEFAULT(snapshotHttpTimeoutMs, 7000UL);
-    MIGRATE_LEGACY_DEFAULT(snapshotResolveRetryIntervalMs, 30000UL);
-    MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 1000UL);
-    MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 1000UL);
-    MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 2000UL);
-    MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 2000UL);
+        MIGRATE_LEGACY_DEFAULT(healthCheckIntervalMs, 30000UL);
+        MIGRATE_LEGACY_DEFAULT(startupGraceMs, 45000UL);
+        MIGRATE_LEGACY_DEFAULT(videoFailuresBeforeAlert, 3);
+        MIGRATE_LEGACY_DEFAULT(onvifRebootGraceMs, 90000UL);
+        MIGRATE_LEGACY_DEFAULT(
+            onvifRebootCooldownMs,
+            15UL * 60UL * 1000UL
+        );
+        MIGRATE_LEGACY_DEFAULT(
+            onvifRebootWindowMs,
+            24UL * 60UL * 60UL * 1000UL
+        );
+        MIGRATE_LEGACY_DEFAULT(rediscoveryIntervalMs, 60000UL);
+        MIGRATE_LEGACY_DEFAULT(serviceResponseTimeoutMs, 1500UL);
+        MIGRATE_LEGACY_DEFAULT(snapshotHttpTimeoutMs, 7000UL);
+        MIGRATE_LEGACY_DEFAULT(
+            snapshotResolveRetryIntervalMs,
+            30000UL
+        );
+        MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 1000UL);
+        MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 1000UL);
+        MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 2000UL);
+        MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 2000UL);
 
 #undef MIGRATE_LEGACY_DEFAULT
+    }
+
+    if (
+        storedDefaultsRevision < 3 &&
+        values.maxOnvifRebootAttemptsPerWindow == 12
+    ) {
+        values.maxOnvifRebootAttemptsPerWindow =
+            defaults.maxOnvifRebootAttemptsPerWindow;
+        changed = true;
+    }
 
     return changed;
 }
@@ -1081,21 +1232,58 @@ void loadRuntimeSettings()
 
     const size_t storedSize = preferences.getBytesLength(SETTINGS_NVS_KEY);
     StoredSettingsBlob blob{};
-    const size_t bytesRead = storedSize == sizeof(blob)
-        ? preferences.getBytes(SETTINGS_NVS_KEY, &blob, sizeof(blob))
-        : 0;
+    StoredSettingsBlobSchema1 schema1Blob{};
+    size_t bytesRead = 0;
+
+    if (storedSize == sizeof(blob)) {
+        bytesRead = preferences.getBytes(
+            SETTINGS_NVS_KEY,
+            &blob,
+            sizeof(blob)
+        );
+    } else if (storedSize == sizeof(schema1Blob)) {
+        bytesRead = preferences.getBytes(
+            SETTINGS_NVS_KEY,
+            &schema1Blob,
+            sizeof(schema1Blob)
+        );
+    }
+
     const uint16_t storedDefaultsRevision = preferences.getUShort(
         SETTINGS_DEFAULTS_REVISION_KEY,
         0
     );
     preferences.end();
 
-    const bool storedBlobValid =
+    bool schemaMigrated = false;
+    bool storedBlobValid =
         bytesRead == sizeof(blob) &&
         blob.magic == SETTINGS_MAGIC &&
         blob.schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION &&
         blob.payloadSize == sizeof(RuntimeSettings) &&
         blob.checksum == settingsChecksum(blob.values);
+
+    if (
+        !storedBlobValid &&
+        bytesRead == sizeof(schema1Blob) &&
+        schema1Blob.magic == SETTINGS_MAGIC &&
+        schema1Blob.schemaVersion == 1 &&
+        schema1Blob.payloadSize == sizeof(RuntimeSettingsSchema1) &&
+        schema1Blob.checksum == settingsChecksum(schema1Blob.values)
+    ) {
+        blob.magic = SETTINGS_MAGIC;
+        blob.schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
+        blob.payloadSize = sizeof(RuntimeSettings);
+        blob.values = makeDefaultRuntimeSettings();
+        memcpy(
+            &blob.values,
+            &schema1Blob.values,
+            sizeof(schema1Blob.values)
+        );
+        blob.checksum = settingsChecksum(blob.values);
+        storedBlobValid = true;
+        schemaMigrated = true;
+    }
 
     if (!storedBlobValid) {
         lastSettingsResult = storedSize == 0
@@ -1107,9 +1295,9 @@ void loadRuntimeSettings()
 
     const bool defaultsRevisionPending =
         storedDefaultsRevision < RUNTIME_SETTINGS_DEFAULTS_REVISION;
-    const bool connectivityDefaultsMigrated =
+    const bool runtimeDefaultsMigrated =
         defaultsRevisionPending &&
-        migrateLegacyConnectivityDefaults(blob.values);
+        migrateRuntimeDefaults(blob.values, storedDefaultsRevision);
     bool previewLimitMigrated = false;
 
     if (blob.values.feedMinIntervalMs < FEED_MIN_INTERVAL_MIN_MS) {
@@ -1143,12 +1331,20 @@ void loadRuntimeSettings()
     settings = blob.values;
     settingsLoadedFromNvs = true;
 
-    if (defaultsRevisionPending || previewLimitMigrated) {
+    if (
+        schemaMigrated ||
+        defaultsRevisionPending ||
+        previewLimitMigrated
+    ) {
         const bool migratedSaved = saveRuntimeSettingsToNvs(settings);
 
-        if (connectivityDefaultsMigrated) {
+        if (schemaMigrated) {
             lastSettingsResult = migratedSaved
-                ? "Configuracoes carregadas; novos padroes de conectividade aplicados"
+                ? "Configuracoes do schema 1 migradas e carregadas"
+                : "Configuracoes do schema 1 carregadas; migracao nao persistida";
+        } else if (runtimeDefaultsMigrated) {
+            lastSettingsResult = migratedSaved
+                ? "Configuracoes carregadas; novos padroes aplicados"
                 : "Configuracoes carregadas; novos padroes nao persistidos";
         } else if (previewLimitMigrated) {
             lastSettingsResult = migratedSaved
@@ -2656,6 +2852,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
         consecutiveInconclusiveChecks = 0;
         consecutiveMediaServiceFailures = 0;
         consecutiveIndependentMediaFailures = 0;
+        independentMediaFailureStartedAtMs = 0;
         lastSnapshotProbe = SnapshotProbe{};
         lastSnapshotResult = "Perfil alterado; aguardando novo teste JPEG";
     }
@@ -2664,6 +2861,7 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
         camera.rtspPort = settings.cameraRtspPort;
         invalidateLiveProfiles();
         consecutiveIndependentMediaFailures = 0;
+        independentMediaFailureStartedAtMs = 0;
 
         if (camera.valid) {
             saveCameraTarget();
@@ -3049,7 +3247,14 @@ void appendDetailsTable(String& html)
     );
     row("Teste de imagem", snapshotDescription);
     row("Teste ONVIF", describeProbe(lastOnvifProbe, "HTTP"));
-    row("Teste RTSP", describeProbe(lastRtspProbe, "RTSP"));
+    row(
+        "Teste RTSP",
+        lastRtspProbeAttempted
+            ? describeProbe(lastRtspProbe, "RTSP")
+            : lastOnvifProbe.protocolResponded
+                ? String("dispensado; ONVIF respondeu")
+                : String("não executado; aguardando câmera e ONVIF")
+    );
     row("Falhas de imagem consecutivas", String(consecutiveFailures));
     row("Falhas de controle consecutivas", String(consecutiveControlFailures));
     row("Recuperação ONVIF", lastCameraRebootResult);
@@ -3596,6 +3801,7 @@ bool applyBestDiscoveredCandidate()
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
     consecutiveIndependentMediaFailures = 0;
+    independentMediaFailureStartedAtMs = 0;
     snapshotTargetFailureStreak = 0;
     saveCameraTarget();
 
@@ -5637,6 +5843,46 @@ bool snapshotFailureAllowsAutomaticReboot()
         !containsIgnoreCase(lastSnapshotProbe.detail, "https local ainda nao suportado");
 }
 
+void recordCameraRebootEvidence(bool manualRequest)
+{
+    CameraRebootEvidence& evidence =
+        cameraRebootHistory[cameraRebootHistoryNext];
+    evidence = CameraRebootEvidence{};
+    copySettingText(evidence.timestamp, currentTimestamp());
+    copySettingText(evidence.snapshotProfile, snapshotTarget.profileName);
+    evidence.uptimeSeconds = millis() / 1000UL;
+    evidence.snapshotStatus = static_cast<int16_t>(
+        lastSnapshotProbe.statusCode
+    );
+    evidence.snapshotLatencyMs = lastSnapshotProbe.latencyMs;
+    evidence.snapshotBytes = static_cast<uint32_t>(
+        lastSnapshotProbe.bytesRead
+    );
+    evidence.consecutiveImageFailures = consecutiveFailures;
+    evidence.consecutiveMediaFailures =
+        consecutiveIndependentMediaFailures;
+    evidence.canaryHandshakeLatencyMs =
+        lastMediaCanaryProbe.handshakeLatencyMs;
+    evidence.canaryObservedAfterPlayMs =
+        lastMediaCanaryProbe.observedAfterPlayMs;
+    evidence.canaryConclusiveSilence =
+        lastMediaCanaryProbe.conclusiveSilence;
+    evidence.mediaFailureDurationSeconds =
+        independentMediaFailureStartedAtMs == 0
+            ? 0UL
+            : (millis() - independentMediaFailureStartedAtMs) / 1000UL;
+    evidence.esp32WifiRssi = static_cast<int16_t>(WiFi.RSSI());
+    evidence.freeHeapBytes = ESP.getFreeHeap();
+    evidence.manual = manualRequest;
+
+    cameraRebootHistoryNext =
+        (cameraRebootHistoryNext + 1U) %
+        CAMERA_REBOOT_HISTORY_CAPACITY;
+    if (cameraRebootHistoryCount < CAMERA_REBOOT_HISTORY_CAPACITY) {
+        cameraRebootHistoryCount++;
+    }
+}
+
 bool requestCameraRebootOnvif(bool manualRequest = false)
 {
     CameraIoGuard cameraIoGuard;
@@ -5708,6 +5954,12 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     lastCameraRebootAttemptAtMs = now;
     cameraRebootAttempts++;
 
+    if (manualRequest) {
+        manualCameraRebootAttempts++;
+    } else {
+        automaticCameraRebootAttempts++;
+    }
+
     String responseBody;
     int statusCode = 0;
     const bool accepted = postOnvifSoap(
@@ -5721,7 +5973,16 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
 
     if (!accepted) {
         cameraRebootErrors++;
-        lastCameraRebootResult = currentTimestamp() + " - rejeitado; ";
+
+        if (manualRequest) {
+            manualCameraRebootErrors++;
+        } else {
+            automaticCameraRebootErrors++;
+        }
+
+        lastCameraRebootResult = currentTimestamp() + " - ";
+        lastCameraRebootResult += manualRequest ? "manual" : "automatico";
+        lastCameraRebootResult += " rejeitado; ";
 
         if (statusCode < 0) {
             lastCameraRebootResult += HTTPClient::errorToString(statusCode);
@@ -5755,6 +6016,38 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     }
 
     cameraRebootAccepted++;
+
+    if (manualRequest) {
+        manualCameraRebootAccepted++;
+    } else {
+        automaticCameraRebootAccepted++;
+    }
+
+    lastCameraRebootEvidence = currentTimestamp() + " - origem ";
+    lastCameraRebootEvidence += manualRequest ? "manual" : "automatica";
+    lastCameraRebootEvidence += "; JPEG HTTP ";
+    lastCameraRebootEvidence += lastSnapshotProbe.statusCode;
+    lastCameraRebootEvidence += ", ";
+    lastCameraRebootEvidence += lastSnapshotProbe.bytesRead;
+    lastCameraRebootEvidence += " bytes em ";
+    lastCameraRebootEvidence += lastSnapshotProbe.latencyMs;
+    lastCameraRebootEvidence += " ms; falhas JPEG ";
+    lastCameraRebootEvidence += consecutiveFailures;
+    lastCameraRebootEvidence += "; canario ";
+    lastCameraRebootEvidence += lastMediaCanaryProbe.conclusiveSilence
+        ? "silencio conclusivo"
+        : lastMediaCanaryProbe.mediaReceived
+            ? "RTP recebido"
+            : "inconclusivo";
+    lastCameraRebootEvidence += " apos ";
+    lastCameraRebootEvidence += lastMediaCanaryProbe.observedAfterPlayMs;
+    lastCameraRebootEvidence += " ms; Wi-Fi ESP32 ";
+    lastCameraRebootEvidence += WiFi.RSSI();
+    lastCameraRebootEvidence += " dBm; heap livre ";
+    lastCameraRebootEvidence += ESP.getFreeHeap();
+    lastCameraRebootEvidence += " bytes";
+    recordCameraRebootEvidence(manualRequest);
+
     const unsigned long acceptedAtMs = millis();
     cameraRebootAcceptedAtMs[cameraRebootAttemptsInWindow++] = acceptedAtMs;
     cameraRebootWindowStartedAtMs = cameraRebootAcceptedAtMs[0];
@@ -5771,6 +6064,7 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
     consecutiveIndependentMediaFailures = 0;
+    independentMediaFailureStartedAtMs = 0;
     lastSnapshotResolveStatusCode = 0;
     lastSnapshotResolveTransportFailure = false;
     lastSnapshotProbe = SnapshotProbe{};
@@ -5787,8 +6081,11 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
         ignoredPosition
     );
 
-    lastCameraRebootResult =
-        currentTimestamp() + " - aceito; HTTP " + String(statusCode);
+    lastCameraRebootResult = currentTimestamp() + " - ";
+    lastCameraRebootResult += manualRequest ? "manual" : "automatico";
+    lastCameraRebootResult +=
+        " comando aceito; reinicio ainda nao confirmado; HTTP ";
+    lastCameraRebootResult += statusCode;
 
     if (!rebootMessage.isEmpty()) {
         lastCameraRebootResult += "; ";
@@ -6338,6 +6635,7 @@ bool scanSubnetForCamera()
             consecutiveInconclusiveChecks = 0;
             consecutiveMediaServiceFailures = 0;
             consecutiveIndependentMediaFailures = 0;
+            independentMediaFailureStartedAtMs = 0;
             snapshotTargetFailureStreak = 0;
             saveCameraTarget();
 
@@ -6366,16 +6664,23 @@ bool cameraControlResponded()
     if (!camera.valid) {
         lastOnvifProbe = ServiceProbe{};
         lastRtspProbe = ServiceProbe{};
+        lastRtspProbeAttempted = false;
         return false;
     }
 
     lastOnvifProbe = probeOnvif(camera);
+
+    if (lastOnvifProbe.protocolResponded) {
+        lastRtspProbe = ServiceProbe{};
+        lastRtspProbeAttempted = false;
+        return true;
+    }
+
     httpServer.handleClient();
     lastRtspProbe = probeRtsp(camera.ip, camera.rtspPort);
+    lastRtspProbeAttempted = true;
 
-    return
-        lastOnvifProbe.protocolResponded ||
-        lastRtspProbe.protocolResponded;
+    return lastRtspProbe.protocolResponded;
 }
 
 void resetCameraCheckSequences(const char* snapshotDetail)
@@ -6386,10 +6691,12 @@ void resetCameraCheckSequences(const char* snapshotDetail)
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
     consecutiveIndependentMediaFailures = 0;
+    independentMediaFailureStartedAtMs = 0;
     snapshotTargetFailureStreak = 0;
     resetSnapshotProfileFailover();
     lastOnvifProbe = ServiceProbe{};
     lastRtspProbe = ServiceProbe{};
+    lastRtspProbeAttempted = false;
     lastSnapshotProbe = SnapshotProbe{};
     lastSnapshotProbe.detail = snapshotDetail;
     lastBrowserSnapshotDeliveredAtMs = 0;
@@ -6430,6 +6737,7 @@ bool mediaCanaryEvidenceRecentlyValidated()
 void noteInconclusiveHealthCheck(const String& event)
 {
     consecutiveIndependentMediaFailures = 0;
+    independentMediaFailureStartedAtMs = 0;
     consecutiveSuccesses = 0;
 
     if (
@@ -6459,6 +6767,7 @@ void recordSuccessfulHealthCheck(
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
     consecutiveIndependentMediaFailures = 0;
+    independentMediaFailureStartedAtMs = 0;
     clearMediaCanaryFailureEvidence();
 
     if (consecutiveSuccesses < 255) {
@@ -6553,7 +6862,11 @@ MediaCanaryOutcome runIndependentMediaCanary()
         const uint32_t cycleRemainingMs =
             LIVE_MEDIA_PROBE_CYCLE_TIMEOUT_MS - cycleElapsedMs;
 
-        if (cycleRemainingMs < LIVE_MEDIA_PROBE_TIMEOUT_MS) {
+        const uint32_t probeBudgetMs =
+            LIVE_MEDIA_PROBE_HANDSHAKE_TIMEOUT_MS +
+            LIVE_MEDIA_PROBE_OBSERVATION_TIMEOUT_MS;
+
+        if (cycleRemainingMs < probeBudgetMs) {
             if (lastMediaCanaryProfilesTested == 0) {
                 lastMediaCanaryProbe = LiveMediaProbeResult{};
             }
@@ -6572,7 +6885,8 @@ MediaCanaryOutcome runIndependentMediaCanary()
         lastMediaCanaryProfilesTested++;
         const bool mediaReceived = liveStreamRelay.probeMedia(
             profileIndices[index],
-            LIVE_MEDIA_PROBE_TIMEOUT_MS,
+            LIVE_MEDIA_PROBE_HANDSHAKE_TIMEOUT_MS,
+            LIVE_MEDIA_PROBE_OBSERVATION_TIMEOUT_MS,
             lastMediaCanaryProbe
         );
 
@@ -6584,8 +6898,7 @@ MediaCanaryOutcome runIndependentMediaCanary()
         }
 
         const bool conclusiveMediaFailure =
-            lastMediaCanaryProbe.descriptorResolved &&
-            lastMediaCanaryProbe.playAccepted &&
+            lastMediaCanaryProbe.conclusiveSilence &&
             !lastMediaCanaryProbe.mediaReceived &&
             lastMediaCanaryProbe.observedAfterPlayMs >=
                 LIVE_MEDIA_PROBE_MIN_OBSERVATION_MS;
@@ -6816,13 +7129,14 @@ void runHealthCheck()
         Serial.printf(
             "CAMERA OK: %s | JPEG=%u bytes %lums | "
             "ONVIF tcp=%d http=%d code=%d | "
-            "RTSP tcp=%d protocolo=%d code=%d\n",
+            "RTSP tentado=%d tcp=%d protocolo=%d code=%d\n",
             camera.ip.toString().c_str(),
             static_cast<unsigned>(lastSnapshotProbe.bytesRead),
             static_cast<unsigned long>(lastSnapshotProbe.latencyMs),
             lastOnvifProbe.tcpConnected,
             lastOnvifProbe.protocolResponded,
             lastOnvifProbe.statusCode,
+            lastRtspProbeAttempted,
             lastRtspProbe.tcpConnected,
             lastRtspProbe.protocolResponded,
             lastRtspProbe.statusCode
@@ -6949,6 +7263,9 @@ void runHealthCheck()
                 MediaCanaryOutcome::AllProfilesSilentAfterPlay;
 
         if (independentMediaFailureThisCheck) {
+            if (consecutiveIndependentMediaFailures == 0) {
+                independentMediaFailureStartedAtMs = millis();
+            }
             if (consecutiveIndependentMediaFailures < 255) {
                 consecutiveIndependentMediaFailures++;
             }
@@ -6956,9 +7273,11 @@ void runHealthCheck()
             mediaCanaryOutcomeThisCheck == MediaCanaryOutcome::Inconclusive
         ) {
             consecutiveIndependentMediaFailures = 0;
+            independentMediaFailureStartedAtMs = 0;
         }
     } else {
         consecutiveIndependentMediaFailures = 0;
+        independentMediaFailureStartedAtMs = 0;
     }
 
     consecutiveSuccesses = 0;
@@ -7009,13 +7328,18 @@ void runHealthCheck()
             liveStreamRelay.snapshotStats(relayStats);
             const bool liveMediaActive =
                 liveRelayHasRecentMedia(relayStats);
+            const bool independentFailureDurationMet =
+                independentMediaFailureStartedAtMs != 0 &&
+                millis() - independentMediaFailureStartedAtMs >=
+                    LIVE_MEDIA_FAILURE_MIN_REBOOT_DURATION_MS;
             const bool rebootEligible =
                 lastOnvifProbe.protocolResponded &&
                 snapshotFailureAllowsAutomaticReboot() &&
                 !liveMediaActive &&
                 independentMediaFailureThisCheck &&
                 consecutiveIndependentMediaFailures >=
-                    VIDEO_FAILURES_BEFORE_REBOOT;
+                    VIDEO_FAILURES_BEFORE_REBOOT &&
+                independentFailureDurationMet;
 
             if (rebootEligible && requestCameraRebootOnvif()) {
                 return;
@@ -7040,6 +7364,9 @@ void runHealthCheck()
                 ) {
                     lastCameraRebootResult +=
                         "falha RTSP independente ainda nao confirmada";
+                } else if (!independentFailureDurationMet) {
+                    lastCameraRebootResult +=
+                        "falha de midia ainda nao completou 90 segundos";
                 } else if (snapshotProfileFailoverPending) {
                     lastCameraRebootResult +=
                         "perfil de snapshot alternativo ainda em teste";
@@ -7128,7 +7455,7 @@ String buildStatusJson()
     const bool sntpReferenceIsFresh = sntpReferenceFresh(sntpReference);
 
     String json;
-    json.reserve(15600);
+    json.reserve(19000);
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -7442,6 +7769,8 @@ String buildStatusJson()
     json += lastOnvifProbe.latencyMs;
     json += ",\"rtspTcp\":";
     json += lastRtspProbe.tcpConnected ? "true" : "false";
+    json += ",\"rtspAttempted\":";
+    json += lastRtspProbeAttempted ? "true" : "false";
     json += ",\"rtspProtocol\":";
     json += lastRtspProbe.protocolResponded ? "true" : "false";
     json += ",\"rtspMediaRouteTested\":";
@@ -7475,8 +7804,12 @@ String buildStatusJson()
     json += lastMediaCanaryProbe.playAccepted ? "true" : "false";
     json += ",\"mediaReceived\":";
     json += lastMediaCanaryProbe.mediaReceived ? "true" : "false";
+    json += ",\"conclusiveSilence\":";
+    json += lastMediaCanaryProbe.conclusiveSilence ? "true" : "false";
     json += ",\"status\":";
     json += lastMediaCanaryProbe.statusCode;
+    json += ",\"handshakeLatencyMs\":";
+    json += lastMediaCanaryProbe.handshakeLatencyMs;
     json += ",\"latencyMs\":";
     json += lastMediaCanaryProbe.latencyMs;
     json += ",\"observedAfterPlayMs\":";
@@ -7493,6 +7826,13 @@ String buildStatusJson()
     json += lastMediaCanaryAtMs == 0
         ? 0UL
         : (now - lastMediaCanaryAtMs) / 1000UL;
+    json += ",\"failureSequenceAgeSeconds\":";
+    json += (
+        consecutiveIndependentMediaFailures == 0 ||
+        independentMediaFailureStartedAtMs == 0
+    )
+        ? 0UL
+        : (now - independentMediaFailureStartedAtMs) / 1000UL;
     json += ",\"detail\":\"";
     json += jsonEscape(lastMediaCanaryProbe.detail);
     json += "\"},";
@@ -7600,6 +7940,21 @@ String buildStatusJson()
     json += cameraRebootAccepted;
     json += ",\"errors\":";
     json += cameraRebootErrors;
+    json += ",\"automatic\":{";
+    json += "\"attempts\":";
+    json += automaticCameraRebootAttempts;
+    json += ",\"accepted\":";
+    json += automaticCameraRebootAccepted;
+    json += ",\"errors\":";
+    json += automaticCameraRebootErrors;
+    json += "},\"manual\":{";
+    json += "\"attempts\":";
+    json += manualCameraRebootAttempts;
+    json += ",\"accepted\":";
+    json += manualCameraRebootAccepted;
+    json += ",\"errors\":";
+    json += manualCameraRebootErrors;
+    json += "}";
     json += ",\"attemptsInWindow\":";
     json += cameraRebootAttemptsInWindow;
     json += ",\"maxAttemptsInWindow\":";
@@ -7610,7 +7965,60 @@ String buildStatusJson()
         : (now - lastCameraRebootAttemptAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
     json += jsonEscape(lastCameraRebootResult);
-    json += "\"},";
+    json += "\",\"lastEvidence\":\"";
+    json += jsonEscape(lastCameraRebootEvidence);
+    json += "\",\"acceptedHistory\":[";
+
+    const size_t cameraRebootHistoryStart =
+        (cameraRebootHistoryNext + CAMERA_REBOOT_HISTORY_CAPACITY -
+         cameraRebootHistoryCount) %
+        CAMERA_REBOOT_HISTORY_CAPACITY;
+
+    for (size_t offset = 0; offset < cameraRebootHistoryCount; offset++) {
+        if (offset > 0) {
+            json += ',';
+        }
+
+        const CameraRebootEvidence& evidence = cameraRebootHistory[
+            (cameraRebootHistoryStart + offset) %
+            CAMERA_REBOOT_HISTORY_CAPACITY
+        ];
+        json += "{\"timestamp\":\"";
+        json += jsonEscape(evidence.timestamp);
+        json += "\",\"uptimeSeconds\":";
+        json += evidence.uptimeSeconds;
+        json += ",\"origin\":\"";
+        json += evidence.manual ? "manual" : "automatic";
+        json += "\",\"snapshot\":{";
+        json += "\"status\":";
+        json += evidence.snapshotStatus;
+        json += ",\"latencyMs\":";
+        json += evidence.snapshotLatencyMs;
+        json += ",\"bytes\":";
+        json += evidence.snapshotBytes;
+        json += ",\"profile\":\"";
+        json += jsonEscape(evidence.snapshotProfile);
+        json += "\",\"consecutiveFailures\":";
+        json += evidence.consecutiveImageFailures;
+        json += "},\"mediaCanary\":{";
+        json += "\"conclusiveSilence\":";
+        json += evidence.canaryConclusiveSilence ? "true" : "false";
+        json += ",\"handshakeLatencyMs\":";
+        json += evidence.canaryHandshakeLatencyMs;
+        json += ",\"observedAfterPlayMs\":";
+        json += evidence.canaryObservedAfterPlayMs;
+        json += ",\"consecutiveFailures\":";
+        json += evidence.consecutiveMediaFailures;
+        json += ",\"failureDurationSeconds\":";
+        json += evidence.mediaFailureDurationSeconds;
+        json += "},\"esp32WifiRssi\":";
+        json += evidence.esp32WifiRssi;
+        json += ",\"freeHeapBytes\":";
+        json += evidence.freeHeapBytes;
+        json += '}';
+    }
+
+    json += "]},";
 
     json += "\"counters\":{";
     json += "\"totalChecks\":";
@@ -7664,6 +8072,12 @@ String buildStatusJson()
     json += STATUS_REFRESH_INTERVAL_MS;
     json += ",\"snapshotHttpTimeoutMs\":";
     json += SNAPSHOT_HTTP_TIMEOUT_MS;
+    json += ",\"enableLiveProfileFailover\":";
+    json += ENABLE_LIVE_PROFILE_FAILOVER ? "true" : "false";
+    json += ",\"liveProfileFailoverDelayMs\":";
+    json += LIVE_PROFILE_FAILOVER_DELAY_MS;
+    json += ",\"liveProfileSweepRetryIntervalMs\":";
+    json += LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     json += "},\"settings\":{";
     json += "\"defaultsRevision\":";
     json += RUNTIME_SETTINGS_DEFAULTS_REVISION;
@@ -8232,6 +8646,22 @@ bool parseRuntimeSettingsRequest(
         STATUS_REFRESH_INTERVAL_MIN_MS,
         STATUS_REFRESH_INTERVAL_MAX_MS
     );
+    READ_BOOL(
+        enableLiveProfileFailover,
+        "enableLiveProfileFailover"
+    );
+    READ_U32(
+        liveProfileFailoverDelayMs,
+        "liveProfileFailoverDelayMs",
+        LIVE_PROFILE_FAILOVER_DELAY_MIN_MS,
+        LIVE_PROFILE_FAILOVER_DELAY_MAX_MS
+    );
+    READ_U32(
+        liveProfileSweepRetryIntervalMs,
+        "liveProfileSweepRetryIntervalMs",
+        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MIN_MS,
+        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MAX_MS
+    );
 
 #undef READ_BOOL
 #undef READ_U8
@@ -8347,6 +8777,12 @@ String buildSettingsJson()
     json += FEED_TARGET_CYCLE_MS;
     json += ",\"statusRefreshIntervalMs\":";
     json += STATUS_REFRESH_INTERVAL_MS;
+    json += ",\"enableLiveProfileFailover\":";
+    json += ENABLE_LIVE_PROFILE_FAILOVER ? "true" : "false";
+    json += ",\"liveProfileFailoverDelayMs\":";
+    json += LIVE_PROFILE_FAILOVER_DELAY_MS;
+    json += ",\"liveProfileSweepRetryIntervalMs\":";
+    json += LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     json += "}}";
     return json;
 }

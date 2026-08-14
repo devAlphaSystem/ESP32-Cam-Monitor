@@ -2751,24 +2751,27 @@ void LiveStreamRelay::invalidateMediaEvidence()
 
 bool LiveStreamRelay::probeMedia(
     size_t profileIndex,
-    uint32_t timeoutMs,
+    uint32_t handshakeTimeoutMs,
+    uint32_t observationTimeoutMs,
     LiveMediaProbeResult& result
 )
 {
     result = LiveMediaProbeResult{};
     result.attempted = true;
     const uint32_t startedAtMs = millis();
-    const uint32_t proportionalReserveMs = timeoutMs / 10UL;
+    const uint32_t probeBudgetMs =
+        handshakeTimeoutMs + observationTimeoutMs;
+    const uint32_t proportionalReserveMs = probeBudgetMs / 10UL;
     const uint32_t teardownReserveMs = proportionalReserveMs <
         LIVE_PROBE_TEARDOWN_RESERVE_MS
             ? proportionalReserveMs
             : LIVE_PROBE_TEARDOWN_RESERVE_MS;
     RtspDeadline totalDeadline;
     totalDeadline.startedAtMs = startedAtMs;
-    totalDeadline.timeoutMs = timeoutMs;
-    RtspDeadline workDeadline;
-    workDeadline.startedAtMs = startedAtMs;
-    workDeadline.timeoutMs = timeoutMs - teardownReserveMs;
+    totalDeadline.timeoutMs = probeBudgetMs + teardownReserveMs;
+    RtspDeadline handshakeDeadline;
+    handshakeDeadline.startedAtMs = startedAtMs;
+    handshakeDeadline.timeoutMs = handshakeTimeoutMs;
     RtspSession session;
     uint32_t playAcceptedAtMs = 0;
 
@@ -2790,8 +2793,8 @@ bool LiveStreamRelay::probeMedia(
         return result.mediaReceived;
     };
 
-    if (timeoutMs == 0) {
-        return finishProbe("Sonda RTP sem tempo disponivel");
+    if (handshakeTimeoutMs == 0 || observationTimeoutMs == 0) {
+        return finishProbe("Sonda RTP sem janela de tempo valida");
     }
 
     if (descriptorProvider_ == nullptr) {
@@ -2801,7 +2804,8 @@ bool LiveStreamRelay::probeMedia(
     LiveStreamDescriptor descriptor;
     String detail;
 
-    const uint32_t descriptorTimeoutMs = remainingTimeMs(&workDeadline);
+    const uint32_t descriptorTimeoutMs =
+        remainingTimeMs(&handshakeDeadline);
 
     if (
         descriptorTimeoutMs == 0 ||
@@ -2821,7 +2825,7 @@ bool LiveStreamRelay::probeMedia(
 
     result.descriptorResolved = true;
 
-    if (remainingTimeMs(&workDeadline) == 0) {
+    if (remainingTimeMs(&handshakeDeadline) == 0) {
         return finishProbe("Timeout ao resolver o perfil da sonda RTP");
     }
 
@@ -2842,7 +2846,7 @@ bool LiveStreamRelay::probeMedia(
         userAgent_,
         describe,
         detail,
-        &workDeadline,
+        &handshakeDeadline,
         &result.rtspResponded,
         &result.statusCode
     )) {
@@ -2890,7 +2894,7 @@ bool LiveStreamRelay::probeMedia(
         userAgent_,
         setup,
         detail,
-        &workDeadline,
+        &handshakeDeadline,
         &result.rtspResponded,
         &result.statusCode
     )) {
@@ -2929,7 +2933,7 @@ bool LiveStreamRelay::probeMedia(
         userAgent_,
         play,
         detail,
-        &workDeadline,
+        &handshakeDeadline,
         &result.rtspResponded,
         &result.statusCode
     )) {
@@ -2946,9 +2950,14 @@ bool LiveStreamRelay::probeMedia(
 
     result.playAccepted = true;
     playAcceptedAtMs = millis();
+    result.handshakeLatencyMs = playAcceptedAtMs - startedAtMs;
     play = RtspResponse{};
 
-    while (remainingTimeMs(&workDeadline) > 0) {
+    RtspDeadline observationDeadline;
+    observationDeadline.startedAtMs = playAcceptedAtMs;
+    observationDeadline.timeoutMs = observationTimeoutMs;
+
+    while (remainingTimeMs(&observationDeadline) > 0) {
         if (!session.cameraClient.connected()) {
             return finishProbe("Camera encerrou a sonda antes do primeiro RTP");
         }
@@ -2972,7 +2981,7 @@ bool LiveStreamRelay::probeMedia(
                 session.cameraClient,
                 asynchronousResponse,
                 static_cast<char>(first),
-                &workDeadline
+                &observationDeadline
             )) {
                 return finishProbe("Resposta RTSP assincrona invalida na sonda");
             }
@@ -2987,7 +2996,7 @@ bool LiveStreamRelay::probeMedia(
             interleavedHeader,
             sizeof(interleavedHeader),
             LIVE_RTSP_RESPONSE_TIMEOUT_MS,
-            &workDeadline
+            &observationDeadline
         )) {
             return finishProbe("Cabecalho RTP incompleto na sonda");
         }
@@ -3002,7 +3011,7 @@ bool LiveStreamRelay::probeMedia(
                 session.cameraClient,
                 length,
                 LIVE_RTSP_RESPONSE_TIMEOUT_MS,
-                &workDeadline
+                &observationDeadline
             )) {
                 return finishProbe("Pacote intercalado curto e incompleto");
             }
@@ -3017,7 +3026,7 @@ bool LiveStreamRelay::probeMedia(
             rtpHeader,
             sizeof(rtpHeader),
             LIVE_RTSP_RESPONSE_TIMEOUT_MS,
-            &workDeadline
+            &observationDeadline
         )) {
             return finishProbe("Cabecalho do pacote RTP incompleto");
         }
@@ -3026,7 +3035,7 @@ bool LiveStreamRelay::probeMedia(
             session.cameraClient,
             length - sizeof(rtpHeader),
             LIVE_RTSP_RESPONSE_TIMEOUT_MS,
-            &workDeadline
+            &observationDeadline
         )) {
             return finishProbe("Payload do pacote RTP incompleto");
         }
@@ -3048,7 +3057,8 @@ bool LiveStreamRelay::probeMedia(
         return finishProbe("Primeiro pacote RTP de video recebido");
     }
 
-    return finishProbe("Timeout aguardando o primeiro pacote RTP de video");
+    result.conclusiveSilence = true;
+    return finishProbe("Janela pos-PLAY concluida sem pacote RTP de video");
 }
 
 void LiveStreamRelay::taskEntry(void* parameter)
