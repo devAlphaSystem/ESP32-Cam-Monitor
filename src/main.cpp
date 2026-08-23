@@ -9,7 +9,6 @@
 #include <WiFiUdp.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include <freertos/task.h>
 #include <esp_bt.h>
 #include <esp_ota_ops.h>
 #include <esp_sntp.h>
@@ -24,8 +23,6 @@
 #include <esp32-hal-bt.h>
 #endif
 #include "dashboard_page.h"
-#include "live_player_script.h"
-#include "live_stream_relay.h"
 #include "secrets.h"
 
 #ifndef CAMERA_ONVIF_USERNAME_VALUE
@@ -36,14 +33,6 @@
 #define CAMERA_ONVIF_PASSWORD_VALUE ""
 #endif
 
-#ifndef CAMERA_RTSP_USERNAME_VALUE
-#define CAMERA_RTSP_USERNAME_VALUE CAMERA_ONVIF_USERNAME_VALUE
-#endif
-
-#ifndef CAMERA_RTSP_PASSWORD_VALUE
-#define CAMERA_RTSP_PASSWORD_VALUE CAMERA_ONVIF_PASSWORD_VALUE
-#endif
-
 #ifndef DASHBOARD_ADMIN_PASSWORD_VALUE
 #define DASHBOARD_ADMIN_PASSWORD_VALUE ""
 #endif
@@ -51,7 +40,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.9.0";
+constexpr char FIRMWARE_VERSION[] = "0.10.0";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -110,69 +99,13 @@ enum class OnvifMetadataStage {
     Complete
 };
 
-enum class MediaCanaryOutcome {
-    MediaReceived,
-    AllProfilesSilentAfterPlay,
-    SweepPending,
-    Inconclusive
-};
-
 enum class HealthEvidenceSource {
     None,
     SnapshotJpeg,
-    PreviewJpeg,
-    RelayRtp,
-    MediaCanaryRtp
+    PreviewJpeg
 };
 
 struct RuntimeSettings {
-    char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
-    char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
-    uint16_t cameraRtspPort;
-
-    uint32_t healthCheckIntervalMs;
-    uint32_t startupGraceMs;
-    uint8_t failuresBeforeRediscovery;
-    uint8_t failuresBeforeOffline;
-    uint8_t successesBeforeRecovery;
-    uint8_t videoFailuresBeforeAlert;
-    uint8_t videoFailuresBeforeReboot;
-
-    uint8_t enableOnvifAutoReboot;
-    uint32_t onvifRebootGraceMs;
-    uint32_t onvifRebootCooldownMs;
-    uint32_t onvifRebootWindowMs;
-    uint8_t maxOnvifRebootAttemptsPerWindow;
-
-    uint32_t wifiConnectTimeoutMs;
-    uint8_t enableAutomaticSubnetScan;
-    uint32_t discoveryTimeoutMs;
-    uint32_t rediscoveryIntervalMs;
-    uint32_t subnetScanIntervalMs;
-
-    uint8_t enableEmailAlerts;
-    uint8_t emailOnIpChange;
-    uint32_t emailRetryIntervalMs;
-
-    uint32_t tcpConnectTimeoutMs;
-    uint32_t serviceResponseTimeoutMs;
-    uint32_t scanConnectTimeoutMs;
-    uint32_t snapshotHttpTimeoutMs;
-    uint32_t snapshotResolveRetryIntervalMs;
-    uint8_t snapshotFailuresBeforeReresolve;
-
-    uint8_t enableCameraAlertLed;
-    uint32_t cameraAlertLedBlinkIntervalMs;
-    uint32_t feedMinIntervalMs;
-    uint32_t feedTargetCycleMs;
-    uint32_t statusRefreshIntervalMs;
-
-    uint8_t enableLiveProfileFailover;
-    uint32_t liveProfileFailoverDelayMs;
-    uint32_t liveProfileSweepRetryIntervalMs;
-};
-
-struct RuntimeSettingsSchema1 {
     char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
     char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
     uint16_t cameraRtspPort;
@@ -222,24 +155,6 @@ struct StoredSettingsBlob {
     RuntimeSettings values;
     uint32_t checksum;
 };
-
-struct StoredSettingsBlobSchema1 {
-    uint32_t magic;
-    uint16_t schemaVersion;
-    uint16_t payloadSize;
-    RuntimeSettingsSchema1 values;
-    uint32_t checksum;
-};
-
-static_assert(
-    sizeof(RuntimeSettingsSchema1) == 184,
-    "Layout persistido do schema 1 foi alterado"
-);
-static_assert(
-    offsetof(RuntimeSettings, enableLiveProfileFailover) ==
-        sizeof(RuntimeSettingsSchema1),
-    "Novos campos devem permanecer apos o payload do schema 1"
-);
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)
@@ -319,11 +234,6 @@ RuntimeSettings makeDefaultRuntimeSettings()
     values.feedMinIntervalMs = FEED_MIN_INTERVAL_MS;
     values.feedTargetCycleMs = FEED_TARGET_CYCLE_MS;
     values.statusRefreshIntervalMs = STATUS_REFRESH_INTERVAL_MS;
-    values.enableLiveProfileFailover =
-        ENABLE_LIVE_PROFILE_FAILOVER ? 1 : 0;
-    values.liveProfileFailoverDelayMs = LIVE_PROFILE_FAILOVER_DELAY_MS;
-    values.liveProfileSweepRetryIntervalMs =
-        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     return values;
 }
 
@@ -373,12 +283,6 @@ static_assert(
 #define FEED_MIN_INTERVAL_MS (settings.feedMinIntervalMs)
 #define FEED_TARGET_CYCLE_MS (settings.feedTargetCycleMs)
 #define STATUS_REFRESH_INTERVAL_MS (settings.statusRefreshIntervalMs)
-#define ENABLE_LIVE_PROFILE_FAILOVER \
-    (settings.enableLiveProfileFailover != 0)
-#define LIVE_PROFILE_FAILOVER_DELAY_MS \
-    (settings.liveProfileFailoverDelayMs)
-#define LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS \
-    (settings.liveProfileSweepRetryIntervalMs)
 
 struct ParsedUrl {
     bool valid = false;
@@ -420,10 +324,7 @@ struct OnvifServiceCatalog {
     bool usernameToken = false;
     bool httpDigest = false;
     bool mediaSnapshotUri = false;
-    bool mediaRtpRtspTcp = false;
-    bool media2RtspStreaming = false;
     bool eventsPullPoint = false;
-    bool ptzStatus = false;
     bool imagingStabilizationAdvertised = false;
     bool analyticsRules = false;
     bool analyticsModules = false;
@@ -440,7 +341,6 @@ struct OnvifServiceCatalog {
     OnvifServiceEndpoint media1;
     OnvifServiceEndpoint media2;
     OnvifServiceEndpoint events;
-    OnvifServiceEndpoint ptz;
     OnvifServiceEndpoint imaging;
     OnvifServiceEndpoint analytics;
     OnvifServiceEndpoint deviceIo;
@@ -451,7 +351,6 @@ struct OnvifDeviceMetadata {
     bool scopesLoaded = false;
     bool timeLoaded = false;
     bool eventPropertiesLoaded = false;
-    bool profileStreaming = false;
     bool profileT = false;
     bool motionEvents = false;
     bool tamperEvents = false;
@@ -494,7 +393,6 @@ struct SntpReferenceSnapshot {
 struct ServiceProbe {
     bool tcpConnected = false;
     bool protocolResponded = false;
-    bool mediaRouteTested = false;
     int statusCode = 0;
     uint32_t latencyMs = 0;
 };
@@ -535,16 +433,11 @@ struct CameraRebootEvidence {
     uint32_t uptimeSeconds = 0;
     uint32_t snapshotLatencyMs = 0;
     uint32_t snapshotBytes = 0;
-    uint32_t canaryHandshakeLatencyMs = 0;
-    uint32_t canaryObservedAfterPlayMs = 0;
-    uint32_t mediaFailureDurationSeconds = 0;
     uint32_t freeHeapBytes = 0;
     int16_t snapshotStatus = 0;
     int16_t esp32WifiRssi = 0;
     uint8_t consecutiveImageFailures = 0;
-    uint8_t consecutiveMediaFailures = 0;
     bool manual = false;
-    bool canaryConclusiveSilence = false;
 };
 
 struct DigestChallenge {
@@ -556,11 +449,21 @@ struct DigestChallenge {
     String algorithm = "MD5";
 };
 
+struct CameraSnapshotHttpSession {
+    WiFiClient client;
+    HTTPClient request;
+    String url;
+    DigestChallenge digestChallenge;
+    uint32_t digestNonceCount = 0;
+    unsigned long reusableAtMs = 0;
+    bool forceHttp10 = false;
+};
+
 WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 Preferences preferences;
+CameraSnapshotHttpSession cameraSnapshotHttpSession;
 SemaphoreHandle_t cameraIoMutex = nullptr;
-SemaphoreHandle_t onvifActuationMutex = nullptr;
 
 bool ensureCameraIoMutex()
 {
@@ -598,42 +501,6 @@ private:
     bool acquired_ = false;
 };
 
-bool ensureOnvifActuationMutex()
-{
-    if (onvifActuationMutex != nullptr) {
-        return true;
-    }
-
-    onvifActuationMutex = xSemaphoreCreateMutex();
-    return onvifActuationMutex != nullptr;
-}
-
-class OnvifActuationGuard {
-public:
-    explicit OnvifActuationGuard(TickType_t timeout)
-        : acquired_(
-            ensureOnvifActuationMutex() &&
-            xSemaphoreTake(onvifActuationMutex, timeout) == pdTRUE
-        )
-    {
-    }
-
-    ~OnvifActuationGuard()
-    {
-        if (acquired_) {
-            xSemaphoreGive(onvifActuationMutex);
-        }
-    }
-
-    bool acquired() const
-    {
-        return acquired_;
-    }
-
-private:
-    bool acquired_ = false;
-};
-
 bool settingsLoadedFromNvs = false;
 uint32_t settingsRevision = 1;
 uint32_t settingsWriteCount = 0;
@@ -651,7 +518,6 @@ OnvifMetadataStage onvifMetadataStage =
     OnvifMetadataStage::DeviceInformation;
 SnapshotTarget snapshotTarget;
 SnapshotProbe lastSnapshotProbe;
-LiveMediaProbeResult lastMediaCanaryProbe;
 ServiceProbe lastOnvifProbe;
 ServiceProbe lastRtspProbe;
 bool lastRtspProbeAttempted = false;
@@ -688,19 +554,12 @@ uint32_t snapshotsServed = 0;
 uint32_t snapshotErrors = 0;
 uint32_t previewCameraFetches = 0;
 uint32_t previewBusyResponses = 0;
-uint64_t previewBytesRelayed = 0;
+uint64_t previewBytesTransferred = 0;
 uint32_t cameraJpegHttpRequests = 0;
+uint32_t cameraJpegConnectionReuses = 0;
+uint32_t cameraJpegDigestPreemptiveRequests = 0;
 uint32_t snapshotProbeRuns = 0;
 uint32_t snapshotProbeFailures = 0;
-uint32_t mediaCanaryCycles = 0;
-uint32_t mediaCanaryRuns = 0;
-uint32_t mediaCanarySuccesses = 0;
-uint32_t mediaCanaryFailures = 0;
-uint32_t mediaCanaryInconclusive = 0;
-uint32_t mediaCanarySweepPending = 0;
-uint32_t ptzCommandAttempts = 0;
-uint32_t ptzCommandAccepted = 0;
-uint32_t ptzCommandErrors = 0;
 uint32_t previewClientAborts = 0;
 uint32_t previewHealthEvidenceUses = 0;
 uint32_t cameraRebootAttempts = 0;
@@ -720,7 +579,6 @@ uint8_t consecutiveSuccesses = 0;
 uint8_t consecutiveControlFailures = 0;
 uint8_t consecutiveInconclusiveChecks = 0;
 uint8_t consecutiveMediaServiceFailures = 0;
-uint8_t consecutiveIndependentMediaFailures = 0;
 uint8_t snapshotTargetFailureStreak = 0;
 uint8_t cameraRebootAttemptsInWindow = 0;
 uint8_t onvifMetadataStageFailureStreak = 0;
@@ -759,30 +617,14 @@ String previousCameraIp;
 String lastSnapshotResult = "Ainda nao solicitada";
 String lastCameraRebootResult = "Ainda nao solicitado";
 String lastCameraRebootEvidence = "Nenhum reboot aceito nesta inicializacao";
-String lastPtzCommand = "none";
-String lastPtzResult = "Ainda nao solicitado";
 String snapshotProfileTokenToSkip;
 unsigned long lastSnapshotResolveAttemptAtMs = 0;
 unsigned long lastBrowserSnapshotDeliveredAtMs = 0;
-unsigned long lastRelayMediaEvidenceConsumedAtMs = 0;
 unsigned long lastHealthEvidenceAtMs = 0;
 unsigned long lastOnvifMetadataRequestAtMs = 0;
-unsigned long lastMediaCanaryAtMs = 0;
-unsigned long independentMediaFailureStartedAtMs = 0;
-unsigned long lastPtzCommandAtMs = 0;
-size_t lastMediaCanaryProfileIndex = 0;
-size_t mediaCanaryNextProfileOffset = 0;
-uint8_t lastMediaCanaryProfilesTested = 0;
-uint16_t mediaCanarySilentProfilesMask = 0;
-unsigned long mediaCanarySilentProfileAtMs[MAX_LIVE_PROFILES] = {0};
-static_assert(
-    MAX_LIVE_PROFILES <= 16,
-    "Mascara do canario RTP suporta no maximo 16 perfis"
-);
 uint32_t lastBrowserSnapshotBytes = 0;
 uint32_t lastBrowserSnapshotLatencyMs = 0;
 int lastSnapshotResolveStatusCode = 0;
-int lastPtzStatusCode = 0;
 bool lastSnapshotResolveTransportFailure = false;
 bool snapshotProfileFailoverPending = false;
 bool lastOnvifMetadataRequestFailed = false;
@@ -794,20 +636,6 @@ bool resolveOnvifServiceCatalog(bool forceRefresh = false);
 String limitedOnvifText(String value, size_t maximumLength = 120);
 void refreshOnvifDeviceMetadata();
 void maintainCameraClock();
-bool requestLiveSynchronizationPoint(
-    const char* profileToken,
-    String& result
-);
-void invalidateLiveProfiles();
-void clearMediaCanaryFailureEvidence();
-void resetMediaCanaryFailureEvidence();
-void publishLiveProfilesFromXml(
-    const String& profilesXml,
-    const String& mediaUrl,
-    const IPAddress& cameraIp
-);
-void appendLiveStatusJson(String& json);
-void configureLiveRelay();
 
 uint32_t settingsChecksumBytes(const void* values, size_t valueSize)
 {
@@ -1066,19 +894,6 @@ bool validateRuntimeSettings(
         STATUS_REFRESH_INTERVAL_MAX_MS,
         "Atualizacao do painel fora do limite"
     );
-    CHECK_SETTING_RANGE(
-        liveProfileFailoverDelayMs,
-        LIVE_PROFILE_FAILOVER_DELAY_MIN_MS,
-        LIVE_PROFILE_FAILOVER_DELAY_MAX_MS,
-        "Espera para troca de perfil fora do limite"
-    );
-    CHECK_SETTING_RANGE(
-        liveProfileSweepRetryIntervalMs,
-        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MIN_MS,
-        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MAX_MS,
-        "Intervalo para repetir perfis fora do limite"
-    );
-
 #undef CHECK_SETTING_RANGE
 
     if (
@@ -1086,8 +901,7 @@ bool validateRuntimeSettings(
         values.enableAutomaticSubnetScan > 1 ||
         values.enableEmailAlerts > 1 ||
         values.emailOnIpChange > 1 ||
-        values.enableCameraAlertLed > 1 ||
-        values.enableLiveProfileFailover > 1
+        values.enableCameraAlertLed > 1
     ) {
         error = "Opcao booleana invalida";
         return false;
@@ -1232,7 +1046,6 @@ void loadRuntimeSettings()
 
     const size_t storedSize = preferences.getBytesLength(SETTINGS_NVS_KEY);
     StoredSettingsBlob blob{};
-    StoredSettingsBlobSchema1 schema1Blob{};
     size_t bytesRead = 0;
 
     if (storedSize == sizeof(blob)) {
@@ -1240,12 +1053,6 @@ void loadRuntimeSettings()
             SETTINGS_NVS_KEY,
             &blob,
             sizeof(blob)
-        );
-    } else if (storedSize == sizeof(schema1Blob)) {
-        bytesRead = preferences.getBytes(
-            SETTINGS_NVS_KEY,
-            &schema1Blob,
-            sizeof(schema1Blob)
         );
     }
 
@@ -1255,7 +1062,6 @@ void loadRuntimeSettings()
     );
     preferences.end();
 
-    bool schemaMigrated = false;
     bool storedBlobValid =
         bytesRead == sizeof(blob) &&
         blob.magic == SETTINGS_MAGIC &&
@@ -1263,32 +1069,15 @@ void loadRuntimeSettings()
         blob.payloadSize == sizeof(RuntimeSettings) &&
         blob.checksum == settingsChecksum(blob.values);
 
-    if (
-        !storedBlobValid &&
-        bytesRead == sizeof(schema1Blob) &&
-        schema1Blob.magic == SETTINGS_MAGIC &&
-        schema1Blob.schemaVersion == 1 &&
-        schema1Blob.payloadSize == sizeof(RuntimeSettingsSchema1) &&
-        schema1Blob.checksum == settingsChecksum(schema1Blob.values)
-    ) {
-        blob.magic = SETTINGS_MAGIC;
-        blob.schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
-        blob.payloadSize = sizeof(RuntimeSettings);
-        blob.values = makeDefaultRuntimeSettings();
-        memcpy(
-            &blob.values,
-            &schema1Blob.values,
-            sizeof(schema1Blob.values)
-        );
-        blob.checksum = settingsChecksum(blob.values);
-        storedBlobValid = true;
-        schemaMigrated = true;
-    }
-
     if (!storedBlobValid) {
-        lastSettingsResult = storedSize == 0
-            ? "Usando valores de fabrica"
-            : "Configuracao salva invalida; valores de fabrica restaurados";
+        if (storedSize == 0) {
+            lastSettingsResult = "Usando valores de fabrica";
+        } else {
+            const bool removed = clearRuntimeSettingsNvs();
+            lastSettingsResult = removed
+                ? "Configuracao anterior removida; valores de fabrica restaurados"
+                : "Configuracao anterior invalida; limpeza da NVS falhou";
+        }
         Serial.println(lastSettingsResult);
         return;
     }
@@ -1332,17 +1121,12 @@ void loadRuntimeSettings()
     settingsLoadedFromNvs = true;
 
     if (
-        schemaMigrated ||
         defaultsRevisionPending ||
         previewLimitMigrated
     ) {
         const bool migratedSaved = saveRuntimeSettingsToNvs(settings);
 
-        if (schemaMigrated) {
-            lastSettingsResult = migratedSaved
-                ? "Configuracoes do schema 1 migradas e carregadas"
-                : "Configuracoes do schema 1 carregadas; migracao nao persistida";
-        } else if (runtimeDefaultsMigrated) {
+        if (runtimeDefaultsMigrated) {
             lastSettingsResult = migratedSaved
                 ? "Configuracoes carregadas; novos padroes aplicados"
                 : "Configuracoes carregadas; novos padroes nao persistidos";
@@ -1501,10 +1285,6 @@ const char* healthEvidenceSourceName(HealthEvidenceSource source)
             return "snapshot_jpeg";
         case HealthEvidenceSource::PreviewJpeg:
             return "preview_jpeg";
-        case HealthEvidenceSource::RelayRtp:
-            return "relay_rtp";
-        case HealthEvidenceSource::MediaCanaryRtp:
-            return "media_canary_rtp";
     }
 
     return "unknown";
@@ -1723,6 +1503,18 @@ String jsonEscape(const String& input)
     output.reserve(input.length() + 16);
     appendJsonEscaped(output, input);
     return output;
+}
+
+void appendUnsigned64(String& output, uint64_t value)
+{
+    char buffer[24];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%llu",
+        static_cast<unsigned long long>(value)
+    );
+    output += buffer;
 }
 
 String htmlEscape(const String& input)
@@ -2229,7 +2021,8 @@ String httpQuotedEscape(const String& input)
 String makeDigestAuthorization(
     const char* method,
     const String& url,
-    const DigestChallenge& challenge
+    const DigestChallenge& challenge,
+    uint32_t nonceCountValue = 1
 )
 {
     if (!cameraCredentialsConfigured() || !challenge.valid) {
@@ -2254,7 +2047,14 @@ String makeDigestAuthorization(
     );
 
     const String cnonce = cnonceBuffer;
-    const String nonceCount = "00000001";
+    char nonceCountBuffer[9];
+    snprintf(
+        nonceCountBuffer,
+        sizeof(nonceCountBuffer),
+        "%08lx",
+        static_cast<unsigned long>(nonceCountValue)
+    );
+    const String nonceCount = nonceCountBuffer;
 
     String ha1 = md5Hex(
         String(CAMERA_ONVIF_USERNAME_VALUE) + ':' +
@@ -2343,38 +2143,139 @@ void applyCameraAuthorization(
     }
 }
 
-int openAuthenticatedCameraGet(
-    HTTPClient& request,
-    WiFiClient& client,
-    const String& url
-)
+void finishCameraSnapshotGet(bool responseCanBeReused)
 {
+    cameraSnapshotHttpSession.request.end();
+
+    if (
+        responseCanBeReused &&
+        cameraSnapshotHttpSession.client.connected()
+    ) {
+        cameraSnapshotHttpSession.reusableAtMs = millis();
+    } else {
+        cameraSnapshotHttpSession.client.stop();
+        cameraSnapshotHttpSession.reusableAtMs = 0;
+    }
+}
+
+void maintainCameraSnapshotHttpSession()
+{
+    if (
+        cameraSnapshotHttpSession.reusableAtMs != 0 &&
+        millis() - cameraSnapshotHttpSession.reusableAtMs >=
+            SNAPSHOT_CONNECTION_REUSE_IDLE_MS
+    ) {
+        finishCameraSnapshotGet(false);
+    }
+}
+
+void resetCameraSnapshotHttpSession()
+{
+    finishCameraSnapshotGet(false);
+    cameraSnapshotHttpSession.url = String();
+    cameraSnapshotHttpSession.digestChallenge = DigestChallenge{};
+    cameraSnapshotHttpSession.digestNonceCount = 0;
+    cameraSnapshotHttpSession.forceHttp10 = false;
+}
+
+String makeNextCameraSnapshotDigestAuthorization(const String& url)
+{
+    CameraSnapshotHttpSession& session = cameraSnapshotHttpSession;
+
+    if (!session.digestChallenge.valid) {
+        return String();
+    }
+
+    const uint32_t nextNonceCount = session.digestNonceCount == 0xFFFFFFFFUL
+        ? 1UL
+        : session.digestNonceCount + 1UL;
+    const String authorization = makeDigestAuthorization(
+        "GET",
+        url,
+        session.digestChallenge,
+        nextNonceCount
+    );
+
+    if (authorization.isEmpty()) {
+        session.digestChallenge = DigestChallenge{};
+        session.digestNonceCount = 0;
+        return String();
+    }
+
+    session.digestNonceCount = nextNonceCount;
+    return authorization;
+}
+
+int openAuthenticatedCameraGet(const String& url)
+{
+    CameraSnapshotHttpSession& session = cameraSnapshotHttpSession;
+
+    if (session.url != url) {
+        resetCameraSnapshotHttpSession();
+        session.url = url;
+    }
+
+    HTTPClient& request = session.request;
+    WiFiClient& client = session.client;
     const char* responseHeaders[] = {
         "Content-Type",
-        "WWW-Authenticate"
+        "WWW-Authenticate",
+        "Transfer-Encoding"
     };
 
     request.setConnectTimeout(TCP_CONNECT_TIMEOUT_MS);
     request.setTimeout(SNAPSHOT_HTTP_TIMEOUT_MS);
-    request.setReuse(false);
-    request.useHTTP10(true);
+    request.useHTTP10(session.forceHttp10);
+    request.setReuse(!session.forceHttp10);
     request.setUserAgent(
         String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION
     );
-    request.collectHeaders(responseHeaders, 2);
+    request.collectHeaders(responseHeaders, 3);
 
+    bool responseUsesChunkedTransfer = false;
     const auto executeAttempt = [&](const String& digestAuthorization) {
+        responseUsesChunkedTransfer = false;
+
         if (!request.begin(client, url)) {
             return -1;
         }
 
+        const bool connectionWasOpen = client.connected();
         cameraJpegHttpRequests++;
         request.addHeader("Accept", "image/jpeg, image/*;q=0.9, */*;q=0.1");
         applyCameraAuthorization(request, digestAuthorization);
-        return request.GET();
+        const int statusCode = request.GET();
+
+        if (connectionWasOpen && statusCode > 0) {
+            cameraJpegConnectionReuses++;
+        }
+
+        String transferEncoding = request.header("Transfer-Encoding");
+        transferEncoding.toLowerCase();
+
+        if (transferEncoding.indexOf("chunked") >= 0) {
+            responseUsesChunkedTransfer = true;
+            session.forceHttp10 = true;
+            request.useHTTP10(true);
+        }
+
+        return statusCode;
     };
 
-    int statusCode = executeAttempt(String());
+    String digestAuthorization =
+        makeNextCameraSnapshotDigestAuthorization(url);
+
+    if (!digestAuthorization.isEmpty()) {
+        cameraJpegDigestPreemptiveRequests++;
+    }
+
+    int statusCode = executeAttempt(digestAuthorization);
+
+    if (responseUsesChunkedTransfer && statusCode != 401) {
+        finishCameraSnapshotGet(false);
+        digestAuthorization = makeNextCameraSnapshotDigestAuthorization(url);
+        statusCode = executeAttempt(digestAuthorization);
+    }
 
     if (statusCode != 401 || !cameraCredentialsConfigured()) {
         return statusCode;
@@ -2384,22 +2285,30 @@ int openAuthenticatedCameraGet(
     const String authenticateHeader = request.header("WWW-Authenticate");
 
     if (!parseDigestChallenge(authenticateHeader, challenge)) {
+        session.digestChallenge = DigestChallenge{};
+        session.digestNonceCount = 0;
         return statusCode;
     }
 
-    const String digestAuthorization = makeDigestAuthorization(
-        "GET",
-        url,
-        challenge
-    );
+    session.digestChallenge = challenge;
+    session.digestNonceCount = 0;
+    digestAuthorization = makeNextCameraSnapshotDigestAuthorization(url);
 
     if (digestAuthorization.isEmpty()) {
+        session.digestChallenge = DigestChallenge{};
+        session.digestNonceCount = 0;
         return statusCode;
     }
 
-    request.end();
-    client.stop();
-    return executeAttempt(digestAuthorization);
+    finishCameraSnapshotGet(false);
+    statusCode = executeAttempt(digestAuthorization);
+
+    if (statusCode == 401) {
+        session.digestChallenge = DigestChallenge{};
+        session.digestNonceCount = 0;
+    }
+
+    return statusCode;
 }
 
 String makeOnvifUrl(
@@ -2626,6 +2535,7 @@ bool findNextOpeningTag(
 
 void invalidateSnapshotTarget()
 {
+    resetCameraSnapshotHttpSession();
     snapshotTarget = SnapshotTarget{};
 }
 
@@ -2851,17 +2761,12 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
         consecutiveSuccesses = 0;
         consecutiveInconclusiveChecks = 0;
         consecutiveMediaServiceFailures = 0;
-        consecutiveIndependentMediaFailures = 0;
-        independentMediaFailureStartedAtMs = 0;
         lastSnapshotProbe = SnapshotProbe{};
         lastSnapshotResult = "Perfil alterado; aguardando novo teste JPEG";
     }
 
     if (previous.cameraRtspPort != settings.cameraRtspPort) {
         camera.rtspPort = settings.cameraRtspPort;
-        invalidateLiveProfiles();
-        consecutiveIndependentMediaFailures = 0;
-        independentMediaFailureStartedAtMs = 0;
 
         if (camera.valid) {
             saveCameraTarget();
@@ -3793,15 +3698,12 @@ bool applyBestDiscoveredCandidate()
     invalidateSnapshotTarget();
     invalidateOnvifServiceCatalog();
     resetSnapshotProfileFailover();
-    invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = 0;
     consecutiveFailures = 0;
     consecutiveSuccesses = 0;
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
-    consecutiveIndependentMediaFailures = 0;
-    independentMediaFailureStartedAtMs = 0;
     snapshotTargetFailureStreak = 0;
     saveCameraTarget();
 
@@ -4039,7 +3941,6 @@ bool resolveCameraOnvifEndpoint()
         invalidateSnapshotTarget();
         invalidateOnvifServiceCatalog();
         resetSnapshotProfileFailover();
-        invalidateLiveProfiles();
         lastSnapshotResolveAttemptAtMs = 0;
         saveCameraTarget();
 
@@ -4080,7 +3981,6 @@ bool postOnvifSoap(
     envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\" ";
     envelope += "xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\" ";
     envelope += "xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\" ";
-    envelope += "xmlns:tptz=\"http://www.onvif.org/ver20/ptz/wsdl\" ";
     envelope += "xmlns:timg=\"http://www.onvif.org/ver20/imaging/wsdl\" ";
     envelope += "xmlns:tan=\"http://www.onvif.org/ver20/analytics/wsdl\" ";
     envelope += "xmlns:tmd=\"http://www.onvif.org/ver10/deviceIO/wsdl\" ";
@@ -4389,10 +4289,6 @@ void invalidateOnvifServiceCatalog()
     lastBrowserSnapshotDeliveredAtMs = 0;
     lastBrowserSnapshotBytes = 0;
     lastBrowserSnapshotLatencyMs = 0;
-    lastMediaCanaryProbe = LiveMediaProbeResult{};
-    lastMediaCanaryAtMs = 0;
-    lastMediaCanaryProfileIndex = 0;
-    lastMediaCanaryProfilesTested = 0;
     lastHealthEvidenceSource = HealthEvidenceSource::None;
     lastHealthEvidenceAtMs = 0;
 }
@@ -4460,10 +4356,6 @@ OnvifServiceEndpoint* endpointForOnvifNamespace(const String& serviceNamespace)
 
     if (serviceNamespace == "http://www.onvif.org/ver10/events/wsdl") {
         return &onvifServices.events;
-    }
-
-    if (serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl") {
-        return &onvifServices.ptz;
     }
 
     if (serviceNamespace == "http://www.onvif.org/ver20/imaging/wsdl") {
@@ -4544,17 +4436,6 @@ void collectOnvifServiceCapabilities(
             serviceXml,
             "SnapshotUri"
         );
-        onvifServices.mediaRtpRtspTcp = onvifCapabilityIsTrue(
-            serviceXml,
-            "RTP_RTSP_TCP"
-        );
-    } else if (
-        serviceNamespace == "http://www.onvif.org/ver20/media/wsdl"
-    ) {
-        onvifServices.media2RtspStreaming = onvifCapabilityIsTrue(
-            serviceXml,
-            "RTSPStreaming"
-        );
     } else if (
         serviceNamespace == "http://www.onvif.org/ver10/events/wsdl"
     ) {
@@ -4562,13 +4443,6 @@ void collectOnvifServiceCapabilities(
             serviceXml,
             "WSPullPointSupport"
         );
-    } else if (
-        serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl"
-    ) {
-        onvifServices.ptzStatus = onvifCapabilityIsTrue(
-            serviceXml,
-            "MoveStatus"
-        ) || onvifCapabilityIsTrue(serviceXml, "StatusPosition");
     } else if (
         serviceNamespace == "http://www.onvif.org/ver20/imaging/wsdl"
     ) {
@@ -5002,9 +4876,6 @@ void refreshOnvifDeviceMetadata()
                 responseXml,
                 "Scopes"
             );
-            onvifMetadata.profileStreaming =
-                responseXml.indexOf("Profile/Streaming") >= 0 ||
-                responseXml.indexOf("Profile%2FStreaming") >= 0;
             onvifMetadata.profileT =
                 responseXml.indexOf("Profile/T") >= 0 ||
                 responseXml.indexOf("Profile%2FT") >= 0;
@@ -5099,217 +4970,87 @@ void refreshOnvifDeviceMetadata()
         "Inventario ONVIF em andamento";
 }
 
-bool requestLiveSynchronizationPoint(
-    const char* profileToken,
-    String& result
-)
+struct SnapshotProfileCandidate {
+    bool valid = false;
+    String token;
+    String name;
+    uint32_t pixels = UINT32_MAX;
+};
+
+String normalizedSnapshotEncoding(String encoding)
 {
-    result = String();
-
-    if (profileToken == nullptr || profileToken[0] == '\0') {
-        result = "Perfil sem token para SetSynchronizationPoint";
-        return false;
-    }
-
-    if (!onvifServices.resolved || !onvifServices.media1.available) {
-        result = "Servico Media1 indisponivel para SetSynchronizationPoint";
-        return false;
-    }
-
-    OnvifActuationGuard actuationGuard(pdMS_TO_TICKS(PTZ_MOVE_MUTEX_WAIT_MS));
-
-    if (!actuationGuard.acquired()) {
-        result = "Canal de atuacao ONVIF ocupado";
-        return false;
-    }
-
-    const String token(profileToken);
-
-    if (token.length() > 128) {
-        result = "Token do perfil excedeu o limite de seguranca";
-        return false;
-    }
-
-    String requestBody;
-    requestBody.reserve(token.length() + 120);
-    requestBody += "<trt:SetSynchronizationPoint><trt:ProfileToken>";
-    requestBody += htmlEscape(token);
-    requestBody += "</trt:ProfileToken></trt:SetSynchronizationPoint>";
-
-    String responseXml;
-    int statusCode = 0;
-    const bool accepted = postOnvifSoap(
-        onvifServices.media1.url,
-        "http://www.onvif.org/ver10/media/wsdl/SetSynchronizationPoint",
-        requestBody,
-        responseXml,
-        false,
-        &statusCode,
-        nullptr,
-        500UL
-    );
-
-    result = accepted
-        ? String("SetSynchronizationPoint aceito; HTTP ") + String(statusCode)
-        : String("SetSynchronizationPoint falhou; HTTP ") + String(statusCode);
-    return accepted;
+    encoding.trim();
+    encoding.toUpperCase();
+    encoding.replace(".", "");
+    encoding.replace("-", "");
+    return encoding;
 }
 
-#include "live_catalog.h"
-
-bool requestPtzControl(
-    size_t profileIndex,
-    bool stop,
-    int16_t panPercent,
-    int16_t tiltPercent,
-    int16_t zoomPercent,
-    String& result
+String snapshotProfileSection(
+    const String& profileXml,
+    const char* openingTag,
+    const char* nextOpeningTag
 )
 {
-    result = String();
+    int sectionStart = 0;
+    int sectionTagEnd = 0;
 
-    if (
-        !camera.valid ||
-        !onvifServices.resolved ||
-        !onvifServices.ptz.available ||
-        onvifServices.ptz.url.isEmpty()
-    ) {
-        result = "Servico PTZ ONVIF indisponivel";
-        return false;
-    }
-
-    LiveProfile profile;
-    String mediaUrl;
-    IPAddress profileCameraIp;
-    uint16_t profileRtspPort = 0;
-    String profileError;
-
-    if (!copyLiveProfile(
-        profileIndex,
-        profile,
-        mediaUrl,
-        profileCameraIp,
-        profileRtspPort,
-        profileError
+    if (!findNextOpeningTag(
+        profileXml,
+        openingTag,
+        0,
+        sectionStart,
+        sectionTagEnd
     )) {
-        result = profileError;
-        return false;
+        return String();
     }
 
-    if (
-        profileCameraIp != camera.ip ||
-        profile.token.isEmpty() ||
-        profile.token.length() > LIVE_STREAM_PROFILE_TOKEN_MAX_LENGTH
-    ) {
-        result = "Perfil ONVIF invalido para controle PTZ";
-        return false;
+    int sectionEnd = profileXml.length();
+    int ignoredEnd = 0;
+
+    if (nextOpeningTag != nullptr) {
+        findNextOpeningTag(
+            profileXml,
+            nextOpeningTag,
+            sectionTagEnd + 1,
+            sectionEnd,
+            ignoredEnd
+        );
     }
 
-    const TickType_t mutexWait = pdMS_TO_TICKS(
-        stop ? PTZ_STOP_MUTEX_WAIT_MS : PTZ_MOVE_MUTEX_WAIT_MS
-    );
-    OnvifActuationGuard actuationGuard(mutexWait);
-
-    if (!actuationGuard.acquired()) {
-        result = "Canal de atuacao ONVIF ocupado";
-        return false;
-    }
-
-    const String escapedToken = htmlEscape(profile.token);
-    String requestBody;
-    const char* action = nullptr;
-
-    if (stop) {
-        requestBody.reserve(escapedToken.length() + 170);
-        requestBody += "<tptz:Stop><tptz:ProfileToken>";
-        requestBody += escapedToken;
-        requestBody += "</tptz:ProfileToken><tptz:PanTilt>true";
-        requestBody += "</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>";
-        action = "http://www.onvif.org/ver20/ptz/wsdl/Stop";
-    } else {
-        if (
-            panPercent < -100 || panPercent > 100 ||
-            tiltPercent < -100 || tiltPercent > 100 ||
-            zoomPercent < -100 || zoomPercent > 100 ||
-            (panPercent == 0 && tiltPercent == 0 && zoomPercent == 0)
-        ) {
-            result = "Velocidade PTZ fora do intervalo permitido";
-            return false;
-        }
-
-        requestBody.reserve(escapedToken.length() + 420);
-        requestBody += "<tptz:ContinuousMove><tptz:ProfileToken>";
-        requestBody += escapedToken;
-        requestBody += "</tptz:ProfileToken><tptz:Velocity>";
-
-        if (panPercent != 0 || tiltPercent != 0) {
-            requestBody += "<tt:PanTilt x=\"";
-            requestBody += String(static_cast<float>(panPercent) / 100.0f, 3);
-            requestBody += "\" y=\"";
-            requestBody += String(static_cast<float>(tiltPercent) / 100.0f, 3);
-            requestBody += "\" space=\"http://www.onvif.org/ver10/tptz/";
-            requestBody += "PanTiltSpaces/VelocityGenericSpace\"/>";
-        }
-
-        if (zoomPercent != 0) {
-            requestBody += "<tt:Zoom x=\"";
-            requestBody += String(static_cast<float>(zoomPercent) / 100.0f, 3);
-            requestBody += "\" space=\"http://www.onvif.org/ver10/tptz/";
-            requestBody += "ZoomSpaces/VelocityGenericSpace\"/>";
-        }
-
-        requestBody += "</tptz:Velocity><tptz:Timeout>PT";
-        requestBody += PTZ_CONTINUOUS_MOVE_TIMEOUT_SECONDS;
-        requestBody += "S</tptz:Timeout></tptz:ContinuousMove>";
-        action = "http://www.onvif.org/ver20/ptz/wsdl/ContinuousMove";
-    }
-
-    String responseXml;
-    int statusCode = 0;
-    ptzCommandAttempts++;
-    lastPtzCommandAtMs = millis();
-    lastPtzCommand = stop ? "stop" : "continuous_move";
-    const bool accepted = postOnvifSoap(
-        onvifServices.ptz.url,
-        action,
-        requestBody,
-        responseXml,
-        false,
-        &statusCode,
-        nullptr,
-        PTZ_SOAP_TIMEOUT_MS
-    );
-    lastPtzStatusCode = statusCode;
-
-    if (accepted) {
-        ptzCommandAccepted++;
-        result = stop
-            ? String("Parada PTZ aceita; HTTP ") + String(statusCode)
-            : String("Movimento PTZ aceito; HTTP ") + String(statusCode);
-    } else {
-        ptzCommandErrors++;
-        result = stop
-            ? String("Parada PTZ falhou; HTTP ") + String(statusCode)
-            : String("Movimento PTZ falhou; HTTP ") + String(statusCode);
-    }
-
-    lastPtzResult = currentTimestamp() + " - " + result;
-    return accepted;
+    return profileXml.substring(sectionStart, sectionEnd);
 }
 
-void clearMediaCanaryFailureEvidence()
+uint32_t snapshotProfileUnsignedTag(
+    const String& xml,
+    const char* localName
+)
 {
-    mediaCanarySilentProfilesMask = 0;
+    String value;
+    int ignored = 0;
 
-    for (size_t index = 0; index < MAX_LIVE_PROFILES; index++) {
-        mediaCanarySilentProfileAtMs[index] = 0;
+    if (!extractLocalTag(xml, localName, 0, value, ignored)) {
+        return 0;
     }
-}
 
-void resetMediaCanaryFailureEvidence()
-{
-    clearMediaCanaryFailureEvidence();
-    mediaCanaryNextProfileOffset = 0;
+    value.trim();
+    uint32_t parsed = 0;
+
+    for (size_t index = 0; index < value.length(); index++) {
+        const char character = value.charAt(index);
+
+        if (!isdigit(static_cast<unsigned char>(character))) {
+            return 0;
+        }
+
+        parsed = parsed * 10U + static_cast<uint8_t>(character - '0');
+
+        if (parsed > 65535U) {
+            return 0;
+        }
+    }
+
+    return parsed;
 }
 
 bool selectSnapshotProfile(
@@ -5318,78 +5059,153 @@ bool selectSnapshotProfile(
     String& selectedName
 )
 {
-    LiveProfile profiles[MAX_LIVE_PROFILES];
-    const size_t profileCount = collectLiveProfiles(profilesXml, profiles);
-    int matchingJpegIndex = -1;
-    int jpegIndex = -1;
-    int matchingIndex = -1;
-    int fallbackIndex = -1;
-    int skippedIndex = -1;
-    uint32_t fallbackPixels = UINT32_MAX;
+    SnapshotProfileCandidate matchingJpeg;
+    SnapshotProfileCandidate matching;
+    SnapshotProfileCandidate jpeg;
+    SnapshotProfileCandidate fallback;
+    SnapshotProfileCandidate skipped;
+    int searchPosition = 0;
 
-    for (size_t index = 0; index < profileCount; index++) {
-        const LiveProfile& profile = profiles[index];
+    while (true) {
+        int profileStart = 0;
+        int profileTagEnd = 0;
 
-        if (!profile.valid || profile.token.isEmpty()) {
+        if (!findNextOpeningTag(
+            profilesXml,
+            "Profiles",
+            searchPosition,
+            profileStart,
+            profileTagEnd
+        )) {
+            break;
+        }
+
+        int nextProfileStart = profilesXml.length();
+        int ignoredTagEnd = 0;
+        findNextOpeningTag(
+            profilesXml,
+            "Profiles",
+            profileTagEnd + 1,
+            nextProfileStart,
+            ignoredTagEnd
+        );
+        searchPosition = profileTagEnd + 1;
+
+        const String openingTag =
+            profilesXml.substring(profileStart, profileTagEnd + 1);
+        String token;
+
+        if (!extractXmlAttribute(openingTag, "token", token)) {
             continue;
         }
+
+        token = xmlUnescape(token);
+        token.trim();
+
+        if (token.isEmpty() || token.length() > 128) {
+            continue;
+        }
+
+        const String profileXml =
+            profilesXml.substring(profileTagEnd + 1, nextProfileStart);
+        String name;
+        int ignoredPosition = 0;
+
+        if (!extractLocalTag(
+            profileXml,
+            "Name",
+            0,
+            name,
+            ignoredPosition
+        )) {
+            name = token;
+        } else {
+            name = xmlUnescape(name);
+            name.trim();
+
+            if (name.isEmpty()) {
+                name = token;
+            }
+        }
+
+        const String encoderXml = snapshotProfileSection(
+            profileXml,
+            "VideoEncoderConfiguration",
+            "AudioEncoderConfiguration"
+        );
+        String encoding;
+        ignoredPosition = 0;
+        extractLocalTag(
+            encoderXml,
+            "Encoding",
+            0,
+            encoding,
+            ignoredPosition
+        );
+        encoding = normalizedSnapshotEncoding(encoding);
+
+        const uint32_t width = snapshotProfileUnsignedTag(
+            encoderXml,
+            "Width"
+        );
+        const uint32_t height = snapshotProfileUnsignedTag(
+            encoderXml,
+            "Height"
+        );
+        SnapshotProfileCandidate candidate;
+        candidate.valid = true;
+        candidate.token = token;
+        candidate.name = name;
+        candidate.pixels = width > 0 && height > 0
+            ? width * height
+            : UINT32_MAX;
 
         if (
             !snapshotProfileTokenToSkip.isEmpty() &&
-            profile.token == snapshotProfileTokenToSkip
+            token == snapshotProfileTokenToSkip
         ) {
-            skippedIndex = static_cast<int>(index);
+            if (!skipped.valid) {
+                skipped = candidate;
+            }
             continue;
         }
 
-        const uint32_t pixels =
-            profile.width > 0 && profile.height > 0
-                ? static_cast<uint32_t>(profile.width) * profile.height
-                : UINT32_MAX;
-
-        if (fallbackIndex < 0 || pixels < fallbackPixels) {
-            fallbackIndex = static_cast<int>(index);
-            fallbackPixels = pixels;
-        }
-
-        const String encoding = normalizedLiveEncoding(profile.encoding);
         const bool jpegProfile = encoding == "JPEG" || encoding == "MJPEG";
         const bool nameMatches =
             !String(CAMERA_SNAPSHOT_PROFILE_MATCH).isEmpty() &&
-            containsIgnoreCase(
-                profile.name,
-                CAMERA_SNAPSHOT_PROFILE_MATCH
-            );
+            containsIgnoreCase(name, CAMERA_SNAPSHOT_PROFILE_MATCH);
 
-        if (nameMatches && jpegProfile && matchingJpegIndex < 0) {
-            matchingJpegIndex = static_cast<int>(index);
+        if (nameMatches && jpegProfile && !matchingJpeg.valid) {
+            matchingJpeg = candidate;
         }
 
-        if (jpegProfile && jpegIndex < 0) {
-            jpegIndex = static_cast<int>(index);
+        if (nameMatches && !matching.valid) {
+            matching = candidate;
         }
 
-        if (nameMatches && matchingIndex < 0) {
-            matchingIndex = static_cast<int>(index);
+        if (jpegProfile && !jpeg.valid) {
+            jpeg = candidate;
+        }
+
+        if (!fallback.valid || candidate.pixels < fallback.pixels) {
+            fallback = candidate;
         }
     }
 
-    const int selectedIndex = matchingJpegIndex >= 0
-        ? matchingJpegIndex
-        : matchingIndex >= 0
-            ? matchingIndex
-            : jpegIndex >= 0
-                ? jpegIndex
-                : fallbackIndex >= 0
-                    ? fallbackIndex
-                    : skippedIndex;
+    const SnapshotProfileCandidate* selected = matchingJpeg.valid
+        ? &matchingJpeg
+        : matching.valid
+            ? &matching
+            : jpeg.valid
+                ? &jpeg
+                : fallback.valid ? &fallback : &skipped;
 
-    if (selectedIndex < 0) {
+    if (!selected->valid) {
         return false;
     }
 
-    selectedToken = profiles[selectedIndex].token;
-    selectedName = profiles[selectedIndex].name;
+    selectedToken = selected->token;
+    selectedName = selected->name;
 
     if (selectedToken == snapshotProfileTokenToSkip) {
         resetSnapshotProfileFailover();
@@ -5452,8 +5268,6 @@ bool resolveSnapshotTarget()
         }
 
         lastSnapshotResolveStatusCode = profilesStatusCode;
-        publishLiveProfilesFromXml(profilesXml, mediaUrl, camera.ip);
-
         if (!selectSnapshotProfile(
             profilesXml,
             profileToken,
@@ -5626,13 +5440,8 @@ bool probeCameraSnapshotJpeg()
 
     result.requestAttempted = true;
     result.conclusive = true;
-    WiFiClient cameraClient;
-    HTTPClient request;
-    const int statusCode = openAuthenticatedCameraGet(
-        request,
-        cameraClient,
-        snapshotTarget.url
-    );
+    HTTPClient& request = cameraSnapshotHttpSession.request;
+    const int statusCode = openAuthenticatedCameraGet(snapshotTarget.url);
 
     result.statusCode = statusCode;
     result.latencyMs = millis() - startedAt;
@@ -5642,7 +5451,7 @@ bool probeCameraSnapshotJpeg()
         result.detail = statusCode < 0
             ? String("Falha HTTP: ") + HTTPClient::errorToString(statusCode)
             : String("Camera retornou HTTP ") + String(statusCode);
-        request.end();
+        finishCameraSnapshotGet(false);
         noteSnapshotRequestFailure(statusCode);
         snapshotProbeFailures++;
         lastSnapshotResult = currentTimestamp() + " - " + result.detail;
@@ -5659,7 +5468,7 @@ bool probeCameraSnapshotJpeg()
         contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)
     ) {
         result.detail = "Tamanho de snapshot invalido";
-        request.end();
+        finishCameraSnapshotGet(false);
         noteSnapshotRequestFailure(statusCode);
         snapshotProbeFailures++;
         lastSnapshotResult = currentTimestamp() + " - " + result.detail;
@@ -5671,7 +5480,7 @@ bool probeCameraSnapshotJpeg()
 
     if (source == nullptr) {
         result.detail = "Fluxo HTTP do snapshot indisponivel";
-        request.end();
+        finishCameraSnapshotGet(false);
         noteSnapshotRequestFailure(statusCode);
         snapshotProbeFailures++;
         lastSnapshotResult = currentTimestamp() + " - " + result.detail;
@@ -5766,7 +5575,6 @@ bool probeCameraSnapshotJpeg()
         delay(1);
     }
 
-    request.end();
     result.latencyMs = millis() - startedAt;
 
     const bool completeLength =
@@ -5782,6 +5590,11 @@ bool probeCameraSnapshotJpeg()
         jpegEndNearTail &&
         completeLength &&
         result.bytesRead >= MIN_VALID_SNAPSHOT_SIZE_BYTES;
+    finishCameraSnapshotGet(
+        result.jpegValid &&
+        contentLength > 0 &&
+        result.bytesRead == static_cast<size_t>(contentLength)
+    );
 
     if (result.jpegValid) {
         snapshotTargetFailureStreak = 0;
@@ -5859,18 +5672,6 @@ void recordCameraRebootEvidence(bool manualRequest)
         lastSnapshotProbe.bytesRead
     );
     evidence.consecutiveImageFailures = consecutiveFailures;
-    evidence.consecutiveMediaFailures =
-        consecutiveIndependentMediaFailures;
-    evidence.canaryHandshakeLatencyMs =
-        lastMediaCanaryProbe.handshakeLatencyMs;
-    evidence.canaryObservedAfterPlayMs =
-        lastMediaCanaryProbe.observedAfterPlayMs;
-    evidence.canaryConclusiveSilence =
-        lastMediaCanaryProbe.conclusiveSilence;
-    evidence.mediaFailureDurationSeconds =
-        independentMediaFailureStartedAtMs == 0
-            ? 0UL
-            : (millis() - independentMediaFailureStartedAtMs) / 1000UL;
     evidence.esp32WifiRssi = static_cast<int16_t>(WiFi.RSSI());
     evidence.freeHeapBytes = ESP.getFreeHeap();
     evidence.manual = manualRequest;
@@ -5889,7 +5690,7 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
 
     if (!cameraIoGuard.acquired()) {
         lastCameraRebootResult =
-            currentTimestamp() + " - canal da camera ocupado pelo relay ao vivo";
+            currentTimestamp() + " - canal da camera ocupado";
         return false;
     }
 
@@ -6033,15 +5834,7 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     lastCameraRebootEvidence += lastSnapshotProbe.latencyMs;
     lastCameraRebootEvidence += " ms; falhas JPEG ";
     lastCameraRebootEvidence += consecutiveFailures;
-    lastCameraRebootEvidence += "; canario ";
-    lastCameraRebootEvidence += lastMediaCanaryProbe.conclusiveSilence
-        ? "silencio conclusivo"
-        : lastMediaCanaryProbe.mediaReceived
-            ? "RTP recebido"
-            : "inconclusivo";
-    lastCameraRebootEvidence += " apos ";
-    lastCameraRebootEvidence += lastMediaCanaryProbe.observedAfterPlayMs;
-    lastCameraRebootEvidence += " ms; Wi-Fi ESP32 ";
+    lastCameraRebootEvidence += "; Wi-Fi ESP32 ";
     lastCameraRebootEvidence += WiFi.RSSI();
     lastCameraRebootEvidence += " dBm; heap livre ";
     lastCameraRebootEvidence += ESP.getFreeHeap();
@@ -6055,7 +5848,6 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     invalidateSnapshotTarget();
     invalidateOnvifServiceCatalog();
     resetSnapshotProfileFailover();
-    invalidateLiveProfiles();
     lastSnapshotResolveAttemptAtMs = now;
     snapshotTargetFailureStreak = 0;
     consecutiveFailures = 0;
@@ -6063,8 +5855,6 @@ bool requestCameraRebootOnvif(bool manualRequest = false)
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
-    consecutiveIndependentMediaFailures = 0;
-    independentMediaFailureStartedAtMs = 0;
     lastSnapshotResolveStatusCode = 0;
     lastSnapshotResolveTransportFailure = false;
     lastSnapshotProbe = SnapshotProbe{};
@@ -6152,14 +5942,9 @@ void serveCameraSnapshot()
         }
     }
 
-    WiFiClient cameraClient;
-    HTTPClient request;
+    HTTPClient& request = cameraSnapshotHttpSession.request;
     previewCameraFetches++;
-    const int statusCode = openAuthenticatedCameraGet(
-        request,
-        cameraClient,
-        snapshotTarget.url
-    );
+    const int statusCode = openAuthenticatedCameraGet(snapshotTarget.url);
     const int contentLength = request.getSize();
 
     if (
@@ -6170,7 +5955,7 @@ void serveCameraSnapshot()
          contentLength < static_cast<int>(MIN_VALID_SNAPSHOT_SIZE_BYTES)) ||
         contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)
     ) {
-        request.end();
+        finishCameraSnapshotGet(false);
         lastSnapshotResult = statusCode < 0
             ? currentTimestamp() + " - " + HTTPClient::errorToString(statusCode)
             : currentTimestamp() + " - falha HTTP " + String(statusCode);
@@ -6181,7 +5966,7 @@ void serveCameraSnapshot()
     WiFiClient* source = request.getStreamPtr();
 
     if (source == nullptr) {
-        request.end();
+        finishCameraSnapshotGet(false);
         sendSnapshotError(502, "camera_stream_unavailable");
         return;
     }
@@ -6221,7 +6006,7 @@ void serveCameraSnapshot()
         prefix[0] != 0xFF ||
         prefix[1] != 0xD8
     ) {
-        request.end();
+        finishCameraSnapshotGet(false);
         lastSnapshotResult = "Resposta da camera nao e um JPEG valido";
         sendSnapshotError(502, "invalid_jpeg_header");
         return;
@@ -6244,14 +6029,14 @@ void serveCameraSnapshot()
     );
 
     WiFiClient browserClient = httpServer.client();
-    uint8_t relayBuffer[SNAPSHOT_RELAY_BUFFER_SIZE];
-    size_t bytesRelayed = sizeof(prefix);
+    uint8_t transferBuffer[SNAPSHOT_TRANSFER_BUFFER_SIZE];
+    size_t bytesTransferred = sizeof(prefix);
     uint8_t previousByte = prefix[1];
     size_t jpegEndOffset = 0;
     bool browserDisconnected = false;
     lastDataAtMs = millis();
 
-    while (bytesRelayed < MAX_SNAPSHOT_SIZE_BYTES) {
+    while (bytesTransferred < MAX_SNAPSHOT_SIZE_BYTES) {
         updateCameraAlertLed();
 
         if (!browserClient.connected()) {
@@ -6262,16 +6047,16 @@ void serveCameraSnapshot()
         const size_t availableBytes = source->available();
 
         if (availableBytes > 0) {
-            size_t bytesToRead = min(availableBytes, sizeof(relayBuffer));
+            size_t bytesToRead = min(availableBytes, sizeof(transferBuffer));
 
             if (contentLength > 0) {
                 const size_t remaining =
-                    static_cast<size_t>(contentLength) - bytesRelayed;
+                    static_cast<size_t>(contentLength) - bytesTransferred;
                 bytesToRead = min(bytesToRead, remaining);
             } else {
                 bytesToRead = min(
                     bytesToRead,
-                    MAX_SNAPSHOT_SIZE_BYTES - bytesRelayed
+                    MAX_SNAPSHOT_SIZE_BYTES - bytesTransferred
                 );
             }
 
@@ -6280,7 +6065,7 @@ void serveCameraSnapshot()
             }
 
             const size_t bytesRead = source->readBytes(
-                relayBuffer,
+                transferBuffer,
                 bytesToRead
             );
 
@@ -6289,25 +6074,25 @@ void serveCameraSnapshot()
             }
 
             for (size_t index = 0; index < bytesRead; index++) {
-                const uint8_t value = relayBuffer[index];
+                const uint8_t value = transferBuffer[index];
 
                 if (previousByte == 0xFF && value == 0xD9) {
-                    jpegEndOffset = bytesRelayed + index + 1;
+                    jpegEndOffset = bytesTransferred + index + 1;
                 }
 
                 previousByte = value;
             }
 
             httpServer.sendContent(
-                reinterpret_cast<const char*>(relayBuffer),
+                reinterpret_cast<const char*>(transferBuffer),
                 bytesRead
             );
-            bytesRelayed += bytesRead;
+            bytesTransferred += bytesRead;
             lastDataAtMs = millis();
 
             if (
                 contentLength > 0 &&
-                bytesRelayed >= static_cast<size_t>(contentLength)
+                bytesTransferred >= static_cast<size_t>(contentLength)
             ) {
                 break;
             }
@@ -6329,35 +6114,38 @@ void serveCameraSnapshot()
         delay(1);
     }
 
-    request.end();
-
     if (contentLength < 0 && browserClient.connected()) {
         httpServer.sendContent("");
     }
 
     const bool completeLength =
         contentLength < 0 ||
-        bytesRelayed == static_cast<size_t>(contentLength);
+        bytesTransferred == static_cast<size_t>(contentLength);
     const bool jpegEndNearTail =
         jpegEndOffset > 0 &&
-        bytesRelayed >= jpegEndOffset &&
-        bytesRelayed - jpegEndOffset <= 16;
+        bytesTransferred >= jpegEndOffset &&
+        bytesTransferred - jpegEndOffset <= 16;
     const bool validTransfer =
         !browserDisconnected &&
         completeLength &&
         jpegEndNearTail &&
-        bytesRelayed >= MIN_VALID_SNAPSHOT_SIZE_BYTES;
+        bytesTransferred >= MIN_VALID_SNAPSHOT_SIZE_BYTES;
+    finishCameraSnapshotGet(
+        validTransfer &&
+        contentLength > 0 &&
+        bytesTransferred == static_cast<size_t>(contentLength)
+    );
 
     if (validTransfer) {
         snapshotsServed++;
-        previewBytesRelayed += bytesRelayed;
+        previewBytesTransferred += bytesTransferred;
         lastBrowserSnapshotDeliveredAtMs = millis();
-        lastBrowserSnapshotBytes = bytesRelayed;
+        lastBrowserSnapshotBytes = bytesTransferred;
         lastBrowserSnapshotLatencyMs =
             lastBrowserSnapshotDeliveredAtMs - snapshotStartedAtMs;
         lastSnapshotResult =
             currentTimestamp() + " - quadro entregue; " +
-            String(bytesRelayed) + " bytes; perfil " +
+            String(bytesTransferred) + " bytes; perfil " +
             snapshotTarget.profileName;
     } else if (browserDisconnected) {
         previewClientAborts++;
@@ -6367,98 +6155,16 @@ void serveCameraSnapshot()
     }
 }
 
-bool parseSafeRtspProbeTarget(
-    const String& uri,
-    const IPAddress& expectedIp,
-    uint16_t& port
-)
-{
-    if (!uri.startsWith("rtsp://")) {
-        return false;
-    }
-
-    const int authorityStart = 7;
-    const int pathStart = uri.indexOf('/', authorityStart);
-    const int authorityEnd = pathStart >= 0 ? pathStart : uri.length();
-    String authority = uri.substring(authorityStart, authorityEnd);
-
-    if (
-        authority.isEmpty() ||
-        authority.indexOf('@') >= 0 ||
-        uri.indexOf('\r') >= 0 ||
-        uri.indexOf('\n') >= 0
-    ) {
-        return false;
-    }
-
-    port = 554;
-    const int colonPosition = authority.lastIndexOf(':');
-
-    if (colonPosition > 0) {
-        const String portText = authority.substring(colonPosition + 1);
-
-        for (size_t index = 0; index < portText.length(); index++) {
-            if (!isdigit(static_cast<unsigned char>(portText.charAt(index)))) {
-                return false;
-            }
-        }
-
-        const long parsedPort = portText.toInt();
-
-        if (parsedPort <= 0 || parsedPort > 65535) {
-            return false;
-        }
-
-        port = static_cast<uint16_t>(parsedPort);
-        authority = authority.substring(0, colonPosition);
-    }
-
-    IPAddress advertisedIp;
-    return
-        advertisedIp.fromString(authority.c_str()) &&
-        advertisedIp == expectedIp;
-}
-
 ServiceProbe probeRtsp(const IPAddress& ip, uint16_t port)
 {
     ServiceProbe result;
-    String requestUri = String("rtsp://") + ip.toString() + ':' +
+    const String requestUri = String("rtsp://") + ip.toString() + ':' +
         String(port) + '/';
-    const char* method = "OPTIONS";
-    uint16_t targetPort = port;
-    LiveStreamDescriptor descriptor;
-    String descriptorError;
-    size_t preferredProfileIndex = 0;
-
-    if (
-        camera.valid &&
-        camera.ip == ip &&
-        findPreferredLiveProfileIndex(preferredProfileIndex) &&
-        provideLiveStreamDescriptor(
-            preferredProfileIndex,
-            descriptor,
-            descriptorError,
-            SERVICE_RESPONSE_TIMEOUT_MS
-        )
-    ) {
-        uint16_t descriptorPort = 0;
-
-        if (parseSafeRtspProbeTarget(
-            descriptor.uri,
-            ip,
-            descriptorPort
-        )) {
-            requestUri = descriptor.uri;
-            targetPort = descriptorPort;
-            method = "DESCRIBE";
-            result.mediaRouteTested = true;
-        }
-    }
 
     WiFiClient client;
     const unsigned long startedAt = millis();
 
-    if (!client.connect(ip, targetPort, TCP_CONNECT_TIMEOUT_MS)) {
+    if (!client.connect(ip, port, TCP_CONNECT_TIMEOUT_MS)) {
         result.latencyMs = millis() - startedAt;
         return result;
     }
@@ -6466,15 +6172,10 @@ ServiceProbe probeRtsp(const IPAddress& ip, uint16_t port)
     result.tcpConnected = true;
     result.latencyMs = millis() - startedAt;
 
-    client.print(method);
-    client.print(' ');
+    client.print("OPTIONS ");
     client.print(requestUri);
     client.print(" RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: ESP32-Camera-Watchdog/");
     client.print(FIRMWARE_VERSION);
-
-    if (result.mediaRouteTested) {
-        client.print("\r\nAccept: application/sdp");
-    }
 
     client.print("\r\n\r\n");
 
@@ -6627,15 +6328,12 @@ bool scanSubnetForCamera()
             invalidateSnapshotTarget();
             invalidateOnvifServiceCatalog();
             resetSnapshotProfileFailover();
-            invalidateLiveProfiles();
             lastSnapshotResolveAttemptAtMs = 0;
             consecutiveFailures = 0;
             consecutiveSuccesses = 0;
             consecutiveControlFailures = 0;
             consecutiveInconclusiveChecks = 0;
             consecutiveMediaServiceFailures = 0;
-            consecutiveIndependentMediaFailures = 0;
-            independentMediaFailureStartedAtMs = 0;
             snapshotTargetFailureStreak = 0;
             saveCameraTarget();
 
@@ -6690,8 +6388,6 @@ void resetCameraCheckSequences(const char* snapshotDetail)
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
-    consecutiveIndependentMediaFailures = 0;
-    independentMediaFailureStartedAtMs = 0;
     snapshotTargetFailureStreak = 0;
     resetSnapshotProfileFailover();
     lastOnvifProbe = ServiceProbe{};
@@ -6702,19 +6398,8 @@ void resetCameraCheckSequences(const char* snapshotDetail)
     lastBrowserSnapshotDeliveredAtMs = 0;
     lastBrowserSnapshotBytes = 0;
     lastBrowserSnapshotLatencyMs = 0;
-    lastRelayMediaEvidenceConsumedAtMs = 0;
     lastHealthEvidenceSource = HealthEvidenceSource::None;
     lastHealthEvidenceAtMs = 0;
-    resetMediaCanaryFailureEvidence();
-    liveStreamRelay.invalidateMediaEvidence();
-}
-
-bool liveRelayHasRecentMedia(const LiveRelayStats& stats)
-{
-    return
-        stats.lastMediaPacketAtMs != 0 &&
-        millis() - stats.lastMediaPacketAtMs <=
-            LIVE_MEDIA_HEALTH_EVIDENCE_MS;
 }
 
 bool browserSnapshotRecentlyDelivered()
@@ -6725,19 +6410,8 @@ bool browserSnapshotRecentlyDelivered()
             HEALTH_CHECK_INTERVAL_MS;
 }
 
-bool mediaCanaryEvidenceRecentlyValidated()
-{
-    return
-        lastHealthEvidenceSource == HealthEvidenceSource::MediaCanaryRtp &&
-        lastHealthEvidenceAtMs != 0 &&
-        millis() - lastHealthEvidenceAtMs <=
-            LIVE_MEDIA_CANARY_REUSE_MS;
-}
-
 void noteInconclusiveHealthCheck(const String& event)
 {
-    consecutiveIndependentMediaFailures = 0;
-    independentMediaFailureStartedAtMs = 0;
     consecutiveSuccesses = 0;
 
     if (
@@ -6766,9 +6440,6 @@ void recordSuccessfulHealthCheck(
     consecutiveControlFailures = 0;
     consecutiveInconclusiveChecks = 0;
     consecutiveMediaServiceFailures = 0;
-    consecutiveIndependentMediaFailures = 0;
-    independentMediaFailureStartedAtMs = 0;
-    clearMediaCanaryFailureEvidence();
 
     if (consecutiveSuccesses < 255) {
         consecutiveSuccesses++;
@@ -6790,155 +6461,6 @@ void recordSuccessfulHealthCheck(
         CameraState::Online,
         recovered ? recoveredEvent : healthyEvent
     );
-}
-
-MediaCanaryOutcome runIndependentMediaCanary()
-{
-    size_t profileIndices[MAX_LIVE_PROFILES];
-    const size_t profileCount = collectCompatibleLiveProfileIndices(
-        profileIndices,
-        MAX_LIVE_PROFILES
-    );
-    mediaCanaryCycles++;
-    lastMediaCanaryProfilesTested = 0;
-
-    if (profileCount == 0) {
-        resetMediaCanaryFailureEvidence();
-        lastMediaCanaryProbe = LiveMediaProbeResult{};
-        copySettingText(
-            lastMediaCanaryProbe.detail,
-            "Catalogo sem perfil H.264 para sonda RTP"
-        );
-        mediaCanaryInconclusive++;
-        return MediaCanaryOutcome::Inconclusive;
-    }
-
-    uint16_t requiredProfilesMask = 0;
-    const unsigned long evidenceNowMs = millis();
-    const unsigned long evidenceMaxAgeMs =
-        HEALTH_CHECK_INTERVAL_MS *
-        static_cast<unsigned long>(profileCount + 1U);
-
-    for (size_t index = 0; index < profileCount; index++) {
-        const size_t profileIndex = profileIndices[index];
-        const uint16_t profileBit =
-            static_cast<uint16_t>(1U << profileIndex);
-        requiredProfilesMask |= profileBit;
-
-        if (
-            (mediaCanarySilentProfilesMask & profileBit) != 0 &&
-            (
-                mediaCanarySilentProfileAtMs[profileIndex] == 0 ||
-                evidenceNowMs - mediaCanarySilentProfileAtMs[profileIndex] >
-                    evidenceMaxAgeMs
-            )
-        ) {
-            mediaCanarySilentProfilesMask &=
-                static_cast<uint16_t>(~profileBit);
-            mediaCanarySilentProfileAtMs[profileIndex] = 0;
-        }
-    }
-
-    const uint32_t cycleStartedAtMs = millis();
-    const size_t startOffset = mediaCanaryNextProfileOffset % profileCount;
-    bool sawInconclusiveProfile = false;
-
-    for (size_t tested = 0; tested < profileCount; tested++) {
-        const size_t index = (startOffset + tested) % profileCount;
-        const uint32_t cycleElapsedMs = millis() - cycleStartedAtMs;
-
-        if (cycleElapsedMs >= LIVE_MEDIA_PROBE_CYCLE_TIMEOUT_MS) {
-            if (lastMediaCanaryProfilesTested == 0) {
-                lastMediaCanaryProbe = LiveMediaProbeResult{};
-            }
-            copySettingText(
-                lastMediaCanaryProbe.detail,
-                "Sonda RTP interrompida pelo limite total do ciclo"
-            );
-            mediaCanarySweepPending++;
-            break;
-        }
-
-        const uint32_t cycleRemainingMs =
-            LIVE_MEDIA_PROBE_CYCLE_TIMEOUT_MS - cycleElapsedMs;
-
-        const uint32_t probeBudgetMs =
-            LIVE_MEDIA_PROBE_HANDSHAKE_TIMEOUT_MS +
-            LIVE_MEDIA_PROBE_OBSERVATION_TIMEOUT_MS;
-
-        if (cycleRemainingMs < probeBudgetMs) {
-            if (lastMediaCanaryProfilesTested == 0) {
-                lastMediaCanaryProbe = LiveMediaProbeResult{};
-            }
-            copySettingText(
-                lastMediaCanaryProbe.detail,
-                "Sonda RTP aguardando orcamento integral no proximo ciclo"
-            );
-            mediaCanarySweepPending++;
-            break;
-        }
-
-        updateCameraAlertLed();
-        mediaCanaryRuns++;
-        lastMediaCanaryAtMs = millis();
-        lastMediaCanaryProfileIndex = profileIndices[index];
-        lastMediaCanaryProfilesTested++;
-        const bool mediaReceived = liveStreamRelay.probeMedia(
-            profileIndices[index],
-            LIVE_MEDIA_PROBE_HANDSHAKE_TIMEOUT_MS,
-            LIVE_MEDIA_PROBE_OBSERVATION_TIMEOUT_MS,
-            lastMediaCanaryProbe
-        );
-
-        if (mediaReceived) {
-            mediaCanarySuccesses++;
-            resetMediaCanaryFailureEvidence();
-            mediaCanaryNextProfileOffset = index;
-            return MediaCanaryOutcome::MediaReceived;
-        }
-
-        const bool conclusiveMediaFailure =
-            lastMediaCanaryProbe.conclusiveSilence &&
-            !lastMediaCanaryProbe.mediaReceived &&
-            lastMediaCanaryProbe.observedAfterPlayMs >=
-                LIVE_MEDIA_PROBE_MIN_OBSERVATION_MS;
-
-        if (conclusiveMediaFailure) {
-            mediaCanaryFailures++;
-            const size_t profileIndex = profileIndices[index];
-            const uint16_t profileBit =
-                static_cast<uint16_t>(1U << profileIndex);
-            mediaCanarySilentProfilesMask |= profileBit;
-            mediaCanarySilentProfileAtMs[profileIndex] = millis();
-        } else {
-            mediaCanaryInconclusive++;
-            sawInconclusiveProfile = true;
-            const size_t profileIndex = profileIndices[index];
-            const uint16_t profileBit =
-                static_cast<uint16_t>(1U << profileIndex);
-            mediaCanarySilentProfilesMask &=
-                static_cast<uint16_t>(~profileBit);
-            mediaCanarySilentProfileAtMs[profileIndex] = 0;
-        }
-    }
-
-    mediaCanaryNextProfileOffset =
-        (startOffset + lastMediaCanaryProfilesTested) % profileCount;
-
-    if (
-        (mediaCanarySilentProfilesMask & requiredProfilesMask) ==
-            requiredProfilesMask
-    ) {
-        clearMediaCanaryFailureEvidence();
-        return MediaCanaryOutcome::AllProfilesSilentAfterPlay;
-    }
-
-    if (sawInconclusiveProfile) {
-        clearMediaCanaryFailureEvidence();
-        return MediaCanaryOutcome::Inconclusive;
-    }
-
-    return MediaCanaryOutcome::SweepPending;
 }
 
 struct HealthCheckScheduleGuard {
@@ -6982,41 +6504,6 @@ void runHealthCheck()
         return;
     }
 
-    LiveRelayStats relayStats;
-    liveStreamRelay.snapshotStats(relayStats);
-
-    if (
-        liveRelayHasRecentMedia(relayStats) &&
-        relayStats.lastMediaPacketAtMs !=
-            lastRelayMediaEvidenceConsumedAtMs
-    ) {
-        totalHealthChecks++;
-        lastRelayMediaEvidenceConsumedAtMs = relayStats.lastMediaPacketAtMs;
-        Serial.printf(
-            "CAMERA OK: fluxo RTP entregue ha %lus; probes paralelos adiados.\n",
-            static_cast<unsigned long>(
-                (millis() - relayStats.lastMediaPacketAtMs) / 1000UL
-            )
-        );
-        recordSuccessfulHealthCheck(
-            HealthEvidenceSource::RelayRtp,
-            "Fluxo RTP retornou; confirmando estabilidade",
-            "Camera entregando fluxo RTP ao vivo",
-            "Camera recuperada e fluxo RTP validado"
-        );
-        return;
-    }
-
-    if (relayStats.clientActive) {
-        totalHealthChecks++;
-        inconclusiveHealthChecks++;
-        clearMediaCanaryFailureEvidence();
-        noteInconclusiveHealthCheck(
-            "Sessao ao vivo em negociacao; probes paralelos adiados"
-        );
-        return;
-    }
-
     if (browserSnapshotRecentlyDelivered()) {
         totalHealthChecks++;
         previewHealthEvidenceUses++;
@@ -7039,43 +6526,13 @@ void runHealthCheck()
         return;
     }
 
-    if (liveRelayHasRecentMedia(relayStats)) {
-        totalHealthChecks++;
-        inconclusiveHealthChecks++;
-        consecutiveFailures = 0;
-        consecutiveInconclusiveChecks = 0;
-        consecutiveMediaServiceFailures = 0;
-        clearMediaCanaryFailureEvidence();
-        noteInconclusiveHealthCheck(
-            "Fluxo RTP recente; probes adiados durante a graca pos-sessao"
-        );
-        return;
-    }
-
-    if (
-        activeIncident == IncidentKind::None &&
-        mediaCanaryEvidenceRecentlyValidated()
-    ) {
-        totalHealthChecks++;
-        inconclusiveHealthChecks++;
-        consecutiveFailures = 0;
-        consecutiveInconclusiveChecks = 0;
-        consecutiveMediaServiceFailures = 0;
-        clearMediaCanaryFailureEvidence();
-        noteInconclusiveHealthCheck(
-            "RTP canario recente; novas sondas adiadas"
-        );
-        return;
-    }
-
     CameraIoGuard cameraIoGuard;
 
     if (!cameraIoGuard.acquired()) {
         totalHealthChecks++;
         inconclusiveHealthChecks++;
-        clearMediaCanaryFailureEvidence();
         noteInconclusiveHealthCheck(
-            "Canal da camera ocupado pelo relay ao vivo; verificacao adiada"
+            "Canal da camera ocupado; verificacao adiada"
         );
         return;
     }
@@ -7191,39 +6648,7 @@ void runHealthCheck()
             consecutiveInconclusiveChecks++;
         }
 
-        const bool shouldTryMediaCanary =
-            lastSnapshotProbe.requestAttempted &&
-            millis() - bootAtMs >= STARTUP_GRACE_MS &&
-            consecutiveInconclusiveChecks >= VIDEO_FAILURES_BEFORE_ALERT;
-        MediaCanaryOutcome mediaCanaryOutcome =
-            MediaCanaryOutcome::Inconclusive;
-
-        if (shouldTryMediaCanary) {
-            mediaCanaryOutcome = runIndependentMediaCanary();
-        }
-
-        if (
-            mediaCanaryOutcome == MediaCanaryOutcome::MediaReceived
-        ) {
-            recordSuccessfulHealthCheck(
-                HealthEvidenceSource::MediaCanaryRtp,
-                "RTP canario retornou; confirmando estabilidade",
-                "Camera validada por RTP canario",
-                "Camera recuperada e RTP canario validado"
-            );
-            return;
-        }
-
         inconclusiveHealthChecks++;
-
-        if (
-            shouldTryMediaCanary &&
-            mediaCanaryOutcome ==
-                MediaCanaryOutcome::AllProfilesSilentAfterPlay
-        ) {
-            beginOrEscalateIncident(IncidentKind::SnapshotUnavailable);
-            queueIncidentAlert();
-        }
 
         noteInconclusiveHealthCheck(
             String("Monitor de snapshot inconclusivo: ") +
@@ -7236,48 +6661,6 @@ void runHealthCheck()
 
     if (!lastSnapshotProbe.resolutionAttempted) {
         consecutiveMediaServiceFailures = 0;
-    }
-
-    bool independentMediaFailureThisCheck = false;
-    MediaCanaryOutcome mediaCanaryOutcomeThisCheck =
-        MediaCanaryOutcome::Inconclusive;
-
-    if (lastSnapshotProbe.conclusive && controlAvailable) {
-        mediaCanaryOutcomeThisCheck = runIndependentMediaCanary();
-
-        if (
-            mediaCanaryOutcomeThisCheck ==
-                MediaCanaryOutcome::MediaReceived
-        ) {
-            recordSuccessfulHealthCheck(
-                HealthEvidenceSource::MediaCanaryRtp,
-                "RTP canario retornou; confirmando estabilidade",
-                "Camera validada por RTP canario",
-                "Camera recuperada e RTP canario validado"
-            );
-            return;
-        }
-
-        independentMediaFailureThisCheck =
-            mediaCanaryOutcomeThisCheck ==
-                MediaCanaryOutcome::AllProfilesSilentAfterPlay;
-
-        if (independentMediaFailureThisCheck) {
-            if (consecutiveIndependentMediaFailures == 0) {
-                independentMediaFailureStartedAtMs = millis();
-            }
-            if (consecutiveIndependentMediaFailures < 255) {
-                consecutiveIndependentMediaFailures++;
-            }
-        } else if (
-            mediaCanaryOutcomeThisCheck == MediaCanaryOutcome::Inconclusive
-        ) {
-            consecutiveIndependentMediaFailures = 0;
-            independentMediaFailureStartedAtMs = 0;
-        }
-    } else {
-        consecutiveIndependentMediaFailures = 0;
-        independentMediaFailureStartedAtMs = 0;
     }
 
     consecutiveSuccesses = 0;
@@ -7315,31 +6698,15 @@ void runHealthCheck()
             lastSnapshotProbe.detail.c_str()
         );
 
-        if (
-            consecutiveFailures >= VIDEO_FAILURES_BEFORE_ALERT &&
-            mediaCanaryOutcomeThisCheck ==
-                MediaCanaryOutcome::AllProfilesSilentAfterPlay
-        ) {
+        if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_ALERT) {
             beginOrEscalateIncident(IncidentKind::SnapshotUnavailable);
             queueIncidentAlert();
         }
 
         if (consecutiveFailures >= VIDEO_FAILURES_BEFORE_REBOOT) {
-            liveStreamRelay.snapshotStats(relayStats);
-            const bool liveMediaActive =
-                liveRelayHasRecentMedia(relayStats);
-            const bool independentFailureDurationMet =
-                independentMediaFailureStartedAtMs != 0 &&
-                millis() - independentMediaFailureStartedAtMs >=
-                    LIVE_MEDIA_FAILURE_MIN_REBOOT_DURATION_MS;
             const bool rebootEligible =
                 lastOnvifProbe.protocolResponded &&
-                snapshotFailureAllowsAutomaticReboot() &&
-                !liveMediaActive &&
-                independentMediaFailureThisCheck &&
-                consecutiveIndependentMediaFailures >=
-                    VIDEO_FAILURES_BEFORE_REBOOT &&
-                independentFailureDurationMet;
+                snapshotFailureAllowsAutomaticReboot();
 
             if (rebootEligible && requestCameraRebootOnvif()) {
                 return;
@@ -7352,21 +6719,6 @@ void runHealthCheck()
                 if (!lastOnvifProbe.protocolResponded) {
                     lastCameraRebootResult +=
                         "servico ONVIF sem resposta para receber SystemReboot";
-                } else if (liveMediaActive) {
-                    lastCameraRebootResult +=
-                        "fluxo RTP recente; reboot adiado";
-                } else if (!independentMediaFailureThisCheck) {
-                    lastCameraRebootResult +=
-                        "sonda RTP independente inconclusiva; reboot bloqueado";
-                } else if (
-                    consecutiveIndependentMediaFailures <
-                        VIDEO_FAILURES_BEFORE_REBOOT
-                ) {
-                    lastCameraRebootResult +=
-                        "falha RTSP independente ainda nao confirmada";
-                } else if (!independentFailureDurationMet) {
-                    lastCameraRebootResult +=
-                        "falha de midia ainda nao completou 90 segundos";
                 } else if (snapshotProfileFailoverPending) {
                     lastCameraRebootResult +=
                         "perfil de snapshot alternativo ainda em teste";
@@ -7623,14 +6975,8 @@ String buildStatusJson()
     json += "},\"capabilities\":{";
     json += "\"snapshotUri\":";
     json += onvifServices.mediaSnapshotUri ? "true" : "false";
-    json += ",\"rtpRtspTcp\":";
-    json += onvifServices.mediaRtpRtspTcp ? "true" : "false";
-    json += ",\"media2RtspStreaming\":";
-    json += onvifServices.media2RtspStreaming ? "true" : "false";
     json += ",\"eventsPullPoint\":";
     json += onvifServices.eventsPullPoint ? "true" : "false";
-    json += ",\"ptzStatus\":";
-    json += onvifServices.ptzStatus ? "true" : "false";
     json += ",\"imagingStabilizationAdvertised\":";
     json += onvifServices.imagingStabilizationAdvertised ? "true" : "false";
     json += ",\"analyticsRules\":";
@@ -7642,7 +6988,6 @@ String buildStatusJson()
     appendOnvifEndpointJson(json, "media1", onvifServices.media1, true);
     appendOnvifEndpointJson(json, "media2", onvifServices.media2, true);
     appendOnvifEndpointJson(json, "events", onvifServices.events, true);
-    appendOnvifEndpointJson(json, "ptz", onvifServices.ptz, true);
     appendOnvifEndpointJson(json, "imaging", onvifServices.imaging, true);
     appendOnvifEndpointJson(json, "analytics", onvifServices.analytics, true);
     appendOnvifEndpointJson(json, "deviceIo", onvifServices.deviceIo, true);
@@ -7663,8 +7008,6 @@ String buildStatusJson()
     json += jsonEscape(onvifMetadata.timeZone);
     json += "\",\"scopeCount\":";
     json += onvifMetadata.scopeCount;
-    json += ",\"profileStreaming\":";
-    json += onvifMetadata.profileStreaming ? "true" : "false";
     json += ",\"profileT\":";
     json += onvifMetadata.profileT ? "true" : "false";
     json += ",\"requests\":";
@@ -7735,28 +7078,7 @@ String buildStatusJson()
     json += onvifMetadata.signalLossEvents ? "true" : "false";
     json += ",\"imageQuality\":";
     json += onvifMetadata.imageQualityEvents ? "true" : "false";
-    json += "},\"ptzControl\":{";
-    json += "\"available\":";
-    json += (
-        onvifServices.resolved && onvifServices.ptz.available
-    ) ? "true" : "false";
-    json += ",\"attempts\":";
-    json += ptzCommandAttempts;
-    json += ",\"accepted\":";
-    json += ptzCommandAccepted;
-    json += ",\"errors\":";
-    json += ptzCommandErrors;
-    json += ",\"lastStatus\":";
-    json += lastPtzStatusCode;
-    json += ",\"lastCommand\":\"";
-    json += lastPtzCommand;
-    json += "\",\"lastCommandAgeSeconds\":";
-    json += lastPtzCommandAtMs == 0
-        ? 0UL
-        : (now - lastPtzCommandAtMs) / 1000UL;
-    json += ",\"lastResult\":\"";
-    json += jsonEscape(lastPtzResult);
-    json += "\"}},";
+    json += "}},";
 
     json += "\"probes\":{";
     json += "\"onvifTcp\":";
@@ -7773,69 +7095,11 @@ String buildStatusJson()
     json += lastRtspProbeAttempted ? "true" : "false";
     json += ",\"rtspProtocol\":";
     json += lastRtspProbe.protocolResponded ? "true" : "false";
-    json += ",\"rtspMediaRouteTested\":";
-    json += lastRtspProbe.mediaRouteTested ? "true" : "false";
     json += ",\"rtspStatus\":";
     json += lastRtspProbe.statusCode;
     json += ",\"rtspLatencyMs\":";
     json += lastRtspProbe.latencyMs;
     json += "},";
-
-    json += "\"mediaCanary\":{";
-    json += "\"cycles\":";
-    json += mediaCanaryCycles;
-    json += ",\"runs\":";
-    json += mediaCanaryRuns;
-    json += ",\"successes\":";
-    json += mediaCanarySuccesses;
-    json += ",\"failures\":";
-    json += mediaCanaryFailures;
-    json += ",\"inconclusive\":";
-    json += mediaCanaryInconclusive;
-    json += ",\"sweepPending\":";
-    json += mediaCanarySweepPending;
-    json += ",\"attempted\":";
-    json += lastMediaCanaryProbe.attempted ? "true" : "false";
-    json += ",\"descriptorResolved\":";
-    json += lastMediaCanaryProbe.descriptorResolved ? "true" : "false";
-    json += ",\"rtspResponded\":";
-    json += lastMediaCanaryProbe.rtspResponded ? "true" : "false";
-    json += ",\"playAccepted\":";
-    json += lastMediaCanaryProbe.playAccepted ? "true" : "false";
-    json += ",\"mediaReceived\":";
-    json += lastMediaCanaryProbe.mediaReceived ? "true" : "false";
-    json += ",\"conclusiveSilence\":";
-    json += lastMediaCanaryProbe.conclusiveSilence ? "true" : "false";
-    json += ",\"status\":";
-    json += lastMediaCanaryProbe.statusCode;
-    json += ",\"handshakeLatencyMs\":";
-    json += lastMediaCanaryProbe.handshakeLatencyMs;
-    json += ",\"latencyMs\":";
-    json += lastMediaCanaryProbe.latencyMs;
-    json += ",\"observedAfterPlayMs\":";
-    json += lastMediaCanaryProbe.observedAfterPlayMs;
-    json += ",\"bytes\":";
-    json += lastMediaCanaryProbe.bytes;
-    json += ",\"profileIndex\":";
-    json += lastMediaCanaryProfileIndex;
-    json += ",\"profilesTested\":";
-    json += lastMediaCanaryProfilesTested;
-    json += ",\"silentProfilesMask\":";
-    json += mediaCanarySilentProfilesMask;
-    json += ",\"ageSeconds\":";
-    json += lastMediaCanaryAtMs == 0
-        ? 0UL
-        : (now - lastMediaCanaryAtMs) / 1000UL;
-    json += ",\"failureSequenceAgeSeconds\":";
-    json += (
-        consecutiveIndependentMediaFailures == 0 ||
-        independentMediaFailureStartedAtMs == 0
-    )
-        ? 0UL
-        : (now - independentMediaFailureStartedAtMs) / 1000UL;
-    json += ",\"detail\":\"";
-    json += jsonEscape(lastMediaCanaryProbe.detail);
-    json += "\"},";
 
     json += "\"healthEvidence\":{\"source\":\"";
     json += healthEvidenceSourceName(lastHealthEvidenceSource);
@@ -7882,14 +7146,18 @@ String buildStatusJson()
     json += snapshotErrors;
     json += ",\"cameraHttpRequests\":";
     json += cameraJpegHttpRequests;
+    json += ",\"cameraHttpConnectionReuses\":";
+    json += cameraJpegConnectionReuses;
+    json += ",\"digestPreemptiveRequests\":";
+    json += cameraJpegDigestPreemptiveRequests;
     json += ",\"previewFetchOperations\":";
     json += previewCameraFetches;
     json += ",\"busyResponses\":";
     json += previewBusyResponses;
     json += ",\"clientAborts\":";
     json += previewClientAborts;
-    json += ",\"bytesRelayed\":";
-    appendLiveUnsigned64(json, previewBytesRelayed);
+    json += ",\"bytesTransferred\":";
+    appendUnsigned64(json, previewBytesTransferred);
     json += ",\"healthEvidenceUses\":";
     json += previewHealthEvidenceUses;
     json += ",\"lastDeliveredAgeSeconds\":";
@@ -7907,8 +7175,6 @@ String buildStatusJson()
     json += ",\"lastResult\":\"";
     json += jsonEscape(lastSnapshotResult);
     json += "\"},";
-
-    appendLiveStatusJson(json);
 
     json += "\"incident\":{";
     json += "\"kind\":\"";
@@ -8000,17 +7266,6 @@ String buildStatusJson()
         json += jsonEscape(evidence.snapshotProfile);
         json += "\",\"consecutiveFailures\":";
         json += evidence.consecutiveImageFailures;
-        json += "},\"mediaCanary\":{";
-        json += "\"conclusiveSilence\":";
-        json += evidence.canaryConclusiveSilence ? "true" : "false";
-        json += ",\"handshakeLatencyMs\":";
-        json += evidence.canaryHandshakeLatencyMs;
-        json += ",\"observedAfterPlayMs\":";
-        json += evidence.canaryObservedAfterPlayMs;
-        json += ",\"consecutiveFailures\":";
-        json += evidence.consecutiveMediaFailures;
-        json += ",\"failureDurationSeconds\":";
-        json += evidence.mediaFailureDurationSeconds;
         json += "},\"esp32WifiRssi\":";
         json += evidence.esp32WifiRssi;
         json += ",\"freeHeapBytes\":";
@@ -8039,8 +7294,6 @@ String buildStatusJson()
     json += consecutiveInconclusiveChecks;
     json += ",\"consecutiveMediaServiceFailures\":";
     json += consecutiveMediaServiceFailures;
-    json += ",\"consecutiveIndependentMediaFailures\":";
-    json += consecutiveIndependentMediaFailures;
     json += ",\"consecutiveSuccesses\":";
     json += consecutiveSuccesses;
     json += ",\"discoveryRuns\":";
@@ -8067,17 +7320,11 @@ String buildStatusJson()
     json += ",\"feedTargetCycleMs\":";
     json += FEED_TARGET_CYCLE_MS;
     json += ",\"previewMaximumFps\":";
-    json += String(1000.0f / FEED_MIN_INTERVAL_MS, 2);
+    json += String(1000.0f / FEED_TARGET_CYCLE_MS, 2);
     json += ",\"statusRefreshIntervalMs\":";
     json += STATUS_REFRESH_INTERVAL_MS;
     json += ",\"snapshotHttpTimeoutMs\":";
     json += SNAPSHOT_HTTP_TIMEOUT_MS;
-    json += ",\"enableLiveProfileFailover\":";
-    json += ENABLE_LIVE_PROFILE_FAILOVER ? "true" : "false";
-    json += ",\"liveProfileFailoverDelayMs\":";
-    json += LIVE_PROFILE_FAILOVER_DELAY_MS;
-    json += ",\"liveProfileSweepRetryIntervalMs\":";
-    json += LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     json += "},\"settings\":{";
     json += "\"defaultsRevision\":";
     json += RUNTIME_SETTINGS_DEFAULTS_REVISION;
@@ -8269,158 +7516,6 @@ bool readBooleanSettingArgument(
 
     error = String("Opcao booleana invalida: ") + name;
     return false;
-}
-
-bool readSignedPercentArgument(
-    const char* name,
-    int16_t& value,
-    String& error
-)
-{
-    if (!httpServer.hasArg(name)) {
-        error = String("Campo ausente: ") + name;
-        return false;
-    }
-
-    String textValue = httpServer.arg(name);
-    textValue.trim();
-
-    if (textValue.isEmpty()) {
-        error = String("Campo vazio: ") + name;
-        return false;
-    }
-
-    size_t position = 0;
-    bool negative = false;
-
-    if (textValue.charAt(0) == '-') {
-        negative = true;
-        position = 1;
-    }
-
-    if (position >= textValue.length()) {
-        error = String("Campo numerico invalido: ") + name;
-        return false;
-    }
-
-    uint16_t parsed = 0;
-
-    for (; position < textValue.length(); position++) {
-        const char character = textValue.charAt(position);
-
-        if (character < '0' || character > '9') {
-            error = String("Campo numerico invalido: ") + name;
-            return false;
-        }
-
-        parsed = parsed * 10U + static_cast<uint8_t>(character - '0');
-
-        if (parsed > 100U) {
-            error = String("Campo fora do intervalo -100 a 100: ") + name;
-            return false;
-        }
-    }
-
-    value = negative
-        ? -static_cast<int16_t>(parsed)
-        : static_cast<int16_t>(parsed);
-    return true;
-}
-
-void handlePtzCommand()
-{
-    String authorizationError;
-
-    if (!authorizeDashboardMutation(authorizationError, false)) {
-        sendApiError(403, "forbidden", authorizationError);
-        return;
-    }
-
-    if (!httpServer.hasArg("action")) {
-        sendApiError(422, "invalid_ptz_command", "Acao PTZ ausente");
-        return;
-    }
-
-    String action = httpServer.arg("action");
-    action.trim();
-    action.toLowerCase();
-    const bool stop = action == "stop";
-
-    if (!stop && action != "move") {
-        sendApiError(422, "invalid_ptz_command", "Acao PTZ invalida");
-        return;
-    }
-
-    uint32_t profileIndexValue = 0;
-    String validationError;
-
-    if (!readUnsignedSettingArgument(
-        "profile",
-        0,
-        MAX_LIVE_PROFILES - 1,
-        profileIndexValue,
-        validationError
-    )) {
-        sendApiError(422, "invalid_ptz_command", validationError);
-        return;
-    }
-
-    int16_t panPercent = 0;
-    int16_t tiltPercent = 0;
-    int16_t zoomPercent = 0;
-
-    if (
-        !stop &&
-        (
-            !readSignedPercentArgument("pan", panPercent, validationError) ||
-            !readSignedPercentArgument("tilt", tiltPercent, validationError) ||
-            !readSignedPercentArgument("zoom", zoomPercent, validationError)
-        )
-    ) {
-        sendApiError(422, "invalid_ptz_command", validationError);
-        return;
-    }
-
-    if (
-        !stop &&
-        panPercent == 0 &&
-        tiltPercent == 0 &&
-        zoomPercent == 0
-    ) {
-        sendApiError(
-            422,
-            "invalid_ptz_command",
-            "Movimento PTZ exige ao menos um eixo diferente de zero"
-        );
-        return;
-    }
-
-    String result;
-    const bool accepted = requestPtzControl(
-        static_cast<size_t>(profileIndexValue),
-        stop,
-        panPercent,
-        tiltPercent,
-        zoomPercent,
-        result
-    );
-
-    if (!accepted) {
-        const int responseStatus = result == "Canal de atuacao ONVIF ocupado"
-            ? 409
-            : 502;
-        sendApiError(responseStatus, "ptz_rejected", result);
-        return;
-    }
-
-    String json;
-    json.reserve(result.length() + 96);
-    json += "{\"ok\":true,\"action\":\"";
-    json += stop ? "stop" : "move";
-    json += "\",\"message\":\"";
-    json += jsonEscape(result);
-    json += "\"}";
-    sendJsonResponse(200, json);
 }
 
 bool parseRuntimeSettingsRequest(
@@ -8646,23 +7741,6 @@ bool parseRuntimeSettingsRequest(
         STATUS_REFRESH_INTERVAL_MIN_MS,
         STATUS_REFRESH_INTERVAL_MAX_MS
     );
-    READ_BOOL(
-        enableLiveProfileFailover,
-        "enableLiveProfileFailover"
-    );
-    READ_U32(
-        liveProfileFailoverDelayMs,
-        "liveProfileFailoverDelayMs",
-        LIVE_PROFILE_FAILOVER_DELAY_MIN_MS,
-        LIVE_PROFILE_FAILOVER_DELAY_MAX_MS
-    );
-    READ_U32(
-        liveProfileSweepRetryIntervalMs,
-        "liveProfileSweepRetryIntervalMs",
-        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MIN_MS,
-        LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MAX_MS
-    );
-
 #undef READ_BOOL
 #undef READ_U8
 #undef READ_U16
@@ -8777,12 +7855,6 @@ String buildSettingsJson()
     json += FEED_TARGET_CYCLE_MS;
     json += ",\"statusRefreshIntervalMs\":";
     json += STATUS_REFRESH_INTERVAL_MS;
-    json += ",\"enableLiveProfileFailover\":";
-    json += ENABLE_LIVE_PROFILE_FAILOVER ? "true" : "false";
-    json += ",\"liveProfileFailoverDelayMs\":";
-    json += LIVE_PROFILE_FAILOVER_DELAY_MS;
-    json += ",\"liveProfileSweepRetryIntervalMs\":";
-    json += LIVE_PROFILE_SWEEP_RETRY_INTERVAL_MS;
     json += "}}";
     return json;
 }
@@ -8895,22 +7967,8 @@ void configureHttpServer()
         );
     });
 
-    httpServer.on("/assets/live-player.js", HTTP_GET, [] {
-        httpServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-        httpServer.sendHeader("Pragma", "no-cache");
-        httpServer.send_P(
-            200,
-            "application/javascript; charset=utf-8",
-            LIVE_PLAYER_SCRIPT
-        );
-    });
-
     httpServer.on("/api/camera/snapshot", HTTP_GET, [] {
         serveCameraSnapshot();
-    });
-
-    httpServer.on("/api/camera/ptz", HTTP_POST, [] {
-        handlePtzCommand();
     });
 
     httpServer.on("/api/settings", HTTP_GET, [] {
@@ -9010,7 +8068,6 @@ void initializeConnectedServices()
 
     if (MDNS.begin(HOSTNAME)) {
         MDNS.addService("http", "tcp", HTTP_SERVER_PORT);
-        MDNS.addService("camera-live", "tcp", LIVE_STREAM_PORT);
         Serial.printf("mDNS: http://%s.local\n", HOSTNAME);
     }
 
@@ -9029,16 +8086,8 @@ void initializeConnectedServices()
         resolveSnapshotTarget();
     }
 
-    configureLiveRelay();
-
     Serial.printf("Painel: http://%s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Painel mDNS: http://%s.local\n", HOSTNAME);
-    Serial.printf(
-        "Ao vivo integrado: http://%s:%u\n",
-        WiFi.localIP().toString().c_str(),
-        LIVE_STREAM_PORT
-    );
-
     runHealthCheck();
 }
 
@@ -9091,7 +8140,7 @@ void processPendingAdminAction()
 
             if (!cameraIoGuard.acquired()) {
                 lastAdminActionResult = currentTimestamp() +
-                    " - redescoberta nao executada: relay ao vivo em uso";
+                    " - redescoberta nao executada: canal da camera ocupado";
                 break;
             }
 
@@ -9179,6 +8228,7 @@ void maintainWiFi()
 
     if (wifiWasConnected) {
         wifiWasConnected = false;
+        resetCameraSnapshotHttpSession();
         resetCameraCheckSequences("ESP32 perdeu a conexao Wi-Fi");
         setState(CameraState::Degraded, "ESP32 perdeu a conexao Wi-Fi");
     }
@@ -9198,7 +8248,6 @@ void maintainWiFi()
 void setup()
 {
     Serial.begin(115200);
-    ensureOnvifActuationMutex();
     settingsWriteToken = makeSettingsWriteToken();
     loadRuntimeSettings();
     configureCameraAlertLed();
@@ -9231,6 +8280,7 @@ void loop()
 
     if (connectedServicesInitialized) {
         httpServer.handleClient();
+        maintainCameraSnapshotHttpSession();
         refreshOnvifDeviceMetadata();
         maintainCameraClock();
     }

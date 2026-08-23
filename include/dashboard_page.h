@@ -41,12 +41,12 @@ font:inherit;font-size:12.5px;font-weight:600;line-height:1.5;transition:.16s ea
 .tab:hover{color:var(--text);background:var(--surface2)}
 .tab[aria-selected="true"]{color:var(--text);background:var(--line2)}
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.live{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
+.status-pill{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
 background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;white-space:nowrap}
 .beat{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;animation:beat 2.4s infinite}
 @keyframes beat{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
-.live.stale{color:var(--bad);border-color:rgba(248,113,113,.35)}
-.live.stale .beat{background:var(--bad);animation:none}
+.status-pill.stale{color:var(--bad);border-color:rgba(248,113,113,.35)}
+.status-pill.stale .beat{background:var(--bad);animation:none}
 
 /* destaque */
 .hero{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
@@ -97,54 +97,6 @@ cursor:pointer;backdrop-filter:blur(5px);transition:.16s ease}
 .viewer-stage:fullscreen::before,.viewer-stage:-webkit-full-screen::before,.viewer-stage.fs-fallback::before{display:none}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
-
-/* transmissao ao vivo integrada */
-.live-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
-.live-player-card{min-width:0}
-.live-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;min-height:280px;
-background:#05070a;overflow:hidden}
-.live-stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,#17202c 0,#05070a 66%)}
-.live-stage video{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .18s ease}
-.live-stage video.ready{opacity:1}
-.live-stage:fullscreen,.live-stage:-webkit-full-screen,.live-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
-.live-stage:fullscreen,.live-stage:-webkit-full-screen{width:100%;height:100%}
-.live-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
-.live-stage:fullscreen::before,.live-stage:-webkit-full-screen::before,.live-stage.fs-fallback::before{display:none}
-.live-stage:fullscreen video,.live-stage:-webkit-full-screen video,.live-stage.fs-fallback video{width:100%;height:100%;object-fit:contain}
-.live-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;
-padding:13px 15px;border-top:1px solid var(--line);background:rgba(255,255,255,.012)}
-.live-toolbar .form-result{flex:1 1 260px;text-align:right}
-.live-config{margin:0;min-width:0}
-.live-config .live-config-tabbar{margin:0 0 15px;box-shadow:none}
-.live-config-panel[hidden]{display:none!important}
-.live-info{display:grid;gap:9px;padding:12px 13px;border:1px solid var(--line);border-radius:9px;
-background:rgba(255,255,255,.018)}
-.live-info-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:11.5px}
-.live-info-row span{color:var(--dim)}
-.live-info-row b{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:right;overflow-wrap:anywhere}
-.live-kpis{display:grid;grid-template-columns:1fr;gap:8px}
-.live-kpi{padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.018)}
-.live-kpi span{display:block;color:var(--dim);font-size:9.8px;letter-spacing:.06em;text-transform:uppercase}
-.live-kpi b{display:block;margin-top:3px;color:var(--text);font:600 15px/1.3 var(--mono);overflow-wrap:anywhere}
-.ptz-control{padding:13px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.018)}
-.ptz-control-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px}
-.ptz-control-h h3{margin:0;color:var(--text);font-size:13px}
-.ptz-control-h p{margin:2px 0 0;color:var(--dim);font-size:10.8px;line-height:1.4}
-.ptz-pad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-width:280px;margin:0 auto}
-.ptz-btn{min-height:43px;border:1px solid var(--line2);border-radius:9px;background:#0e141d;color:var(--muted);
-cursor:pointer;font:600 11.5px/1.2 inherit;touch-action:none;user-select:none;transition:.14s ease}
-.ptz-btn:hover{border-color:#456078;background:#202b3a;color:var(--text)}
-.ptz-btn:active,.ptz-btn.active{border-color:var(--accent);background:rgba(56,189,248,.13);color:var(--accent)}
-.ptz-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.ptz-btn:disabled{opacity:.42;cursor:not-allowed}
-.ptz-up{grid-column:2}.ptz-left{grid-column:1}.ptz-stop{grid-column:2;color:var(--warn)}.ptz-right{grid-column:3}.ptz-down{grid-column:2}
-.ptz-zoom{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
-.ptz-speed{margin-top:12px}.ptz-speed label{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:11.5px}
-.ptz-speed output{color:var(--info);font-family:var(--mono)}
-.ptz-speed input{width:100%;margin:8px 0 0;accent-color:var(--accent)}
-.ptz-authorize{width:100%;margin-top:10px}
-.ptz-status{min-height:18px;margin-top:9px;color:var(--dim);font-size:10.8px;line-height:1.45}
-.ptz-status.ok{color:var(--ok)}.ptz-status.warn{color:var(--warn)}.ptz-status.bad{color:var(--bad)}
 
 /* metricas */
 .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 0}
@@ -282,7 +234,6 @@ footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim)}
 .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .grid.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
 .action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.live-layout{grid-template-columns:1fr}
 }
 @media(max-width:560px){
 main{padding:14px 12px 36px}
@@ -299,10 +250,9 @@ main{padding:14px 12px 36px}
 .settings-savebar{align-items:stretch}
 .settings-savebar .form-result{text-align:left}
 .button-row{width:100%}.button-row .btn{flex:1 1 auto}
-.live-toolbar .form-result{text-align:left}
 .settings-kpi{width:100%;text-align:left}
 .settings-tab{padding-inline:12px}
-.viewer-stage,.live-stage{min-height:0}
+.viewer-stage{min-height:0}
 .row dt{flex:1 1 100%}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -320,12 +270,11 @@ main{padding:14px 12px 36px}
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false">Prévia</button>
-      <button class="tab" id="liveTab" type="button" role="tab" data-view="stream" aria-controls="liveView" aria-selected="false">Ao Vivo</button>
       <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
       <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false">Configurações</button>
       <button class="tab" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false">Ações</button>
     </nav>
-    <div class="live" id="live"><span class="beat"></span><span id="liveText">conectando…</span></div>
+    <div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div>
   </div>
 </header>
 
@@ -405,94 +354,6 @@ main{padding:14px 12px 36px}
   </section>
 </div>
 
-<div id="liveView" role="tabpanel" aria-labelledby="liveTab" data-view-panel="stream" hidden>
-  <div class="live-layout">
-    <section class="viewer live-player-card" aria-labelledby="liveViewerTitle">
-      <div class="viewer-h">
-        <h2 id="liveViewerTitle">Ao vivo pelo ESP32</h2>
-        <p id="liveMeta">RTSP/RTP H.264 da câmera → ESP32 → vídeo no navegador</p>
-      </div>
-      <div class="live-stage" id="liveStage">
-        <video id="liveVideo" aria-label="Transmissão ao vivo da câmera" autoplay muted playsinline controls preload="none"></video>
-        <div class="feed-state" id="liveState">Aguardando os perfis ONVIF da câmera…</div>
-        <div class="feed-stamp" id="liveStamp">relay parado</div>
-        <button type="button" class="feed-fs-btn" id="liveFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
-          <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
-          <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
-        </button>
-      </div>
-      <div class="live-toolbar">
-        <div class="button-row">
-          <button class="btn primary" id="liveStart" type="button" disabled>Iniciar</button>
-          <button class="btn" id="liveReload" type="button" disabled>Reconectar</button>
-          <button class="btn" id="liveStop" type="button" disabled>Parar</button>
-        </div>
-        <div class="form-result" id="livePlayerStatus">Aguardando o catálogo ONVIF.</div>
-      </div>
-    </section>
-
-    <aside class="settings-card live-config" aria-label="Informações e controle da transmissão ao vivo">
-      <div class="settings-tabbar live-config-tabbar">
-        <nav class="settings-tablist" role="tablist" aria-label="Detalhes da transmissão ao vivo">
-          <button class="settings-tab live-config-tab" id="liveInfoTab" type="button" role="tab" data-live-config-section="info" aria-controls="liveInfoPanel" aria-selected="true" tabindex="0">Informações</button>
-          <button class="settings-tab live-config-tab" id="livePtzTab" type="button" role="tab" data-live-config-section="ptz" aria-controls="livePtzPanel" aria-selected="false" tabindex="-1">Controle PTZ</button>
-        </nav>
-      </div>
-      <section class="live-config-panel" id="liveInfoPanel" role="tabpanel" aria-labelledby="liveInfoTab" data-live-config-panel="info">
-        <div class="form-grid">
-          <div class="field">
-            <label for="liveProfile">Perfil de vídeo ONVIF</label>
-            <select id="liveProfile" disabled><option>aguardando perfis…</option></select>
-            <small>Selecione um perfil H.264. O perfil recomendado segue o filtro da prévia. O relay atende um navegador por vez.</small>
-          </div>
-          <div class="field">
-            <div class="checkline">
-              <input id="liveAutostart" type="checkbox" checked>
-              <label for="liveAutostart"><b>Iniciar ao abrir a aba</b><span>O RTSP e a resposta HTTP são encerrados ao sair da aba ou ocultar a página.</span></label>
-            </div>
-          </div>
-          <div class="live-info">
-            <div class="live-info-row"><span>Câmera</span><b id="liveCameraAddress">—</b></div>
-            <div class="live-info-row"><span>Relay HTTP do ESP32</span><b id="liveSocketAddress">—</b></div>
-            <div class="live-info-row"><span>Estado do relay</span><b id="liveRelayState">aguardando</b></div>
-            <div class="live-info-row"><span>Codec ativo</span><b id="liveCodecState">—</b></div>
-          </div>
-          <div class="live-kpis">
-            <div class="live-kpi"><span>FPS no navegador</span><b id="liveFpsValue">—</b></div>
-            <div class="live-kpi"><span>Bitrate recebido</span><b id="liveBitrateValue">—</b></div>
-            <div class="live-kpi"><span>Latência no navegador</span><b id="liveLatencyValue">—</b></div>
-            <div class="live-kpi"><span>Atraso no relay</span><b id="liveRelayLatencyValue">—</b></div>
-            <div class="live-kpi"><span>Pacotes RTP</span><b id="liveLossValue">0</b></div>
-            <div class="live-kpi"><span>Correções / descartes RTP</span><b id="liveBrowserDropValue">0 / 0</b></div>
-          </div>
-        </div>
-      </section>
-      <section class="live-config-panel" id="livePtzPanel" role="tabpanel" aria-labelledby="livePtzTab" data-live-config-panel="ptz" hidden>
-        <section class="ptz-control" id="ptzControl" aria-labelledby="ptzTitle">
-          <div class="ptz-control-h"><div><h3 id="ptzTitle">Posição da câmera</h3><p>Mantenha pressionado para mover. Ao soltar, o ESP32 envia Stop.</p></div></div>
-          <div class="ptz-pad">
-            <button class="ptz-btn ptz-up" type="button" data-ptz-pan="0" data-ptz-tilt="1" data-ptz-zoom="0" aria-label="Mover a câmera para cima" disabled>Cima</button>
-            <button class="ptz-btn ptz-left" type="button" data-ptz-pan="-1" data-ptz-tilt="0" data-ptz-zoom="0" aria-label="Mover a câmera para a esquerda" disabled>Esquerda</button>
-            <button class="ptz-btn ptz-stop" id="ptzStop" type="button" aria-label="Parar movimento da câmera" disabled>Parar</button>
-            <button class="ptz-btn ptz-right" type="button" data-ptz-pan="1" data-ptz-tilt="0" data-ptz-zoom="0" aria-label="Mover a câmera para a direita" disabled>Direita</button>
-            <button class="ptz-btn ptz-down" type="button" data-ptz-pan="0" data-ptz-tilt="-1" data-ptz-zoom="0" aria-label="Mover a câmera para baixo" disabled>Baixo</button>
-          </div>
-          <div class="ptz-zoom">
-            <button class="ptz-btn" type="button" data-ptz-pan="0" data-ptz-tilt="0" data-ptz-zoom="-1" aria-label="Diminuir o zoom" disabled>Zoom menos</button>
-            <button class="ptz-btn" type="button" data-ptz-pan="0" data-ptz-tilt="0" data-ptz-zoom="1" aria-label="Aumentar o zoom" disabled>Zoom mais</button>
-          </div>
-          <div class="ptz-speed">
-            <label for="ptzSpeed"><span>Velocidade</span><output id="ptzSpeedValue" for="ptzSpeed">50%</output></label>
-            <input id="ptzSpeed" type="range" min="10" max="100" step="5" value="50" disabled>
-          </div>
-          <button class="btn ptz-authorize" id="ptzAuthorize" type="button" hidden>Autorizar PTZ nesta sessão</button>
-          <div class="ptz-status" id="ptzStatus" aria-live="polite">Aguardando o serviço PTZ ONVIF.</div>
-        </section>
-      </section>
-    </aside>
-  </div>
-</div>
-
 <div id="resourcesView" role="tabpanel" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
   <section class="hero" id="resourcesHero">
     <div class="hero-main">
@@ -555,21 +416,6 @@ main{padding:14px 12px 36px}
       <div class="card-v info" id="r-events">—</div>
       <div class="card-m" id="r-events-meta">—</div>
     </article>
-    <article class="card">
-      <div class="card-h">Quadro-chave ONVIF<i class="pip" id="p-rsync"></i></div>
-      <div class="card-v info" id="r-sync">—</div>
-      <div class="card-m" id="r-sync-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Canário RTP<i class="pip" id="p-rcanary"></i></div>
-      <div class="card-v info" id="r-canary">—</div>
-      <div class="card-m" id="r-canary-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Relay ao vivo<i class="pip" id="p-rrelay"></i></div>
-      <div class="card-v info" id="r-relay">—</div>
-      <div class="card-m" id="r-relay-meta">—</div>
-    </article>
   </div>
 
   <section class="chart-card" aria-labelledby="historyTitle">
@@ -611,7 +457,6 @@ main{padding:14px 12px 36px}
       <nav class="settings-tablist" role="tablist" aria-label="Categorias das configurações">
         <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="true" tabindex="0">Identificação</button>
         <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoramento</button>
-        <button class="settings-tab" id="settingsLiveTab" type="button" role="tab" data-settings-section="live" aria-controls="settingsLivePanel" aria-selected="false" tabindex="-1">Ao Vivo</button>
         <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recuperação</button>
         <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Rede e notificações</button>
         <button class="settings-tab" id="settingsCommunicationTab" type="button" role="tab" data-settings-section="communication" aria-controls="settingsCommunicationPanel" aria-selected="false" tabindex="-1">Comunicação</button>
@@ -626,8 +471,8 @@ main{padding:14px 12px 36px}
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
-          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="1" max="10" step="0.1" required><small>Mínimo permitido: 1 s; padrão estável: 5 s.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="1" max="30" step="0.1" required><small>Padrão: 5 s, limitando a prévia a 0,2 FPS.</small></div>
+          <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
+          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Padrão estável: 5 s; mínimo permitido: 0,5 s, limitando a prévia a 2 FPS.</small></div>
           <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
         </div>
       </section>
@@ -643,15 +488,6 @@ main{padding:14px 12px 36px}
           <div class="field"><label for="cfgVideoFailuresBeforeAlert">Falhas JPEG para alerta <span>1–20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Padrão: 2.</small></div>
           <div class="field"><label for="cfgVideoFailuresBeforeReboot">Falhas JPEG para reboot <span>1–20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Padrão: 3; não pode anteceder o alerta.</small></div>
           <div class="estimate-box">Com estes valores: alerta de imagem em aproximadamente <b id="estimateAlert">—</b>, reboot em <b id="estimateReboot">—</b> e offline em <b id="estimateOffline">—</b>.</div>
-        </div>
-      </section>
-
-      <section class="settings-card settings-panel" id="settingsLivePanel" role="tabpanel" aria-labelledby="settingsLiveTab" data-settings-section-panel="live" hidden>
-        <div class="settings-card-h"><div><h2>Troca de perfil ao vivo</h2><p>Reconexão no perfil atual e failover entre perfis H.264.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><div class="checkline"><input id="cfgLiveProfileFailover" type="checkbox"><label for="cfgLiveProfileFailover"><b>Trocar de perfil automaticamente</b><span>Quando desativado, o player continua reconectando apenas o perfil escolhido.</span></label></div></div>
-          <div class="field"><label for="cfgLiveProfileFailoverDelay">Espera antes de trocar <span>5–300 s</span></label><input id="cfgLiveProfileFailoverDelay" type="number" min="5" max="300" step="1" required><small>Padrão: 30 s de falha contínua no mesmo perfil.</small></div>
-          <div class="field"><label for="cfgLiveProfileSweepRetry">Repetir perfis esgotados <span>30–3600 s</span></label><input id="cfgLiveProfileSweepRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 300 s; impede alternância infinita entre mainStream e subStream.</small></div>
         </div>
       </section>
 
@@ -741,7 +577,6 @@ main{padding:14px 12px 36px}
 <footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
 
-<script src="/assets/live-player.js?v=0.9.0"></script>
 <script>
 const $ = id => document.getElementById(id);
 const PALETTE = {
@@ -758,7 +593,6 @@ function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
   if (location.hash === '#resources') return 'resources';
-  if (location.hash === '#stream') return 'stream';
   if (location.hash === '#feed') return 'feed';
   return 'camera';
 }
@@ -959,67 +793,6 @@ function renderResources(d) {
       : 'GetEventProperties ainda não retornou dados';
   pip('p-revents', eventsTone);
 
-  const relay = d.live && d.live.relay ? d.live.relay : {};
-  const syncAttempts = Number(relay.syncAttempts || 0);
-  const syncAccepted = Number(relay.syncAccepted || 0);
-  const syncFailed = Number(relay.syncFailed || 0);
-  const syncSkipped = Number(relay.syncSkipped || 0);
-  const lastSyncAccepted = Boolean(relay.lastSyncAccepted);
-  $('r-sync').textContent = syncAttempts
-    ? syncAccepted + ' / ' + syncAttempts + ' aceitos'
-    : syncSkipped ? '0 solicitações' : 'aguardando sessão';
-  $('r-sync').className = 'card-v ' + (!syncAttempts ? 'info' : lastSyncAccepted ? 'ok' : 'warn');
-  $('r-sync-meta').textContent = syncAttempts
-    ? syncFailed + ' falhas · ' + syncSkipped + ' não executados'
-    : syncSkipped
-      ? syncSkipped + ' sessões sem solicitação válida'
-      : 'será solicitado logo após o PLAY do RTSP';
-  pip('p-rsync', !syncAttempts ? 'info' : lastSyncAccepted ? 'ok' : 'warn');
-
-  const canary = d.mediaCanary || {};
-  const canarySuccesses = Number(canary.successes || 0);
-  const canaryFailures = Number(canary.failures || 0);
-  const canaryInconclusive = Number(canary.inconclusive || 0);
-  const canaryTone = !canary.attempted
-    ? 'info'
-    : canary.mediaReceived
-      ? 'ok'
-      : canary.conclusiveSilence ? 'bad' : 'warn';
-  $('r-canary').textContent = !canary.attempted
-    ? 'aguardando sonda'
-    : canary.mediaReceived
-      ? 'RTP recebido'
-      : canary.conclusiveSilence ? 'RTP ausente' : 'sonda inconclusiva';
-  $('r-canary').className = 'card-v ' + canaryTone;
-  $('r-canary-meta').textContent = canarySuccesses.toLocaleString('pt-BR')
-    + ' sucessos · ' + canaryFailures.toLocaleString('pt-BR') + ' falhas · '
-    + canaryInconclusive.toLocaleString('pt-BR') + ' inconclusivas'
-    + (canary.playAccepted
-      ? ' · ' + Number(canary.observedAfterPlayMs || 0).toLocaleString('pt-BR') + ' ms pós-PLAY'
-      : '')
-    + (canary.attempted ? ' · há ' + duration(Number(canary.ageSeconds || 0)) : '');
-  pip('p-rcanary', canaryTone);
-
-  const relaySessions = Number(relay.sessions || 0);
-  const relayLatencyAborts = Number(relay.latencyAborts || 0);
-  const relayDeadlineExceeded = Number(relay.writeDeadlineExceeded || 0);
-  const relayAbortPercent = relaySessions
-    ? relayLatencyAborts / relaySessions * 100
-    : 0;
-  const relayTone = !relaySessions
-    ? 'info'
-    : relayAbortPercent >= 50 ? 'bad' : relayAbortPercent >= 10 ? 'warn' : 'ok';
-  $('r-relay').textContent = relaySessions
-    ? relayAbortPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% com abortos'
-    : 'aguardando sessões';
-  $('r-relay').className = 'card-v ' + relayTone;
-  $('r-relay-meta').textContent = relaySessions
-    ? relayLatencyAborts.toLocaleString('pt-BR') + ' de '
-      + relaySessions.toLocaleString('pt-BR') + ' sessões · '
-      + relayDeadlineExceeded.toLocaleString('pt-BR') + ' prazos de escrita excedidos'
-    : 'o histórico será preenchido ao usar a aba Ao Vivo';
-  pip('p-rrelay', relayTone);
-
   resourceHistory.heap.push(heapPercent);
   resourceHistory.rssi.push(d.wifi.connected ? d.wifi.rssi : -100);
   if (resourceHistory.heap.length > HISTORY_LIMIT) resourceHistory.heap.shift();
@@ -1050,21 +823,8 @@ function setProbe(prefix, tcp, spoke, code, latency, protocol) {
   }
 }
 
-function setRtspProbe(probes, canary) {
+function setRtspProbe(probes) {
   const value = $('v-rtsp'), meta = $('m-rtsp');
-  const canaryAgeSeconds = Number(canary && canary.ageSeconds || 0);
-  const canaryRecent = Boolean(
-    canary && canary.mediaReceived && canaryAgeSeconds <= 60
-  );
-  if (canaryRecent) {
-    value.textContent = 'RTP recebido';
-    value.className = 'card-v ok';
-    pip('p-rtsp', 'ok');
-    meta.textContent = 'canário autenticado · primeiro RTP em '
-      + Number(canary.observedAfterPlayMs || 0).toLocaleString('pt-BR')
-      + ' ms pós-PLAY · há ' + duration(canaryAgeSeconds);
-    return;
-  }
   if (probes.rtspAttempted) {
     setProbe(
       'rtsp',
@@ -1136,7 +896,15 @@ let feedTimer;
 let feedRequestedAtMs = 0;
 let feedWatchdogTimer;
 let feedRequestGeneration = 0;
+let feedDeliveredFrames = 0;
+let feedHealthyMetaPrefix = '';
 // Os intervalos da previa sao atualizados pelo JSON do firmware.
+
+function updateFeedHealthyMeta() {
+  if (!feedHealthyMetaPrefix) return;
+  $('feedMeta').textContent = feedHealthyMetaPrefix + ' · '
+    + feedDeliveredFrames + ' quadros entregues';
+}
 
 function cancelFeedLoad(resetFailures) {
   feedRequestGeneration++;
@@ -1204,6 +972,9 @@ function loadFeed() {
     frame.classList.add('ready');
     $('feedState').classList.add('hidden');
     $('feedStamp').textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR');
+    lastOk = Date.now();
+    feedDeliveredFrames++;
+    updateFeedHealthyMeta();
     const elapsed = Date.now() - feedRequestedAtMs;
     scheduleFeed(Math.max(feedMinimumIntervalMs, feedTargetCycleMs - elapsed));
   };
@@ -1274,857 +1045,6 @@ document.addEventListener('webkitfullscreenchange', updateFsButton);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
 });
-
-const LIVE_PREFERENCES_KEY = 'camera-watchdog.live.integrated.v1';
-const liveVideo = $('liveVideo');
-const liveStage = $('liveStage');
-const liveFsBtn = $('liveFsBtn');
-
-let liveProfiles = [];
-let liveProfileSignature = '';
-let liveStreamPort = 81;
-let livePlayer = null;
-let liveShouldRun = false;
-let liveReconnectTimer = null;
-let liveReconnectAttempt = 0;
-let liveFailedProfileIndices = [];
-let liveProfileFailureStartedAtMs = 0;
-let liveProfileFailureIndex = -1;
-let liveProfileSweepExhaustedAtMs = 0;
-let enableLiveProfileFailover = true;
-let liveProfileFailoverDelayMs = 30000;
-let liveProfileSweepRetryIntervalMs = 300000;
-let liveLastStatus = null;
-let liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0, liveLatencySeconds: 0 };
-let liveMarkerCompatibilityNotified = false;
-let livePreferences = { autostart: true, profileIndex: null };
-let ptzServiceAvailable = false;
-let ptzAdminPassword = '';
-let ptzMoveActive = false;
-let ptzActiveButton = null;
-let ptzActiveCommand = null;
-let ptzRepeatTimer = null;
-let ptzMoveRequestInFlight = false;
-let ptzPendingStopProfileIndex = -1;
-let ptzStopRequestInFlight = false;
-
-function setPtzStatus(message, tone) {
-  const target = $('ptzStatus');
-  target.textContent = message;
-  target.className = 'ptz-status' + (tone ? ' ' + tone : '');
-}
-
-function ptzAuthorizationReady() {
-  return Boolean(
-    settingsWriteToken &&
-    (!settingsPasswordRequired || ptzAdminPassword)
-  );
-}
-
-function updatePtzControlAvailability() {
-  const profileReady = selectedLiveProfileIndex() >= 0;
-  const authorized = ptzAuthorizationReady();
-  const enabled = ptzServiceAvailable && profileReady && authorized;
-  document.querySelectorAll('[data-ptz-pan]').forEach(button => {
-    button.disabled = !enabled;
-  });
-  $('ptzStop').disabled = !enabled;
-  $('ptzSpeed').disabled = !enabled;
-  $('ptzAuthorize').hidden = !(
-    ptzServiceAvailable &&
-    settingsPasswordRequired &&
-    !ptzAdminPassword
-  );
-  $('ptzAuthorize').disabled = !settingsWriteToken;
-
-  if (ptzMoveActive) return;
-  if (!ptzServiceAvailable) {
-    setPtzStatus('A câmera não anunciou um serviço PTZ ONVIF.', 'warn');
-  } else if (!settingsWriteToken) {
-    setPtzStatus('Carregando a autorização do painel…', 'warn');
-  } else if (settingsPasswordRequired && !ptzAdminPassword) {
-    setPtzStatus('Autorize o PTZ uma vez para esta sessão do navegador.', 'warn');
-  } else if (!profileReady) {
-    setPtzStatus('Aguardando um perfil ONVIF compatível.', 'warn');
-  } else {
-    setPtzStatus('PTZ pronto. Mantenha um botão pressionado para mover.', 'ok');
-  }
-}
-
-function ptzMutationParams(command, password) {
-  const params = collectMutationParams(false, password == null ? ptzAdminPassword : password);
-  params.set('action', command.action);
-  params.set('profile', String(command.profileIndex));
-  if (command.action === 'move') {
-    params.set('pan', String(command.pan));
-    params.set('tilt', String(command.tilt));
-    params.set('zoom', String(command.zoom));
-  }
-  return params;
-}
-
-async function postPtzCommand(command, password, keepalive) {
-  const controller = typeof AbortController === 'function'
-    ? new AbortController()
-    : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), 3000) : null;
-  try {
-    return await postForm(
-      '/api/camera/ptz',
-      ptzMutationParams(command, password),
-      {
-        keepalive: Boolean(keepalive),
-        signal: controller ? controller.signal : undefined
-      }
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function notePtzAuthorizationFailure(error) {
-  const message = error && error.message ? error.message : String(error);
-  if (/senha|token|forbidden/i.test(message)) {
-    ptzAdminPassword = '';
-    if (/token/i.test(message)) {
-      settingsWriteToken = '';
-      settingsLoaded = false;
-      loadSettings(true);
-    }
-    updatePtzControlAvailability();
-  }
-  return message;
-}
-
-async function sendPtzMove(command) {
-  if (ptzMoveRequestInFlight || !ptzMoveActive) return;
-  ptzMoveRequestInFlight = true;
-  try {
-    await postPtzCommand(command, null, false);
-    if (ptzMoveActive) setPtzStatus('Movendo a câmera; solte para parar.', 'ok');
-  } catch (error) {
-    setPtzStatus('Movimento recusado: ' + notePtzAuthorizationFailure(error), 'bad');
-  } finally {
-    ptzMoveRequestInFlight = false;
-    if (ptzPendingStopProfileIndex >= 0) {
-      const profileIndex = ptzPendingStopProfileIndex;
-      ptzPendingStopProfileIndex = -1;
-      sendPtzStop(profileIndex, null, false);
-    }
-  }
-}
-
-async function sendPtzStop(profileIndex, password, quiet) {
-  if (profileIndex < 0 || !settingsWriteToken || ptzStopRequestInFlight) return false;
-  ptzStopRequestInFlight = true;
-  try {
-    await postPtzCommand({ action: 'stop', profileIndex }, password, true);
-    if (!quiet) setPtzStatus('Movimento interrompido.', 'ok');
-    return true;
-  } catch (error) {
-    setPtzStatus('Parada PTZ recusada: ' + notePtzAuthorizationFailure(error), 'bad');
-    return false;
-  } finally {
-    ptzStopRequestInFlight = false;
-  }
-}
-
-function beginPtzMove(button, event) {
-  if (
-    button.disabled ||
-    ptzMoveActive ||
-    ptzMoveRequestInFlight ||
-    ptzPendingStopProfileIndex >= 0 ||
-    ptzStopRequestInFlight
-  ) return;
-  if (event && event.type === 'pointerdown' && event.button !== 0) return;
-  if (event) event.preventDefault();
-  const profileIndex = selectedLiveProfileIndex();
-  const speed = Math.max(10, Math.min(100, Number($('ptzSpeed').value) || 50));
-  ptzActiveCommand = {
-    action: 'move',
-    profileIndex,
-    pan: Number(button.dataset.ptzPan) * speed,
-    tilt: Number(button.dataset.ptzTilt) * speed,
-    zoom: Number(button.dataset.ptzZoom) * speed
-  };
-  ptzMoveActive = true;
-  ptzActiveButton = button;
-  button.classList.add('active');
-  if (event && event.pointerId != null && button.setPointerCapture) {
-    try { button.setPointerCapture(event.pointerId); } catch (_) {}
-  }
-  sendPtzMove(ptzActiveCommand);
-  clearInterval(ptzRepeatTimer);
-  ptzRepeatTimer = setInterval(() => {
-    if (ptzMoveActive && ptzActiveCommand) sendPtzMove(ptzActiveCommand);
-  }, 800);
-}
-
-function endPtzMove(sendStop) {
-  if (!ptzMoveActive) return;
-  const command = ptzActiveCommand;
-  ptzMoveActive = false;
-  ptzActiveCommand = null;
-  clearInterval(ptzRepeatTimer);
-  ptzRepeatTimer = null;
-  if (ptzActiveButton) ptzActiveButton.classList.remove('active');
-  ptzActiveButton = null;
-  if (sendStop && command) {
-    if (ptzMoveRequestInFlight) {
-      ptzPendingStopProfileIndex = command.profileIndex;
-      setPtzStatus('Finalizando o comando e enviando Stop…', 'warn');
-    } else {
-      sendPtzStop(command.profileIndex, null, false);
-    }
-  }
-}
-
-async function authorizePtz(password) {
-  const profileIndex = selectedLiveProfileIndex();
-  setPtzStatus('Validando a autorização e enviando uma parada de segurança…', 'warn');
-  const accepted = await sendPtzStop(profileIndex, password, true);
-  if (!accepted) return;
-  ptzAdminPassword = password || '';
-  updatePtzControlAvailability();
-}
-
-function loadLivePreferences() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(LIVE_PREFERENCES_KEY) || 'null');
-    if (stored && typeof stored === 'object') {
-      livePreferences.autostart = stored.autostart !== false;
-      livePreferences.profileIndex = stored.profileIndex != null && Number.isInteger(Number(stored.profileIndex))
-        ? Number(stored.profileIndex)
-        : null;
-    }
-  } catch (_) {}
-  $('liveAutostart').checked = livePreferences.autostart;
-}
-
-function saveLivePreferences() {
-  livePreferences.autostart = $('liveAutostart').checked;
-  const selected = Number($('liveProfile').value);
-  livePreferences.profileIndex = Number.isInteger(selected) ? selected : null;
-  try { localStorage.setItem(LIVE_PREFERENCES_KEY, JSON.stringify(livePreferences)); } catch (_) {}
-}
-
-function setLivePlayerStatus(message, tone) {
-  const target = $('livePlayerStatus');
-  target.textContent = message;
-  target.className = 'form-result' + (tone ? ' ' + tone : '');
-}
-
-function setLiveOverlay(message, hidden) {
-  $('liveState').textContent = message || '';
-  $('liveState').classList.toggle('hidden', Boolean(hidden));
-}
-
-function liveBrowserHasMse() {
-  if (
-    typeof MediaSource !== 'function' ||
-    typeof fetch !== 'function' ||
-    typeof ReadableStream !== 'function' ||
-    typeof AbortController !== 'function' ||
-    typeof TextDecoder !== 'function'
-  ) return false;
-  try {
-    return MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
-  } catch (_) {
-    return false;
-  }
-}
-
-function updateLiveBrowserSupport() {
-  const target = $('liveBrowserSupport');
-  const supported = liveBrowserHasMse() && typeof CameraWatchdogLivePlayer === 'function';
-  if (target) {
-    target.className = 'live-browser-state ' + (supported ? 'ok' : 'bad');
-    target.textContent = supported
-      ? 'MSE, H.264 e leitura HTTP incremental disponíveis. O player também corrige marcadores RTP por NAL usados por algumas câmeras.'
-      : 'Este navegador não oferece todos os recursos exigidos: MSE/H.264, fetch incremental, AbortController e TextDecoder.';
-  }
-  return supported;
-}
-
-function selectedLiveProfileIndex() {
-  const index = Number($('liveProfile').value);
-  return Number.isInteger(index) && index >= 0 ? index : -1;
-}
-
-function resetLiveProfileAttempts() {
-  liveFailedProfileIndices = [];
-  liveProfileFailureStartedAtMs = 0;
-  liveProfileFailureIndex = -1;
-  liveProfileSweepExhaustedAtMs = 0;
-}
-
-function restoreLivePreferredProfile() {
-  const preferred = liveProfiles.find(
-    profile => profile.index === livePreferences.profileIndex
-  );
-  if (preferred) $('liveProfile').value = String(preferred.index);
-}
-
-function noteLiveProfileAttempt(profileIndex) {
-  if (!liveFailedProfileIndices.includes(profileIndex)) {
-    liveFailedProfileIndices.push(profileIndex);
-  }
-}
-
-function selectLiveFallbackProfile(now) {
-  const currentProfileIndex = selectedLiveProfileIndex();
-  if (currentProfileIndex >= 0) noteLiveProfileAttempt(currentProfileIndex);
-  let fallback = liveProfiles.find(
-    profile => !liveFailedProfileIndices.includes(profile.index)
-  );
-
-  if (!fallback) {
-    if (!liveProfileSweepExhaustedAtMs) {
-      liveProfileSweepExhaustedAtMs = now;
-    }
-    if (
-      now - liveProfileSweepExhaustedAtMs <
-      liveProfileSweepRetryIntervalMs
-    ) return null;
-
-    liveFailedProfileIndices = [];
-    liveProfileSweepExhaustedAtMs = 0;
-    if (currentProfileIndex >= 0) noteLiveProfileAttempt(currentProfileIndex);
-    fallback = liveProfiles.find(
-      profile => !liveFailedProfileIndices.includes(profile.index)
-    );
-    if (!fallback) {
-      liveProfileSweepExhaustedAtMs = now;
-      return null;
-    }
-  }
-
-  $('liveProfile').value = String(fallback.index);
-  liveReconnectAttempt = 0;
-  liveProfileFailureIndex = fallback.index;
-  liveProfileFailureStartedAtMs = now;
-  return fallback;
-}
-
-function applyLiveProfileFailoverSettings(values) {
-  if (!values) return;
-  const nextEnabled = typeof values.enableLiveProfileFailover === 'boolean'
-    ? values.enableLiveProfileFailover
-    : enableLiveProfileFailover;
-  const nextDelay = Number(values.liveProfileFailoverDelayMs)
-    || liveProfileFailoverDelayMs;
-  const nextSweepRetry = Number(values.liveProfileSweepRetryIntervalMs)
-    || liveProfileSweepRetryIntervalMs;
-  const changed = nextEnabled !== enableLiveProfileFailover
-    || nextDelay !== liveProfileFailoverDelayMs
-    || nextSweepRetry !== liveProfileSweepRetryIntervalMs;
-  enableLiveProfileFailover = nextEnabled;
-  liveProfileFailoverDelayMs = nextDelay;
-  liveProfileSweepRetryIntervalMs = nextSweepRetry;
-  if (changed) resetLiveProfileAttempts();
-}
-
-function liveProfileFailureMessage() {
-  const profileIndex = selectedLiveProfileIndex();
-  const profile = liveProfiles.find(item => item.index === profileIndex);
-  const profileName = profile ? profile.name : 'perfil selecionado';
-  const now = Date.now();
-
-  if (
-    liveProfileFailureIndex !== profileIndex ||
-    !liveProfileFailureStartedAtMs
-  ) {
-    liveProfileFailureIndex = profileIndex;
-    liveProfileFailureStartedAtMs = now;
-  }
-
-  if (!enableLiveProfileFailover) {
-    return 'Reconectando ' + profileName
-      + '; troca automática de perfil desativada.';
-  }
-
-  const failureElapsedMs = now - liveProfileFailureStartedAtMs;
-  if (failureElapsedMs < liveProfileFailoverDelayMs) {
-    const remainingSeconds = Math.max(
-      1,
-      Math.ceil((liveProfileFailoverDelayMs - failureElapsedMs) / 1000)
-    );
-    return 'Reconectando ' + profileName + '; troca automática em '
-      + remainingSeconds + ' s se a falha persistir.';
-  }
-
-  const fallback = selectLiveFallbackProfile(now);
-  if (fallback) {
-    return 'Falha persistente em ' + profileName + '; tentando '
-      + fallback.name + ' automaticamente.';
-  }
-
-  const sweepRemainingSeconds = Math.max(
-    1,
-    Math.ceil((
-      liveProfileSweepRetryIntervalMs -
-      (now - liveProfileSweepExhaustedAtMs)
-    ) / 1000)
-  );
-  return 'Todos os perfis foram testados; mantendo ' + profileName
-    + ' e repetindo a varredura em ' + sweepRemainingSeconds + ' s.';
-}
-
-function liveHostForUrl() {
-  const host = location.hostname || location.host.split(':')[0];
-  return host.includes(':') && !host.startsWith('[') ? '[' + host + ']' : host;
-}
-
-function liveStreamUrl(profileIndex) {
-  return 'http://' + liveHostForUrl() + ':' + liveStreamPort
-    + '/stream?profile=' + encodeURIComponent(profileIndex);
-}
-
-function clearLiveReconnectTimer() {
-  clearTimeout(liveReconnectTimer);
-  liveReconnectTimer = null;
-}
-
-function scheduleLiveReconnect(message) {
-  clearLiveReconnectTimer();
-  if (!liveShouldRun || activeView !== 'stream' || document.hidden) return;
-  const delay = Math.min(10000, 1000 * Math.pow(2, Math.min(liveReconnectAttempt, 3)));
-  liveReconnectAttempt++;
-  setLivePlayerStatus(
-    message || 'Transmissão encerrada; nova tentativa em ' + Math.round(delay / 1000) + ' s…',
-    'warn'
-  );
-  liveReconnectTimer = setTimeout(() => {
-    liveReconnectTimer = null;
-    if (liveShouldRun && activeView === 'stream' && !document.hidden) openLiveStream();
-  }, delay);
-}
-
-function ensureLivePlayer() {
-  if (livePlayer) return livePlayer;
-  livePlayer = new CameraWatchdogLivePlayer({
-    video: liveVideo,
-    onStatus(message) {
-      if (!message) return;
-      const state = message.state || '';
-      const detail = message.detail || state || 'Atualizando transmissão…';
-      if (state === 'playing') {
-        const dimensions = message.width && message.height
-          ? message.width + '×' + message.height
-          : 'resolução pelo SPS';
-        const fps = message.declaredFps ? ' · ' + message.declaredFps + ' FPS declarados' : '';
-        $('liveCodecState').textContent = (message.codec || message.encoding || 'H.264')
-          + ' · ' + dimensions + fps;
-        setLiveOverlay('RTSP conectado; aguardando o próximo quadro-chave H.264…', false);
-        setLivePlayerStatus(detail, 'ok');
-      } else if (state === 'connecting') {
-        setLivePlayerStatus(detail, 'warn');
-      } else if (state === 'stopped') {
-        setLivePlayerStatus(detail, '');
-      } else if (state === 'error') {
-        setLivePlayerStatus(detail, 'bad');
-        setLiveOverlay(detail, false);
-      } else {
-        setLivePlayerStatus(detail, state ? 'warn' : '');
-      }
-    },
-    onStats(stats) {
-      liveBrowserStats = stats;
-      const corrections = Number(stats.markerCorrections || 0);
-      const dropped = Number(stats.dropped || 0);
-      const liveLatencySeconds = Number(stats.liveLatencySeconds || 0);
-      $('liveFpsValue').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS';
-      $('liveBitrateValue').textContent = Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps';
-      $('liveLatencyValue').textContent = liveLatencySeconds.toFixed(1) + ' s';
-      $('liveLossValue').textContent = Number(stats.packets || 0).toLocaleString('pt-BR');
-      $('liveBrowserDropValue').textContent = corrections.toLocaleString('pt-BR')
-        + ' corr. · ' + dropped.toLocaleString('pt-BR') + ' desc.';
-      if (corrections > 0 && !liveMarkerCompatibilityNotified) {
-        liveMarkerCompatibilityNotified = true;
-        setLivePlayerStatus('Vídeo ativo; marcadores RTP por NAL da câmera foram corrigidos automaticamente.', 'ok');
-      }
-      if (liveVideo.classList.contains('ready')) {
-        $('liveStamp').textContent = Number(stats.fps || 0).toFixed(1) + ' FPS · '
-          + Number(stats.bitrateKbps || 0).toLocaleString('pt-BR') + ' kbps · '
-          + liveLatencySeconds.toFixed(1) + ' s';
-      }
-    },
-    onVideoInfo(info) {
-      $('liveCodecState').textContent = info.codec + ' · ' + info.width + '×' + info.height;
-      setLiveOverlay('Segmento H.264 aceito; formando a margem inicial de reprodução…', false);
-      setLivePlayerStatus('Acumulando vídeo para evitar interrupções.', 'warn');
-    },
-    onPlaybackReady() {
-      liveReconnectAttempt = 0;
-      resetLiveProfileAttempts();
-      liveVideo.classList.add('ready');
-      setLiveOverlay('', true);
-      setLivePlayerStatus(
-        liveMarkerCompatibilityNotified
-          ? 'Vídeo H.264 ativo com correção automática dos marcadores RTP da câmera.'
-          : 'Vídeo H.264 sendo reproduzido pelo navegador.',
-        'ok'
-      );
-      try {
-        const playAttempt = liveVideo.play();
-        if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(function () {});
-      } catch (_) {}
-    },
-    onError(error) {
-      liveVideo.classList.remove('ready');
-      setLivePlayerStatus(error.message || String(error), 'bad');
-      setLiveOverlay('A transmissão foi interrompida: ' + (error.message || String(error)), false);
-      if (liveShouldRun) {
-        scheduleLiveReconnect(liveProfileFailureMessage());
-      }
-    }
-  });
-  return livePlayer;
-}
-
-function openLiveStream() {
-  clearLiveReconnectTimer();
-  if (!liveShouldRun || activeView !== 'stream' || document.hidden) return;
-  const profileIndex = selectedLiveProfileIndex();
-  if (profileIndex < 0) {
-    setLiveOverlay('A câmera ainda não forneceu um perfil H.264 compatível.', false);
-    setLivePlayerStatus('Aguardando catálogo ONVIF com perfil H.264.', 'warn');
-    return;
-  }
-  if (!updateLiveBrowserSupport()) {
-    setLiveOverlay('H.264 por Media Source Extensions não está disponível neste navegador.', false);
-    setLivePlayerStatus('Navegador sem suporte ao player integrado.', 'bad');
-    return;
-  }
-  liveVideo.classList.remove('ready');
-  liveMarkerCompatibilityNotified = false;
-  setLiveOverlay('Conectando ao relay HTTP integrado do ESP32…', false);
-  setLivePlayerStatus('Abrindo o relay na porta ' + liveStreamPort + '…', 'warn');
-  $('liveStart').disabled = true;
-  $('liveReload').disabled = false;
-  $('liveStop').disabled = false;
-  const startPromise = ensureLivePlayer().start(liveStreamUrl(profileIndex));
-  Promise.resolve(startPromise).catch(error => {
-    liveVideo.classList.remove('ready');
-    setLivePlayerStatus(error.message || String(error), 'bad');
-    setLiveOverlay(error.message || String(error), false);
-    if (liveShouldRun) scheduleLiveReconnect(liveProfileFailureMessage());
-  });
-}
-
-function startLivePlayer() {
-  if (activeView !== 'stream') return;
-  if (!settingsLoaded) {
-    startLivePlayerWhenSettingsReady(loadSettings(false), true);
-    return;
-  }
-  resetLiveProfileAttempts();
-  restoreLivePreferredProfile();
-  liveShouldRun = true;
-  liveReconnectAttempt = 0;
-  openLiveStream();
-}
-
-function startLivePlayerWhenSettingsReady(settingsReady, forceStart = false) {
-  Promise.resolve(settingsReady).finally(() => {
-    if (activeView !== 'stream' || document.hidden) return;
-    if (!settingsLoaded) {
-      liveShouldRun = false;
-      setLiveOverlay(
-        'As configurações persistidas não puderam ser carregadas.',
-        false
-      );
-      setLivePlayerStatus(
-        'Ao Vivo mantido parado para não ignorar a política de troca de perfil.',
-        'bad'
-      );
-      return;
-    }
-    if (forceStart || $('liveAutostart').checked) startLivePlayer();
-    else stopLivePlayer(false);
-  });
-}
-
-function stopLivePlayer(userInitiated) {
-  endPtzMove(true);
-  liveShouldRun = false;
-  resetLiveProfileAttempts();
-  clearLiveReconnectTimer();
-  if (livePlayer) livePlayer.stop(false);
-  liveVideo.classList.remove('ready');
-  $('liveStart').disabled = liveProfiles.length === 0;
-  $('liveReload').disabled = liveProfiles.length === 0;
-  $('liveStop').disabled = true;
-  $('liveStamp').textContent = 'relay parado';
-  liveMarkerCompatibilityNotified = false;
-  liveBrowserStats = { packets: 0, frames: 0, dropped: 0, markerCorrections: 0, fps: 0, bitrateKbps: 0, liveLatencySeconds: 0 };
-  $('liveBrowserDropValue').textContent = '0 corr. · 0 desc.';
-  $('liveLatencyValue').textContent = '—';
-  if (userInitiated) {
-    $('liveAutostart').checked = false;
-    saveLivePreferences();
-    setLiveOverlay('Transmissão interrompida.', false);
-    setLivePlayerStatus('Relay RTSP/HTTP parado.', '');
-  }
-}
-
-function liveProfileLabel(profile) {
-  const dimensions = profile.width && profile.height
-    ? profile.width + '×' + profile.height
-    : 'resolução desconhecida';
-  const fps = profile.fps ? ' · ' + profile.fps + ' FPS' : '';
-  const bitrate = profile.bitrateKbps ? ' · ' + profile.bitrateKbps + ' kbps' : '';
-  const recommended = profile.preferred ? ' · recomendado' : '';
-  return profile.name + ' · ' + profile.encoding + ' · ' + dimensions + fps + bitrate + recommended;
-}
-
-function renderLiveStatus(live, camera, onvif) {
-  if (!live) return;
-  liveLastStatus = live;
-  ptzServiceAvailable = Boolean(
-    onvif &&
-    onvif.services &&
-    onvif.services.ptz &&
-    onvif.services.ptz.available
-  );
-  liveStreamPort = Number(live.streamPort) || Number(live.relay && live.relay.port) || 81;
-  $('liveCameraAddress').textContent = camera && camera.known
-    ? camera.ip + ':' + camera.rtspPort
-    : 'não localizada';
-  $('liveSocketAddress').textContent = 'http://' + liveHostForUrl() + ':' + liveStreamPort + '/stream';
-
-  const relay = live.relay || {};
-  const relayState = !relay.started
-    ? 'não iniciado'
-    : relay.mediaActive
-      ? 'transmitindo'
-      : relay.clientActive ? 'conectando à câmera'
-      : relay.running ? 'aguardando navegador' : 'parado';
-  $('liveRelayState').textContent = relayState
-    + (!relay.mediaActive && relay.lastError ? ' · ' + relay.lastError : '');
-  const relayDriftMs = Math.max(0, Number(relay.currentRtpClockDriftMs || 0));
-  $('liveRelayLatencyValue').textContent = relay.clientActive
-    ? (relayDriftMs / 1000).toFixed(1) + ' s'
-    : Number(relay.latencyAborts || 0) > 0
-      ? Number(relay.latencyAborts).toLocaleString('pt-BR') + ' reconexões por latência'
-      : '—';
-
-  const compatibleProfiles = Array.isArray(live.profiles)
-    ? live.profiles.filter(profile => profile.relayCompatible)
-    : [];
-  const signature = compatibleProfiles.map(profile => [
-    profile.index, profile.name, profile.encoding, profile.width, profile.height,
-    profile.fps, profile.bitrateKbps, profile.preferred
-  ].join(':')).join('|');
-
-  if (signature !== liveProfileSignature) {
-    liveProfileSignature = signature;
-    resetLiveProfileAttempts();
-    liveProfiles = compatibleProfiles;
-    const select = $('liveProfile');
-    const previous = Number(select.value);
-    select.innerHTML = '';
-    compatibleProfiles.forEach(profile => {
-      const option = document.createElement('option');
-      option.value = profile.index;
-      option.textContent = liveProfileLabel(profile);
-      select.appendChild(option);
-    });
-    const saved = livePreferences.profileIndex;
-    const selected = compatibleProfiles.find(profile => profile.index === saved)
-      || compatibleProfiles.find(profile => profile.index === previous)
-      || compatibleProfiles.find(profile => profile.preferred)
-      || compatibleProfiles[0];
-    if (selected) select.value = String(selected.index);
-    select.disabled = compatibleProfiles.length === 0;
-    $('liveStart').disabled = compatibleProfiles.length === 0 || Boolean(livePlayer && livePlayer.running);
-    $('liveReload').disabled = compatibleProfiles.length === 0;
-    if (!compatibleProfiles.length) {
-      const option = document.createElement('option');
-      option.textContent = live.available
-        ? 'nenhum perfil H.264 compatível'
-        : 'aguardando perfis…';
-      select.appendChild(option);
-      setLiveOverlay(
-        live.available
-          ? 'A câmera não informou um perfil H.264 compatível com o relay integrado.'
-          : 'Aguardando os perfis ONVIF da câmera…',
-        false
-      );
-    }
-  }
-
-  if (!liveShouldRun) {
-    setLivePlayerStatus('Relay RTSP/HTTP parado.', '');
-  } else if (relay.clientActive && livePlayer && livePlayer.running) {
-    if (liveVideo.classList.contains('ready')) {
-      setLivePlayerStatus(
-        liveMarkerCompatibilityNotified
-          ? 'Vídeo ativo; compatibilidade RTP aplicada automaticamente.'
-          : 'Relay HTTP, sessão RTSP e reprodução H.264 ativos.',
-        'ok'
-      );
-    }
-  }
-
-  updatePtzControlAvailability();
-
-  if (
-    activeView === 'stream' &&
-    settingsLoaded &&
-    $('liveAutostart').checked &&
-    compatibleProfiles.length &&
-    !(livePlayer && livePlayer.running) &&
-    !liveReconnectTimer
-  ) {
-    liveShouldRun = true;
-    setTimeout(openLiveStream, 0);
-  }
-}
-
-$('liveStart').addEventListener('click', startLivePlayer);
-$('liveReload').addEventListener('click', () => {
-  resetLiveProfileAttempts();
-  liveShouldRun = true;
-  liveReconnectAttempt = 0;
-  openLiveStream();
-});
-$('liveStop').addEventListener('click', () => stopLivePlayer(true));
-$('liveProfile').addEventListener('change', () => {
-  endPtzMove(true);
-  resetLiveProfileAttempts();
-  saveLivePreferences();
-  updatePtzControlAvailability();
-  if (liveShouldRun && activeView === 'stream') openLiveStream();
-});
-$('liveAutostart').addEventListener('change', () => {
-  saveLivePreferences();
-  if (!$('liveAutostart').checked && liveShouldRun) stopLivePlayer(false);
-  else if ($('liveAutostart').checked && activeView === 'stream') startLivePlayer();
-});
-
-function activateLiveConfigSection(name, focusTab) {
-  const available = [...document.querySelectorAll('[data-live-config-panel]')];
-  const target = available.find(panel => panel.dataset.liveConfigPanel === name);
-  if (!target) return;
-  if (name !== 'ptz') endPtzMove(true);
-
-  available.forEach(panel => {
-    panel.hidden = panel !== target;
-  });
-  document.querySelectorAll('.live-config-tab[data-live-config-section]').forEach(tab => {
-    const selected = tab.dataset.liveConfigSection === name;
-    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-    tab.tabIndex = selected ? 0 : -1;
-    if (selected && focusTab) tab.focus();
-  });
-}
-
-document.querySelectorAll('.live-config-tab[data-live-config-section]').forEach((tab, index, tabs) => {
-  tab.addEventListener('click', () => activateLiveConfigSection(tab.dataset.liveConfigSection, false));
-  tab.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    let nextIndex = index;
-    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
-    if (event.key === 'Home') nextIndex = 0;
-    if (event.key === 'End') nextIndex = tabs.length - 1;
-    activateLiveConfigSection(tabs[nextIndex].dataset.liveConfigSection, true);
-  });
-});
-
-document.querySelectorAll('[data-ptz-pan]').forEach(button => {
-  button.addEventListener('pointerdown', event => beginPtzMove(button, event));
-  button.addEventListener('pointerup', () => endPtzMove(true));
-  button.addEventListener('pointercancel', () => endPtzMove(true));
-  button.addEventListener('pointerleave', () => endPtzMove(true));
-  button.addEventListener('lostpointercapture', () => endPtzMove(true));
-  button.addEventListener('keydown', event => {
-    if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-      beginPtzMove(button, event);
-    }
-  });
-  button.addEventListener('keyup', event => {
-    if (event.key === ' ' || event.key === 'Enter') endPtzMove(true);
-  });
-  button.addEventListener('dragstart', event => event.preventDefault());
-});
-
-$('ptzStop').addEventListener('click', () => {
-  if (ptzMoveActive) endPtzMove(true);
-  else sendPtzStop(selectedLiveProfileIndex(), null, false);
-});
-$('ptzSpeed').addEventListener('input', () => {
-  $('ptzSpeedValue').textContent = $('ptzSpeed').value + '%';
-});
-$('ptzAuthorize').addEventListener('click', () => {
-  if (!settingsWriteToken) {
-    loadSettings(true);
-    return;
-  }
-  openConfirmModal(
-    'Autorizar os controles de posição da câmera somente nesta sessão do navegador.',
-    password => authorizePtz(password)
-  );
-});
-window.addEventListener('pointerup', () => endPtzMove(true));
-window.addEventListener('blur', () => endPtzMove(true));
-window.addEventListener('pagehide', () => endPtzMove(true));
-
-function isLiveNativeFullscreen() {
-  return document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage;
-}
-
-function updateLiveFsButton() {
-  const active = isLiveNativeFullscreen() || liveStage.classList.contains('fs-fallback');
-  liveFsBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-  liveFsBtn.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ver em tela cheia');
-  liveFsBtn.title = active ? 'Sair da tela cheia' : 'Tela cheia';
-  liveFsBtn.querySelector('.ic-expand').hidden = active;
-  liveFsBtn.querySelector('.ic-collapse').hidden = !active;
-}
-
-function exitLiveFallbackFullscreen() {
-  liveStage.classList.remove('fs-fallback');
-  document.body.classList.remove('fs-locked');
-  updateLiveFsButton();
-}
-
-function toggleLiveFullscreen() {
-  if (isLiveNativeFullscreen()) {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    return;
-  }
-  if (liveStage.classList.contains('fs-fallback')) {
-    exitLiveFallbackFullscreen();
-    return;
-  }
-  const request = liveStage.requestFullscreen || liveStage.webkitRequestFullscreen;
-  if (!request) {
-    liveStage.classList.add('fs-fallback');
-    document.body.classList.add('fs-locked');
-    updateLiveFsButton();
-    return;
-  }
-  Promise.resolve(request.call(liveStage)).catch(() => {
-    liveStage.classList.add('fs-fallback');
-    document.body.classList.add('fs-locked');
-    updateLiveFsButton();
-  });
-}
-
-liveFsBtn.addEventListener('click', toggleLiveFullscreen);
-liveVideo.addEventListener('dblclick', toggleLiveFullscreen);
-document.addEventListener('fullscreenchange', updateLiveFsButton);
-document.addEventListener('webkitfullscreenchange', updateLiveFsButton);
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && liveStage.classList.contains('fs-fallback')) exitLiveFallbackFullscreen();
-});
-
-loadLivePreferences();
-updateLiveBrowserSupport();
 
 function activateSettingsSection(name, focusTab) {
   const available = [...document.querySelectorAll('[data-settings-section-panel]')];
@@ -2200,10 +1120,7 @@ const SETTINGS_FIELDS = {
   cameraAlertLedBlinkIntervalMs: { id: 'cfgLedBlink' },
   feedMinIntervalMs: { id: 'cfgFeedMinimum', scale: 1000 },
   feedTargetCycleMs: { id: 'cfgFeedTarget', scale: 1000 },
-  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 },
-  enableLiveProfileFailover: { id: 'cfgLiveProfileFailover', kind: 'bool' },
-  liveProfileFailoverDelayMs: { id: 'cfgLiveProfileFailoverDelay', scale: 1000 },
-  liveProfileSweepRetryIntervalMs: { id: 'cfgLiveProfileSweepRetry', scale: 1000 }
+  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 }
 };
 
 function formatSettingNumber(value) {
@@ -2273,7 +1190,6 @@ function populateSettings(payload) {
 
   settingsWriteToken = payload.security ? payload.security.writeToken || '' : '';
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
-  if (!settingsPasswordRequired) ptzAdminPassword = '';
   $('settingsSource').textContent = payload.source === 'nvs'
     ? 'configurações salvas na NVS'
     : 'valores padrão de fábrica';
@@ -2284,11 +1200,9 @@ function populateSettings(payload) {
   feedMinimumIntervalMs = Number(values.feedMinIntervalMs) || feedMinimumIntervalMs;
   feedTargetCycleMs = Number(values.feedTargetCycleMs) || feedTargetCycleMs;
   statusRefreshIntervalMs = Number(values.statusRefreshIntervalMs) || statusRefreshIntervalMs;
-  applyLiveProfileFailoverSettings(values);
   settingsLoaded = true;
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
-  updatePtzControlAvailability();
   if (activeView === 'actions') {
     setAdminActionStatus('Autorização carregada. Escolha uma ação administrativa.', 'ok');
   } else {
@@ -2313,7 +1227,6 @@ function loadSettings(force) {
       populateSettings(payload);
     } catch (error) {
       setMutationControlsEnabled(false);
-      updatePtzControlAvailability();
       if (activeView === 'actions') {
         setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
       } else {
@@ -2510,7 +1423,6 @@ function render(d) {
     feedTargetCycleMs = Number(d.ui.feedTargetCycleMs) || feedTargetCycleMs;
     statusRefreshIntervalMs = Number(d.ui.statusRefreshIntervalMs) || statusRefreshIntervalMs;
     snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
-    applyLiveProfileFailoverSettings(d.ui);
   }
 
   if (d.adminAction && d.adminAction.lastResult && activeView === 'actions') {
@@ -2519,16 +1431,21 @@ function render(d) {
 
   if (d.snapshot) {
     const previewFps = d.ui && d.ui.previewMaximumFps ? d.ui.previewMaximumFps : 1;
-    $('feedMeta').textContent = d.snapshot.healthy
-      ? 'Máximo ' + previewFps + ' FPS · perfil ' + (d.snapshot.profile || 'ONVIF')
-        + ' · último teste com ' + formatBytes(d.snapshot.bytesRead)
-        + ' · ' + d.snapshot.served + ' quadros entregues'
-      : d.recovery && d.recovery.graceActive
+    if (d.snapshot.healthy) {
+      feedDeliveredFrames = Number(d.snapshot.served) || 0;
+      feedHealthyMetaPrefix = 'Máximo ' + previewFps + ' FPS · perfil '
+        + (d.snapshot.profile || 'ONVIF') + ' · último teste com '
+        + formatBytes(d.snapshot.bytesRead);
+      updateFeedHealthyMeta();
+    } else {
+      feedHealthyMetaPrefix = '';
+      $('feedMeta').textContent = d.recovery && d.recovery.graceActive
         ? 'Máximo ' + previewFps + ' FPS · a câmera está reiniciando; a prévia será retomada automaticamente'
         : !d.snapshot.conclusive
           ? 'Máximo ' + previewFps + ' FPS · teste JPEG aguardando nova amostra conclusiva'
         : 'Máximo ' + previewFps + ' FPS · imagem indisponível · '
           + (d.snapshot.detail || 'aguardando novo teste');
+    }
   }
 
   if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
@@ -2540,9 +1457,8 @@ function render(d) {
   $('availValue').textContent = conclusiveChecks ? rate.toFixed(rate >= 99.95 ? 0 : 1) + '%' : '—';
 
   const p = d.probes;
-  renderLiveStatus(d.live, d.camera, d.onvif);
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
-  setRtspProbe(p, d.mediaCanary);
+  setRtspProbe(p);
   setImageProbe(d.snapshot, d.recovery);
 
   const rssi = d.wifi.rssi;
@@ -2597,13 +1513,19 @@ function render(d) {
 
 function scheduleStatusRefresh(delay) {
   clearTimeout(statusRefreshTimer);
-  if (document.hidden) return;
+  statusRefreshTimer = null;
+  if (
+    document.hidden ||
+    activeView === 'feed'
+  ) return;
   statusRefreshTimer = setTimeout(refresh, delay == null ? statusRefreshIntervalMs : delay);
 }
 
 async function refresh() {
   clearTimeout(statusRefreshTimer);
+  statusRefreshTimer = null;
   if (statusLoading) return;
+  if (activeView === 'feed' && lastOk) return;
   if (activeView === 'feed' && feedLoading) {
     scheduleStatusRefresh(250);
     return;
@@ -2635,11 +1557,11 @@ async function refresh() {
     ]);
     if (requestGeneration !== statusRequestGeneration) return;
     render(payload);
-    $('live').classList.remove('stale');
+    $('deviceStatus').classList.remove('stale');
   } catch (error) {
     if (requestGeneration === statusRequestGeneration && !document.hidden) {
-      $('live').classList.add('stale');
-      $('liveText').textContent = 'sem resposta do dispositivo';
+      $('deviceStatus').classList.add('stale');
+      $('deviceStatusText').textContent = 'sem resposta do dispositivo';
     }
   } finally {
     clearTimeout(requestTimeout);
@@ -2651,13 +1573,13 @@ async function refresh() {
 }
 
 setInterval(() => {
-  if (!lastOk || $('live').classList.contains('stale')) return;
+  if (!lastOk || $('deviceStatus').classList.contains('stale')) return;
   const ago = Math.round((Date.now() - lastOk) / 1000);
-  $('liveText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
+  $('deviceStatusText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = ['actions', 'settings', 'resources', 'stream', 'feed'].includes(name)
+  const nextView = ['actions', 'settings', 'resources', 'feed'].includes(name)
     ? name
     : 'camera';
   activeView = nextView;
@@ -2673,15 +1595,12 @@ function activateView(name, updateHash) {
       ? 'Configurações'
       : nextView === 'resources'
         ? 'Recursos'
-        : nextView === 'stream'
-          ? 'Ao Vivo'
-          : nextView === 'feed' ? 'Prévia' : 'Câmera';
+        : nextView === 'feed' ? 'Prévia' : 'Câmera';
   document.title = viewTitle + ' · Camera Watchdog';
 
-  const settingsReady =
-    nextView === 'settings' || nextView === 'actions' || nextView === 'stream'
-      ? loadSettings(false)
-      : Promise.resolve();
+  if (nextView === 'settings' || nextView === 'actions') {
+    loadSettings(false);
+  }
 
   if (nextView === 'feed') {
     $('feedState').textContent = cameraRecovering
@@ -2700,15 +1619,7 @@ function activateView(name, updateHash) {
     cancelFeedLoad(true);
     const frame = $('cameraFeed');
     frame.classList.remove('ready');
-  }
-
-  if (nextView === 'stream') {
-    updateLiveBrowserSupport();
-    startLivePlayerWhenSettingsReady(settingsReady);
-  } else {
-    if (isLiveNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    if (liveStage.classList.contains('fs-fallback')) exitLiveFallbackFullscreen();
-    stopLivePlayer(false);
+    scheduleStatusRefresh(0);
   }
 
   const nextHash = '#' + nextView;
@@ -2740,19 +1651,14 @@ document.addEventListener('visibilitychange', () => {
     if (statusAbortController) statusAbortController.abort();
     statusAbortController = null;
     statusLoading = false;
-    if (activeView === 'stream') stopLivePlayer(false);
     return;
   }
 
   refresh();
   if (activeView === 'feed') scheduleFeed(0);
-  if (activeView === 'stream') {
-    startLivePlayerWhenSettingsReady(loadSettings(false));
-  }
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
 });
 
-stopLivePlayer(false);
 activateSettingsSection(activeSettingsSection, false);
 activateView(activeView, false);
 refresh();
