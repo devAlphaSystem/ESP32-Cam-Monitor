@@ -15,8 +15,7 @@ constexpr uint32_t RECORD_MAGIC = 0x434C4F47UL;
 constexpr uint16_t LEGACY_RECORD_SCHEMA_VERSION = 1;
 constexpr uint16_t RECORD_SCHEMA_VERSION = 2;
 constexpr size_t STORED_CONTEXT_BYTES = 4;
-constexpr size_t STORED_DETAIL_CAPACITY =
-    DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
+constexpr size_t STORED_DETAIL_CAPACITY = DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
 constexpr size_t WRITE_QUEUE_CAPACITY = 16;
 constexpr unsigned long FLUSH_INTERVAL_MS = 1000UL;
 
@@ -40,18 +39,9 @@ struct StoredRecord {
     uint32_t checksum;
 };
 
-static_assert(
-    DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1,
-    "O payload persistente precisa reservar espaco para o detalhe"
-);
-static_assert(
-    sizeof(StoredRecord) == 80,
-    "O registro persistente deve ocupar exatamente 80 bytes"
-);
-static_assert(
-    CAPACITY * sizeof(StoredRecord) == 800000,
-    "O arquivo circular deve permanecer dentro da particao de logs"
-);
+static_assert(DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "O payload persistente precisa reservar espaco para o detalhe");
+static_assert(sizeof(StoredRecord) == 80, "O registro persistente deve ocupar exatamente 80 bytes");
+static_assert(CAPACITY * sizeof(StoredRecord) == 800000, "O arquivo circular deve permanecer dentro da particao de logs");
 
 fs::File logFile;
 StoredRecord writeQueue[WRITE_QUEUE_CAPACITY];
@@ -86,13 +76,7 @@ uint32_t recordChecksum(const StoredRecord& record)
 
 bool validRecord(const StoredRecord& record)
 {
-    return
-        record.magic == RECORD_MAGIC &&
-        (
-            record.schemaVersion == LEGACY_RECORD_SCHEMA_VERSION ||
-            record.schemaVersion == RECORD_SCHEMA_VERSION
-        ) &&
-        record.checksum == recordChecksum(record);
+    return record.magic == RECORD_MAGIC && (record.schemaVersion == LEGACY_RECORD_SCHEMA_VERSION || record.schemaVersion == RECORD_SCHEMA_VERSION) && record.checksum == recordChecksum(record);
 }
 
 void writeUint16(uint8_t* destination, uint16_t value)
@@ -103,18 +87,12 @@ void writeUint16(uint8_t* destination, uint16_t value)
 
 uint16_t readUint16(const uint8_t* source)
 {
-    return
-        static_cast<uint16_t>(source[0]) |
-        (static_cast<uint16_t>(source[1]) << 8);
+    return static_cast<uint16_t>(source[0]) | (static_cast<uint16_t>(source[1]) << 8);
 }
 
 uint32_t ipToValue(const IPAddress& ip)
 {
-    return
-        (static_cast<uint32_t>(ip[0]) << 24) |
-        (static_cast<uint32_t>(ip[1]) << 16) |
-        (static_cast<uint32_t>(ip[2]) << 8) |
-        static_cast<uint32_t>(ip[3]);
+    return (static_cast<uint32_t>(ip[0]) << 24) | (static_cast<uint32_t>(ip[1]) << 16) | (static_cast<uint32_t>(ip[2]) << 8) | static_cast<uint32_t>(ip[3]);
 }
 
 Category categoryForEvent(Event event)
@@ -174,10 +152,7 @@ void copyDetail(char* destination, size_t capacity, const char* source)
         return;
     }
 
-    const size_t copyLength = min(
-        strlen(source),
-        capacity - 1
-    );
+    const size_t copyLength = min(strlen(source), capacity - 1);
     memcpy(destination, source, copyLength);
     destination[copyLength] = '\0';
 }
@@ -194,12 +169,7 @@ bool readStoredRecord(size_t slot, StoredRecord& record)
         return false;
     }
 
-    return
-        logFile.read(
-            reinterpret_cast<uint8_t*>(&record),
-            sizeof(record)
-        ) == sizeof(record) &&
-        validRecord(record);
+    return logFile.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) == sizeof(record) && validRecord(record);
 }
 
 void scanExistingRecords()
@@ -209,13 +179,7 @@ void scanExistingRecords()
     newestSlot = 0;
     nextSequence = 1;
 
-    const size_t fileSlots = min(
-        static_cast<size_t>(
-            (logFile.size() + sizeof(StoredRecord) - 1) /
-            sizeof(StoredRecord)
-        ),
-        CAPACITY
-    );
+    const size_t fileSlots = min(static_cast<size_t>((logFile.size() + sizeof(StoredRecord) - 1) / sizeof(StoredRecord)), CAPACITY);
     bool foundRecord = false;
     uint32_t newestSequence = 0;
 
@@ -225,12 +189,7 @@ void scanExistingRecords()
 
     for (size_t slot = 0; slot < fileSlots; slot++) {
         StoredRecord record{};
-        const bool recordValid =
-            logFile.read(
-                reinterpret_cast<uint8_t*>(&record),
-                sizeof(record)
-            ) == sizeof(record) &&
-            validRecord(record);
+        const bool recordValid = logFile.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) == sizeof(record) && validRecord(record);
 
         if ((slot & 0xFFU) == 0) {
             delay(0);
@@ -247,16 +206,13 @@ void scanExistingRecords()
             newestSequence = record.sequence;
             newestSlot = slot;
         }
-
     }
 
     if (!foundRecord) {
         return;
     }
 
-    nextSequence = newestSequence == UINT32_MAX
-        ? 1
-        : newestSequence + 1;
+    nextSequence = newestSequence == UINT32_MAX ? 1 : newestSequence + 1;
     nextSlot = (newestSlot + 1) % CAPACITY;
     persistedRecords = min(persistedRecords, CAPACITY);
 }
@@ -299,11 +255,7 @@ void decodeRecord(const StoredRecord& stored, Entry& entry)
     } else {
         entry.bootId = readUint16(stored.payload);
         entry.contextId = readUint16(stored.payload + 2);
-        memcpy(
-            entry.detail,
-            stored.payload + STORED_CONTEXT_BYTES,
-            STORED_DETAIL_CAPACITY
-        );
+        memcpy(entry.detail, stored.payload + STORED_CONTEXT_BYTES, STORED_DETAIL_CAPACITY);
     }
 
     entry.detail[DETAIL_CAPACITY - 1] = '\0';
@@ -343,20 +295,7 @@ bool ready()
     return storeReady;
 }
 
-void record(
-    Event event,
-    Outcome outcome,
-    const char* detail,
-    const IPAddress& target,
-    uint16_t targetPort,
-    int statusCode,
-    uint32_t durationMs,
-    uint32_t value,
-    uint8_t flags,
-    Level level,
-    bool critical,
-    uint16_t contextId
-)
+void record(Event event, Outcome outcome, const char* detail, const IPAddress& target, uint16_t targetPort, int statusCode, uint32_t durationMs, uint32_t value, uint8_t flags, Level level, bool critical, uint16_t contextId)
 {
     if (!storeReady) {
         droppedRecords++;
@@ -375,29 +314,19 @@ void record(
     nextSequence = nextSequence == UINT32_MAX ? 1 : nextSequence + 1;
 
     const time_t now = time(nullptr);
-    stored.epochSeconds = now >= 1700000000
-        ? static_cast<uint32_t>(now)
-        : 0;
+    stored.epochSeconds = now >= 1700000000 ? static_cast<uint32_t>(now) : 0;
     stored.uptimeMs = millis();
     stored.targetIp = ipToValue(target);
     stored.durationMs = durationMs;
     stored.value = value;
     stored.targetPort = targetPort;
-    stored.statusCode = static_cast<int16_t>(constrain(
-        statusCode,
-        static_cast<int>(INT16_MIN),
-        static_cast<int>(INT16_MAX)
-    ));
+    stored.statusCode = static_cast<int16_t>(constrain(statusCode, static_cast<int>(INT16_MIN), static_cast<int>(INT16_MAX)));
     stored.event = static_cast<uint16_t>(event);
     stored.schemaVersion = RECORD_SCHEMA_VERSION;
     stored.category = static_cast<uint8_t>(categoryForEvent(event));
 
     if (level == Level::Automatic) {
-        level = outcome == Outcome::Failure
-            ? Level::Error
-            : outcome == Outcome::Skipped
-                ? Level::Warning
-                : Level::Info;
+        level = outcome == Outcome::Failure ? Level::Error : outcome == Outcome::Skipped ? Level::Warning : Level::Info;
     }
 
     stored.level = static_cast<uint8_t>(level);
@@ -405,11 +334,7 @@ void record(
     stored.flags = flags;
     writeUint16(stored.payload, currentBootId);
     writeUint16(stored.payload + 2, contextId);
-    copyDetail(
-        reinterpret_cast<char*>(stored.payload + STORED_CONTEXT_BYTES),
-        STORED_DETAIL_CAPACITY,
-        detail
-    );
+    copyDetail(reinterpret_cast<char*>(stored.payload + STORED_CONTEXT_BYTES), STORED_DETAIL_CAPACITY, detail);
     stored.checksum = recordChecksum(stored);
 
     if (critical || queuedRecords >= WRITE_QUEUE_CAPACITY) {
@@ -419,10 +344,7 @@ void record(
 
 void maintain()
 {
-    if (
-        queuedRecords > 0 &&
-        millis() - lastFlushAtMs >= FLUSH_INTERVAL_MS
-    ) {
+    if (queuedRecords > 0 && millis() - lastFlushAtMs >= FLUSH_INTERVAL_MS) {
         flush();
     }
 }
@@ -438,15 +360,7 @@ bool flush()
     while (writtenRecords < queuedRecords) {
         const size_t offset = nextSlot * sizeof(StoredRecord);
 
-        if (
-            !logFile.seek(offset, SeekSet) ||
-            logFile.write(
-                reinterpret_cast<const uint8_t*>(
-                    &writeQueue[writtenRecords]
-                ),
-                sizeof(StoredRecord)
-            ) != sizeof(StoredRecord)
-        ) {
+        if (!logFile.seek(offset, SeekSet) || logFile.write(reinterpret_cast<const uint8_t*>(&writeQueue[writtenRecords]), sizeof(StoredRecord)) != sizeof(StoredRecord)) {
             writeErrors++;
             break;
         }
@@ -467,11 +381,7 @@ bool flush()
     }
 
     if (writtenRecords < queuedRecords) {
-        memmove(
-            writeQueue,
-            writeQueue + writtenRecords,
-            (queuedRecords - writtenRecords) * sizeof(StoredRecord)
-        );
+        memmove(writeQueue, writeQueue + writtenRecords, (queuedRecords - writtenRecords) * sizeof(StoredRecord));
     }
 
     queuedRecords -= writtenRecords;
@@ -528,8 +438,7 @@ bool readNewest(size_t offset, Entry& entry)
         return false;
     }
 
-    const size_t slot =
-        (newestSlot + CAPACITY - (offset % CAPACITY)) % CAPACITY;
+    const size_t slot = (newestSlot + CAPACITY - (offset % CAPACITY)) % CAPACITY;
     StoredRecord stored{};
 
     if (readStoredRecord(slot, stored)) {
@@ -578,138 +487,6 @@ uint32_t droppedCount()
 uint32_t writeErrorCount()
 {
     return writeErrors;
-}
-
-const char* levelName(Level level)
-{
-    switch (level) {
-        case Level::Info:
-            return "info";
-        case Level::Warning:
-            return "warning";
-        case Level::Error:
-            return "error";
-        case Level::Automatic:
-            return "unknown";
-    }
-
-    return "unknown";
-}
-
-const char* categoryName(Category category)
-{
-    switch (category) {
-        case Category::System:
-            return "system";
-        case Category::Wifi:
-            return "wifi";
-        case Category::Camera:
-            return "camera";
-        case Category::Discovery:
-            return "discovery";
-        case Category::Onvif:
-            return "onvif";
-        case Category::Snapshot:
-            return "snapshot";
-        case Category::Rtsp:
-            return "rtsp";
-        case Category::Health:
-            return "health";
-        case Category::Action:
-            return "action";
-        case Category::Notification:
-            return "notification";
-        case Category::Settings:
-            return "settings";
-    }
-
-    return "unknown";
-}
-
-const char* outcomeName(Outcome outcome)
-{
-    switch (outcome) {
-        case Outcome::Info:
-            return "info";
-        case Outcome::Started:
-            return "started";
-        case Outcome::Success:
-            return "success";
-        case Outcome::Failure:
-            return "failure";
-        case Outcome::Skipped:
-            return "skipped";
-    }
-
-    return "unknown";
-}
-
-const char* eventName(Event event)
-{
-    switch (event) {
-        case Event::SystemBoot:
-            return "system_boot";
-        case Event::SystemRestart:
-            return "system_restart";
-        case Event::WifiConnect:
-            return "wifi_connect";
-        case Event::WifiDisconnect:
-            return "wifi_disconnect";
-        case Event::WifiReconnect:
-            return "wifi_reconnect";
-        case Event::CameraState:
-            return "camera_state";
-        case Event::Incident:
-            return "incident";
-        case Event::HealthCheck:
-            return "health_check";
-        case Event::DiscoveryProbe:
-            return "discovery_probe";
-        case Event::DiscoveryResult:
-            return "discovery_result";
-        case Event::SubnetScan:
-            return "subnet_scan";
-        case Event::TcpScan:
-            return "tcp_scan";
-        case Event::OnvifProbe:
-            return "onvif_probe";
-        case Event::OnvifSoap:
-            return "onvif_soap";
-        case Event::SnapshotHttp:
-            return "snapshot_http";
-        case Event::SnapshotTransfer:
-            return "snapshot_transfer";
-        case Event::RtspProbe:
-            return "rtsp_probe";
-        case Event::EmailHttp:
-            return "email_http";
-        case Event::SettingsSaved:
-            return "settings_saved";
-        case Event::SettingsReset:
-            return "settings_reset";
-        case Event::AdminAction:
-            return "admin_action";
-        case Event::CameraReboot:
-            return "camera_reboot";
-        case Event::PtzCommand:
-            return "ptz_command";
-        case Event::SntpSync:
-            return "sntp_sync";
-        case Event::RuntimeContext:
-            return "runtime_context";
-        case Event::SettingsContext:
-            return "settings_context";
-        case Event::CameraTargetLoad:
-            return "camera_target_load";
-        case Event::CameraTargetSave:
-            return "camera_target_save";
-        case Event::DiscoveryResponse:
-            return "discovery_response";
-        case Event::LogsCleared:
-            return "logs_cleared";
-    }
-
-    return "unknown";
 }
 
 }

@@ -1,14 +1,15 @@
-#pragma once
-
 #include <Arduino.h>
 
-static const char DASHBOARD_PAGE[] PROGMEM = R"HTML(<!doctype html>
+namespace CameraWatchdog {
+
+extern const char DASHBOARD_PAGE[] PROGMEM = R"HTML(<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0f14">
+<link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141b25'/%3E%3Cpath d='M14 24h9l4-5h12l4 5h7a5 5 0 0 1 5 5v18a5 5 0 0 1-5 5H14a5 5 0 0 1-5-5V29a5 5 0 0 1 5-5Z' fill='none' stroke='%2338bdf8' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='38' r='9' fill='none' stroke='%23e9eff7' stroke-width='4'/%3E%3Ccircle cx='50' cy='18' r='6' fill='%2334d399' stroke='%230b0f14' stroke-width='3'/%3E%3C/svg%3E">
 <title>Camera Watchdog</title>
 <style>
 *,*::before,*::after{box-sizing:border-box}
@@ -2367,3 +2368,5 @@ if (activeView !== 'feed') refresh();
 </body>
 </html>
 )HTML";
+
+}

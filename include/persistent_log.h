@@ -101,20 +101,7 @@ struct Entry {
 bool begin();
 bool ready();
 
-void record(
-    Event event,
-    Outcome outcome,
-    const char* detail = nullptr,
-    const IPAddress& target = IPAddress(),
-    uint16_t targetPort = 0,
-    int statusCode = 0,
-    uint32_t durationMs = 0,
-    uint32_t value = 0,
-    uint8_t flags = FlagNone,
-    Level level = Level::Automatic,
-    bool critical = false,
-    uint16_t contextId = 0
-);
+void record(Event event, Outcome outcome, const char* detail = nullptr, const IPAddress& target = IPAddress(), uint16_t targetPort = 0, int statusCode = 0, uint32_t durationMs = 0, uint32_t value = 0, uint8_t flags = FlagNone, Level level = Level::Automatic, bool critical = false, uint16_t contextId = 0);
 
 void maintain();
 bool flush();
