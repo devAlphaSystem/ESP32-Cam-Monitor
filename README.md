@@ -1,8 +1,8 @@
-# ESP32 Camera Watchdog 0.10.0
+# ESP32 Camera Watchdog 0.11.0
 
 Firmware para ESP32 que monitora uma câmera IP por ONVIF, valida snapshots JPEG e disponibiliza uma Prévia local no navegador. O watchdog também pode enviar alertas e executar uma recuperação controlada quando a câmera deixa de fornecer imagens válidas.
 
-## Escopo da versão 0.10.0
+## Escopo da versão 0.11.0
 
 A visualização da câmera é feita exclusivamente pela Prévia JPEG. O navegador nunca acessa a câmera diretamente: o ESP32 resolve o perfil ONVIF, autentica a solicitação, valida o JPEG e transfere o quadro ao painel.
 
@@ -13,6 +13,8 @@ O RTSP permanece somente como uma sonda básica de disponibilidade e como apoio 
 - descoberta por ONVIF WS-Discovery;
 - varredura opcional e limitada da sub-rede;
 - seleção automática de perfil ONVIF para snapshot;
+- descoberta do serviço ONVIF PTZ e dos presets gravados na câmera;
+- acionamento autenticado de posições PTZ e do preset Daemon;
 - preferência configurável por nome de perfil JPEG;
 - Prévia JPEG intermediada pelo ESP32;
 - autenticação Basic e Digest nas solicitações à câmera;
@@ -34,7 +36,7 @@ flowchart LR
     ESP -->|Configurações| NVS[NVS]
 ```
 
-O acesso à câmera é serializado para evitar operações concorrentes entre Prévia, health-check, descoberta e recuperação. As credenciais ONVIF permanecem no firmware e não são enviadas ao navegador.
+O acesso à câmera é serializado para evitar operações concorrentes entre Prévia, PTZ, health-check, descoberta e recuperação. As credenciais ONVIF permanecem no firmware e não são enviadas ao navegador.
 
 ## Requisitos
 
@@ -153,7 +155,11 @@ Permite ajustar identificação, perfil JPEG, monitoramento, recuperação, desc
 
 ### Ações
 
-Disponibiliza health-check manual, redescoberta, reinicialização ONVIF da câmera, limpeza do limitador e reinicialização do ESP32. Operações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa.
+As posições PTZ detectadas ficam na aba Prévia, em uma lista pesquisável e rolável aberta por modal. O firmware mantém até 128 presets, portanto uma câmera com 50 posições não expande nem desorganiza a página. Os presets são atualizados automaticamente a cada minuto, e a Prévia é pausada durante a escolha e o comando para liberar o servidor HTTP e o canal da câmera.
+
+A aba Ações permanece reservada ao health-check manual, redescoberta, reinicialização ONVIF da câmera, limpeza do limitador e reinicialização do ESP32. Operações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa.
+
+Os nomes personalizados exibidos pelo iCSee podem permanecer apenas no aplicativo. Quando a câmera publica nomes numéricos, o painel usa `Posição <token>`. Nesta câmera XM, o token `100` foi confirmado como o ponto Daemon e está definido por `CAMERA_DAEMON_PRESET_TOKEN` em `include/app_config.h`.
 
 ## Health-check
 
@@ -220,7 +226,7 @@ As últimas oito recuperações aceitas mantêm em RAM a evidência do snapshot,
 
 ## Configurações persistentes
 
-O firmware `0.10.0` usa o schema de configurações `3`:
+O firmware `0.11.0` usa o schema de configurações `3`:
 
 - `GET /api/settings` lê valores, limites e token de escrita;
 - `POST /api/settings` valida e salva alterações;
@@ -241,6 +247,7 @@ Registros persistidos com layout incompatível são removidos e substituídos pe
 | POST | `/api/settings/reset` | restaurar padrões |
 | POST | `/api/actions/health-check` | executar verificação |
 | POST | `/api/actions/rediscover` | redescobrir a câmera |
+| POST | `/api/actions/goto-ptz-preset` | mover a câmera para um preset PTZ detectado |
 | POST | `/api/actions/reboot-camera` | reiniciar a câmera por ONVIF |
 | POST | `/api/actions/reset-reboot-limiter` | limpar o limitador |
 | POST | `/api/actions/reboot-esp32` | reiniciar o ESP32 |
@@ -255,7 +262,7 @@ Campos úteis de `GET /api/status`:
 - `snapshot.healthy`, `status`, `latencyMs`, `bytesRead`, `profile` e `detail`;
 - `snapshot.previewFetchOperations`, `busyResponses`, `clientAborts` e `bytesTransferred`;
 - `healthEvidence.source` e `ageSeconds`;
-- `onvif.services`, `deviceInfo`, `clock` e `events`;
+- `onvif.services`, `onvif.ptz`, `deviceInfo`, `clock` e `events`;
 - `recovery.automatic`, `manual`, `acceptedHistory` e `lastResult`;
 - `resources.heap`, `flash`, `psram` e `bluetoothMemory`;
 - `counters` e `settings`.
@@ -298,6 +305,8 @@ Confira `recovery.autoRebootEnabled`, `credentialsConfigured`, `attemptsInWindow
 - histórico e contadores da sessão reiniciam no boot;
 - varredura limitada a 254 hosts;
 - Prévia dependente de `GetSnapshotUri` e de um JPEG válido.
+- nomes personalizados do iCSee não são publicados por esta câmera via ONVIF;
+- `GotoHomePosition` é aceito sem movimentar este modelo; o retorno Daemon usa o preset `100` confirmado no dispositivo.
 
 ## Segurança
 
@@ -337,6 +346,7 @@ ESP32/
 8. teste alertas e recuperação somente em ambiente controlado;
 9. confirme cooldown e limite por janela;
 10. acompanhe heap e RSSI durante uso prolongado.
+11. confirme que o modal de posições PTZ aparece na aba Prévia, filtre a lista e teste o retorno ao ponto Daemon.
 
 ## Licença
 

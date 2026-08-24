@@ -15,6 +15,8 @@ constexpr char CAMERA_IP_HINT[] = "";
 constexpr char CAMERA_SNAPSHOT_PROFILE_MATCH[] = "snap";
 constexpr size_t SNAPSHOT_PROFILE_MATCH_MAX_LENGTH = 32;
 
+constexpr char CAMERA_DAEMON_PRESET_TOKEN[] = "100";
+
 constexpr uint16_t CAMERA_RTSP_PORT = 554;
 constexpr uint16_t CAMERA_RTSP_PORT_MIN = 1;
 constexpr uint16_t CAMERA_RTSP_PORT_MAX = 65535;

@@ -15,6 +15,8 @@
 #include <esp_system.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha1.h>
+#include <memory>
+#include <new>
 #include <sys/time.h>
 #include <time.h>
 
@@ -40,7 +42,7 @@
 namespace {
 
 constexpr char HOSTNAME[] = "camera-watchdog";
-constexpr char FIRMWARE_VERSION[] = "0.10.0";
+constexpr char FIRMWARE_VERSION[] = "0.11.0";
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -50,6 +52,10 @@ constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
 constexpr unsigned long ADMIN_RESTART_DELAY_MS = 1200UL;
 constexpr unsigned long ONVIF_CATALOG_FALLBACK_RETRY_MS =
     5UL * 60UL * 1000UL;
+constexpr unsigned long ONVIF_PTZ_PRESET_REFRESH_INTERVAL_MS =
+    60UL * 1000UL;
+constexpr unsigned long ONVIF_PTZ_PRESET_RETRY_INTERVAL_MS = 15UL * 1000UL;
+constexpr size_t ONVIF_PTZ_PRESET_CAPACITY = 128;
 constexpr unsigned long CAMERA_CLOCK_CHECK_INTERVAL_MS =
     15UL * 60UL * 1000UL;
 constexpr unsigned long CAMERA_CLOCK_RETRY_INTERVAL_MS = 60UL * 1000UL;
@@ -86,6 +92,7 @@ enum class AdminAction {
     None,
     HealthCheck,
     Rediscover,
+    GotoPtzPreset,
     CameraReboot,
     ResetRebootLimiter,
     RestartEsp32
@@ -341,9 +348,42 @@ struct OnvifServiceCatalog {
     OnvifServiceEndpoint media1;
     OnvifServiceEndpoint media2;
     OnvifServiceEndpoint events;
+    OnvifServiceEndpoint ptz;
     OnvifServiceEndpoint imaging;
     OnvifServiceEndpoint analytics;
     OnvifServiceEndpoint deviceIo;
+};
+
+struct OnvifPtzPreset {
+    String token;
+    String name;
+};
+
+struct OnvifPtzStatus {
+    bool profileResolved = false;
+    bool presetsLoaded = false;
+    bool truncated = false;
+    uint16_t presetCount = 0;
+    uint16_t reportedPresetCount = 0;
+    uint32_t refreshAttempts = 0;
+    uint32_t refreshSuccesses = 0;
+    uint32_t refreshFailures = 0;
+    uint32_t commandAttempts = 0;
+    uint32_t commandAccepted = 0;
+    uint32_t commandErrors = 0;
+    uint32_t lastRefreshLatencyMs = 0;
+    uint32_t lastCommandLatencyMs = 0;
+    unsigned long refreshedAtMs = 0;
+    unsigned long lastRefreshAttemptAtMs = 0;
+    unsigned long lastCommandAtMs = 0;
+    int lastRefreshStatusCode = 0;
+    int lastCommandStatusCode = 0;
+    String profileToken;
+    String profileName;
+    String lastResult = "Ainda nao consultado";
+    String lastCommandToken;
+    String lastCommandResult = "Nenhum movimento solicitado";
+    OnvifPtzPreset presets[ONVIF_PTZ_PRESET_CAPACITY];
 };
 
 struct OnvifDeviceMetadata {
@@ -508,10 +548,12 @@ String settingsWriteToken;
 String lastSettingsResult = "Usando valores de fabrica";
 AdminAction pendingAdminAction = AdminAction::None;
 String lastAdminActionResult = "Nenhuma acao administrativa executada";
+String pendingPtzPresetToken;
 unsigned long espRestartRequestedAtMs = 0;
 
 CameraTarget camera;
 OnvifServiceCatalog onvifServices;
+OnvifPtzStatus onvifPtz;
 OnvifDeviceMetadata onvifMetadata;
 CameraClockStatus cameraClockStatus;
 OnvifMetadataStage onvifMetadataStage =
@@ -633,6 +675,7 @@ HealthEvidenceSource lastHealthEvidenceSource = HealthEvidenceSource::None;
 void saveCameraTarget();
 void invalidateOnvifServiceCatalog();
 bool resolveOnvifServiceCatalog(bool forceRefresh = false);
+void maintainOnvifPtzPresets();
 String limitedOnvifText(String value, size_t maximumLength = 120);
 void refreshOnvifDeviceMetadata();
 void maintainCameraClock();
@@ -1201,6 +1244,8 @@ const char* adminActionName(AdminAction action)
             return "health_check";
         case AdminAction::Rediscover:
             return "rediscover";
+        case AdminAction::GotoPtzPreset:
+            return "goto_ptz_preset";
         case AdminAction::CameraReboot:
             return "camera_reboot";
         case AdminAction::ResetRebootLimiter:
@@ -3981,6 +4026,7 @@ bool postOnvifSoap(
     envelope += "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\" ";
     envelope += "xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\" ";
     envelope += "xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\" ";
+    envelope += "xmlns:tptz=\"http://www.onvif.org/ver20/ptz/wsdl\" ";
     envelope += "xmlns:timg=\"http://www.onvif.org/ver20/imaging/wsdl\" ";
     envelope += "xmlns:tan=\"http://www.onvif.org/ver20/analytics/wsdl\" ";
     envelope += "xmlns:tmd=\"http://www.onvif.org/ver10/deviceIO/wsdl\" ";
@@ -4280,6 +4326,7 @@ void maintainCameraClock()
 void invalidateOnvifServiceCatalog()
 {
     onvifServices = OnvifServiceCatalog{};
+    onvifPtz = OnvifPtzStatus{};
     onvifMetadata = OnvifDeviceMetadata{};
     cameraClockStatus = CameraClockStatus{};
     onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
@@ -4356,6 +4403,10 @@ OnvifServiceEndpoint* endpointForOnvifNamespace(const String& serviceNamespace)
 
     if (serviceNamespace == "http://www.onvif.org/ver10/events/wsdl") {
         return &onvifServices.events;
+    }
+
+    if (serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl") {
+        return &onvifServices.ptz;
     }
 
     if (serviceNamespace == "http://www.onvif.org/ver20/imaging/wsdl") {
@@ -4972,6 +5023,7 @@ void refreshOnvifDeviceMetadata()
 
 struct SnapshotProfileCandidate {
     bool valid = false;
+    bool ptz = false;
     String token;
     String name;
     uint32_t pixels = UINT32_MAX;
@@ -5053,10 +5105,12 @@ uint32_t snapshotProfileUnsignedTag(
     return parsed;
 }
 
-bool selectSnapshotProfile(
+bool selectOnvifProfiles(
     const String& profilesXml,
     String& selectedToken,
-    String& selectedName
+    String& selectedName,
+    String& selectedPtzToken,
+    String& selectedPtzName
 )
 {
     SnapshotProfileCandidate matchingJpeg;
@@ -5064,6 +5118,7 @@ bool selectSnapshotProfile(
     SnapshotProfileCandidate jpeg;
     SnapshotProfileCandidate fallback;
     SnapshotProfileCandidate skipped;
+    SnapshotProfileCandidate firstPtz;
     int searchPosition = 0;
 
     while (true) {
@@ -5159,6 +5214,19 @@ bool selectSnapshotProfile(
         candidate.pixels = width > 0 && height > 0
             ? width * height
             : UINT32_MAX;
+        int ptzConfigurationStart = 0;
+        int ptzConfigurationEnd = 0;
+        candidate.ptz = findNextOpeningTag(
+            profileXml,
+            "PTZConfiguration",
+            0,
+            ptzConfigurationStart,
+            ptzConfigurationEnd
+        );
+
+        if (candidate.ptz && !firstPtz.valid) {
+            firstPtz = candidate;
+        }
 
         if (
             !snapshotProfileTokenToSkip.isEmpty() &&
@@ -5207,8 +5275,16 @@ bool selectSnapshotProfile(
     selectedToken = selected->token;
     selectedName = selected->name;
 
-    if (selectedToken == snapshotProfileTokenToSkip) {
-        resetSnapshotProfileFailover();
+    const SnapshotProfileCandidate* selectedPtz = selected->ptz
+        ? selected
+        : firstPtz.valid ? &firstPtz : nullptr;
+
+    if (selectedPtz != nullptr) {
+        selectedPtzToken = selectedPtz->token;
+        selectedPtzName = selectedPtz->name;
+    } else {
+        selectedPtzToken = String();
+        selectedPtzName = String();
     }
 
     return true;
@@ -5246,6 +5322,8 @@ bool resolveSnapshotTarget()
 
     String profileToken;
     String profileName;
+    String ptzProfileToken;
+    String ptzProfileName;
 
     {
         String profilesXml;
@@ -5268,13 +5346,25 @@ bool resolveSnapshotTarget()
         }
 
         lastSnapshotResolveStatusCode = profilesStatusCode;
-        if (!selectSnapshotProfile(
+        if (!selectOnvifProfiles(
             profilesXml,
             profileToken,
-            profileName
+            profileName,
+            ptzProfileToken,
+            ptzProfileName
         )) {
             lastSnapshotResult = "Nenhum perfil ONVIF compativel";
             return false;
+        }
+
+        if (profileToken == snapshotProfileTokenToSkip) {
+            resetSnapshotProfileFailover();
+        }
+
+        if (onvifServices.ptz.available && !ptzProfileToken.isEmpty()) {
+            onvifPtz.profileResolved = true;
+            onvifPtz.profileToken = ptzProfileToken;
+            onvifPtz.profileName = ptzProfileName;
         }
     }
 
@@ -5346,6 +5436,400 @@ bool resolveSnapshotTarget()
         currentTimestamp() + " - perfil " + snapshotTarget.profileName;
 
     return true;
+}
+
+int onvifPtzPresetIndex(const String& token)
+{
+    for (uint16_t index = 0; index < onvifPtz.presetCount; index++) {
+        if (onvifPtz.presets[index].token == token) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+bool onvifPtzPresetIsDaemon(const String& token)
+{
+    return
+        !String(CAMERA_DAEMON_PRESET_TOKEN).isEmpty() &&
+        token == CAMERA_DAEMON_PRESET_TOKEN;
+}
+
+String onvifPtzPresetLabel(const OnvifPtzPreset& preset)
+{
+    if (onvifPtzPresetIsDaemon(preset.token)) {
+        return "Ponto Daemon";
+    }
+
+    if (!preset.name.isEmpty() && preset.name != preset.token) {
+        return preset.name;
+    }
+
+    return String("Posição ") + preset.token;
+}
+
+bool resolveOnvifPtzProfile()
+{
+    if (onvifPtz.profileResolved && !onvifPtz.profileToken.isEmpty()) {
+        return true;
+    }
+
+    if (!onvifServices.media1.available || !onvifServices.ptz.available) {
+        onvifPtz.lastResult = "Servicos Media1 ou PTZ indisponiveis";
+        return false;
+    }
+
+    String profilesXml;
+    int statusCode = 0;
+
+    if (!postOnvifSoap(
+        onvifServices.media1.url,
+        "http://www.onvif.org/ver10/media/wsdl/GetProfiles",
+        "<trt:GetProfiles/>",
+        profilesXml,
+        true,
+        &statusCode
+    )) {
+        onvifPtz.lastRefreshStatusCode = statusCode;
+        onvifPtz.lastResult =
+            String("GetProfiles para PTZ falhou; HTTP ") + statusCode;
+        return false;
+    }
+
+    String ignoredSnapshotToken;
+    String ignoredSnapshotName;
+    String profileToken;
+    String profileName;
+    selectOnvifProfiles(
+        profilesXml,
+        ignoredSnapshotToken,
+        ignoredSnapshotName,
+        profileToken,
+        profileName
+    );
+
+    if (profileToken.isEmpty()) {
+        onvifPtz.lastResult = "Nenhum perfil de midia possui configuracao PTZ";
+        return false;
+    }
+
+    onvifPtz.profileResolved = true;
+    onvifPtz.profileToken = profileToken;
+    onvifPtz.profileName = profileName;
+    return true;
+}
+
+bool parseOnvifPtzPresets(
+    const String& presetsXml,
+    OnvifPtzPreset* parsedPresets,
+    uint16_t& parsedCount,
+    uint16_t& reportedCount,
+    bool& truncated
+)
+{
+    parsedCount = 0;
+    reportedCount = 0;
+    truncated = false;
+    int responseStart = 0;
+    int responseEnd = 0;
+
+    if (!findNextOpeningTag(
+        presetsXml,
+        "GetPresetsResponse",
+        0,
+        responseStart,
+        responseEnd
+    )) {
+        return false;
+    }
+
+    int searchPosition = responseEnd + 1;
+
+    while (true) {
+        int presetStart = 0;
+        int presetTagEnd = 0;
+
+        if (!findNextOpeningTag(
+            presetsXml,
+            "Preset",
+            searchPosition,
+            presetStart,
+            presetTagEnd
+        )) {
+            break;
+        }
+
+        int nextPresetStart = presetsXml.length();
+        int ignoredTagEnd = 0;
+        findNextOpeningTag(
+            presetsXml,
+            "Preset",
+            presetTagEnd + 1,
+            nextPresetStart,
+            ignoredTagEnd
+        );
+        searchPosition = presetTagEnd + 1;
+
+        const String openingTag =
+            presetsXml.substring(presetStart, presetTagEnd + 1);
+        String token;
+
+        if (!extractXmlAttribute(openingTag, "token", token)) {
+            continue;
+        }
+
+        token = limitedOnvifText(token, 128);
+
+        if (token.isEmpty()) {
+            continue;
+        }
+
+        bool duplicate = false;
+
+        for (uint16_t index = 0; index < parsedCount; index++) {
+            if (parsedPresets[index].token == token) {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if (duplicate) {
+            continue;
+        }
+
+        reportedCount++;
+
+        if (parsedCount >= ONVIF_PTZ_PRESET_CAPACITY) {
+            truncated = true;
+            continue;
+        }
+
+        const String presetXml =
+            presetsXml.substring(presetTagEnd + 1, nextPresetStart);
+        String name;
+        int ignoredPosition = 0;
+
+        if (extractLocalTag(
+            presetXml,
+            "Name",
+            0,
+            name,
+            ignoredPosition
+        )) {
+            name = limitedOnvifText(name, 64);
+        }
+
+        parsedPresets[parsedCount].token = token;
+        parsedPresets[parsedCount].name = name.isEmpty() ? token : name;
+        parsedCount++;
+    }
+
+    return true;
+}
+
+bool refreshOnvifPtzPresets()
+{
+    onvifPtz.lastRefreshAttemptAtMs = millis();
+    onvifPtz.refreshAttempts++;
+    const unsigned long startedAtMs = millis();
+
+    if (!resolveOnvifPtzProfile()) {
+        onvifPtz.refreshFailures++;
+        onvifPtz.lastRefreshLatencyMs = millis() - startedAtMs;
+        return false;
+    }
+
+    String requestBody;
+    requestBody.reserve(onvifPtz.profileToken.length() + 112);
+    requestBody += "<tptz:GetPresets><tptz:ProfileToken>";
+    requestBody += htmlEscape(onvifPtz.profileToken);
+    requestBody += "</tptz:ProfileToken></tptz:GetPresets>";
+
+    String responseXml;
+    int statusCode = 0;
+    bool transportFailure = false;
+    const bool received = postOnvifSoap(
+        onvifServices.ptz.url,
+        "http://www.onvif.org/ver20/ptz/wsdl/GetPresets",
+        requestBody,
+        responseXml,
+        true,
+        &statusCode,
+        &transportFailure
+    );
+    onvifPtz.lastRefreshLatencyMs = millis() - startedAtMs;
+    onvifPtz.lastRefreshStatusCode = statusCode;
+
+    std::unique_ptr<OnvifPtzPreset[]> parsedPresets(
+        new (std::nothrow) OnvifPtzPreset[ONVIF_PTZ_PRESET_CAPACITY]
+    );
+    uint16_t parsedCount = 0;
+    uint16_t reportedCount = 0;
+    bool truncated = false;
+
+    if (!parsedPresets) {
+        onvifPtz.refreshFailures++;
+        onvifPtz.lastResult = "GetPresets sem memoria para processar o catalogo";
+        return false;
+    }
+
+    if (
+        !received ||
+        !parseOnvifPtzPresets(
+            responseXml,
+            parsedPresets.get(),
+            parsedCount,
+            reportedCount,
+            truncated
+        )
+    ) {
+        onvifPtz.refreshFailures++;
+        onvifPtz.lastResult = transportFailure
+            ? "GetPresets falhou no transporte"
+            : String("GetPresets falhou; HTTP ") + statusCode;
+        return false;
+    }
+
+    for (size_t index = 0; index < ONVIF_PTZ_PRESET_CAPACITY; index++) {
+        onvifPtz.presets[index] = OnvifPtzPreset{};
+    }
+
+    for (uint16_t index = 0; index < parsedCount; index++) {
+        onvifPtz.presets[index] = parsedPresets[index];
+    }
+
+    onvifPtz.presetsLoaded = true;
+    onvifPtz.truncated = truncated;
+    onvifPtz.presetCount = parsedCount;
+    onvifPtz.reportedPresetCount = reportedCount;
+    onvifPtz.refreshSuccesses++;
+    onvifPtz.refreshedAtMs = millis();
+    onvifPtz.lastResult = currentTimestamp() + " - GetPresets retornou " +
+        String(reportedCount) + " posicoes";
+
+    if (truncated) {
+        onvifPtz.lastResult += "; exibindo as primeiras ";
+        onvifPtz.lastResult += ONVIF_PTZ_PRESET_CAPACITY;
+    }
+
+    Serial.println(onvifPtz.lastResult);
+    return true;
+}
+
+void maintainOnvifPtzPresets()
+{
+    if (
+        !camera.valid ||
+        WiFi.status() != WL_CONNECTED ||
+        !onvifServices.resolved ||
+        !onvifServices.ptz.available ||
+        cameraRebootGraceActive() ||
+        healthCheckInProgress
+    ) {
+        return;
+    }
+
+    const unsigned long intervalMs = onvifPtz.presetsLoaded
+        ? ONVIF_PTZ_PRESET_REFRESH_INTERVAL_MS
+        : ONVIF_PTZ_PRESET_RETRY_INTERVAL_MS;
+
+    if (
+        onvifPtz.lastRefreshAttemptAtMs != 0 &&
+        millis() - onvifPtz.lastRefreshAttemptAtMs < intervalMs
+    ) {
+        return;
+    }
+
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired()) {
+        return;
+    }
+
+    refreshOnvifPtzPresets();
+}
+
+bool requestOnvifPtzPreset(const String& presetToken)
+{
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired()) {
+        onvifPtz.lastCommandResult =
+            currentTimestamp() + " - canal da camera ocupado";
+        return false;
+    }
+
+    if (
+        !camera.valid ||
+        !onvifServices.ptz.available ||
+        cameraRebootGraceActive()
+    ) {
+        onvifPtz.lastCommandResult =
+            currentTimestamp() + " - servico PTZ indisponivel";
+        return false;
+    }
+
+    if (
+        (!onvifPtz.presetsLoaded || !onvifPtz.profileResolved) &&
+        !refreshOnvifPtzPresets()
+    ) {
+        onvifPtz.lastCommandResult =
+            currentTimestamp() + " - presets PTZ indisponiveis";
+        return false;
+    }
+
+    const int presetIndex = onvifPtzPresetIndex(presetToken);
+
+    if (presetIndex < 0) {
+        onvifPtz.lastCommandResult =
+            currentTimestamp() + " - preset nao encontrado";
+        return false;
+    }
+
+    const OnvifPtzPreset& preset = onvifPtz.presets[presetIndex];
+    String requestBody;
+    requestBody.reserve(
+        onvifPtz.profileToken.length() + preset.token.length() + 176
+    );
+    requestBody += "<tptz:GotoPreset><tptz:ProfileToken>";
+    requestBody += htmlEscape(onvifPtz.profileToken);
+    requestBody += "</tptz:ProfileToken><tptz:PresetToken>";
+    requestBody += htmlEscape(preset.token);
+    requestBody += "</tptz:PresetToken></tptz:GotoPreset>";
+
+    onvifPtz.commandAttempts++;
+    onvifPtz.lastCommandAtMs = millis();
+    onvifPtz.lastCommandToken = preset.token;
+    const unsigned long startedAtMs = millis();
+    String responseXml;
+    int statusCode = 0;
+    const bool accepted = postOnvifSoap(
+        onvifServices.ptz.url,
+        "http://www.onvif.org/ver20/ptz/wsdl/GotoPreset",
+        requestBody,
+        responseXml,
+        false,
+        &statusCode
+    );
+    onvifPtz.lastCommandLatencyMs = millis() - startedAtMs;
+    onvifPtz.lastCommandStatusCode = statusCode;
+
+    if (accepted) {
+        onvifPtz.commandAccepted++;
+        lastBrowserSnapshotDeliveredAtMs = 0;
+        onvifPtz.lastCommandResult = currentTimestamp() +
+            " - comando para " + onvifPtzPresetLabel(preset) +
+            " aceito pela câmera";
+    } else {
+        onvifPtz.commandErrors++;
+        onvifPtz.lastCommandResult = currentTimestamp() +
+            " - comando para " + onvifPtzPresetLabel(preset) +
+            " rejeitado; HTTP " + statusCode;
+    }
+
+    Serial.println(onvifPtz.lastCommandResult);
+    return accepted;
 }
 
 void noteSnapshotRequestFailure(int statusCode)
@@ -6807,7 +7291,10 @@ String buildStatusJson()
     const bool sntpReferenceIsFresh = sntpReferenceFresh(sntpReference);
 
     String json;
-    json.reserve(19000);
+    json.reserve(
+        22000 +
+        static_cast<size_t>(onvifPtz.presetCount) * 240
+    );
 
     json += "{";
     json += "\"firmwareVersion\":\"";
@@ -6988,10 +7475,83 @@ String buildStatusJson()
     appendOnvifEndpointJson(json, "media1", onvifServices.media1, true);
     appendOnvifEndpointJson(json, "media2", onvifServices.media2, true);
     appendOnvifEndpointJson(json, "events", onvifServices.events, true);
+    appendOnvifEndpointJson(json, "ptz", onvifServices.ptz, true);
     appendOnvifEndpointJson(json, "imaging", onvifServices.imaging, true);
     appendOnvifEndpointJson(json, "analytics", onvifServices.analytics, true);
     appendOnvifEndpointJson(json, "deviceIo", onvifServices.deviceIo, true);
-    json += "},\"deviceInfo\":{";
+    json += "},\"ptz\":{";
+    json += "\"available\":";
+    json += onvifServices.ptz.available ? "true" : "false";
+    json += ",\"profileResolved\":";
+    json += onvifPtz.profileResolved ? "true" : "false";
+    json += ",\"profileToken\":\"";
+    json += jsonEscape(onvifPtz.profileToken);
+    json += "\",\"profileName\":\"";
+    json += jsonEscape(onvifPtz.profileName);
+    json += "\",\"presetsLoaded\":";
+    json += onvifPtz.presetsLoaded ? "true" : "false";
+    json += ",\"presetCount\":";
+    json += onvifPtz.presetCount;
+    json += ",\"reportedPresetCount\":";
+    json += onvifPtz.reportedPresetCount;
+    json += ",\"truncated\":";
+    json += onvifPtz.truncated ? "true" : "false";
+    json += ",\"daemonPresetToken\":\"";
+    json += jsonEscape(CAMERA_DAEMON_PRESET_TOKEN);
+    json += "\",\"refreshAttempts\":";
+    json += onvifPtz.refreshAttempts;
+    json += ",\"refreshSuccesses\":";
+    json += onvifPtz.refreshSuccesses;
+    json += ",\"refreshFailures\":";
+    json += onvifPtz.refreshFailures;
+    json += ",\"lastStatus\":";
+    json += onvifPtz.lastRefreshStatusCode;
+    json += ",\"lastLatencyMs\":";
+    json += onvifPtz.lastRefreshLatencyMs;
+    json += ",\"ageSeconds\":";
+    json += onvifPtz.refreshedAtMs == 0
+        ? 0UL
+        : (now - onvifPtz.refreshedAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(onvifPtz.lastResult);
+    json += "\",\"command\":{";
+    json += "\"attempts\":";
+    json += onvifPtz.commandAttempts;
+    json += ",\"accepted\":";
+    json += onvifPtz.commandAccepted;
+    json += ",\"errors\":";
+    json += onvifPtz.commandErrors;
+    json += ",\"lastToken\":\"";
+    json += jsonEscape(onvifPtz.lastCommandToken);
+    json += "\",\"lastStatus\":";
+    json += onvifPtz.lastCommandStatusCode;
+    json += ",\"lastLatencyMs\":";
+    json += onvifPtz.lastCommandLatencyMs;
+    json += ",\"ageSeconds\":";
+    json += onvifPtz.lastCommandAtMs == 0
+        ? 0UL
+        : (now - onvifPtz.lastCommandAtMs) / 1000UL;
+    json += ",\"lastResult\":\"";
+    json += jsonEscape(onvifPtz.lastCommandResult);
+    json += "\"},\"presets\":[";
+
+    for (uint16_t index = 0; index < onvifPtz.presetCount; index++) {
+        if (index > 0) {
+            json += ',';
+        }
+
+        json += "{\"token\":\"";
+        json += jsonEscape(onvifPtz.presets[index].token);
+        json += "\",\"name\":\"";
+        json += jsonEscape(onvifPtz.presets[index].name);
+        json += "\",\"daemon\":";
+        json += onvifPtzPresetIsDaemon(onvifPtz.presets[index].token)
+            ? "true"
+            : "false";
+        json += '}';
+    }
+
+    json += "]},\"deviceInfo\":{";
     json += "\"loaded\":";
     json += onvifMetadata.loaded ? "true" : "false";
     json += ",\"inventoryComplete\":";
@@ -7951,6 +8511,52 @@ void handleAdminAction(AdminAction action)
     sendJsonResponse(202, json);
 }
 
+void handleGotoPtzPresetAction()
+{
+    String authorizationError;
+
+    if (!authorizeSettingsMutation(authorizationError)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    if (!httpServer.hasArg("presetToken")) {
+        sendApiError(422, "missing_preset", "Token do preset ausente");
+        return;
+    }
+
+    String presetToken = httpServer.arg("presetToken");
+    presetToken.trim();
+
+    if (presetToken.isEmpty() || presetToken.length() > 128) {
+        sendApiError(422, "invalid_preset", "Token do preset invalido");
+        return;
+    }
+
+    if (!onvifPtz.presetsLoaded || onvifPtzPresetIndex(presetToken) < 0) {
+        sendApiError(
+            404,
+            "preset_not_found",
+            "Preset nao encontrado no catalogo atual da camera"
+        );
+        return;
+    }
+
+    String queueError;
+
+    if (!queueAdminAction(AdminAction::GotoPtzPreset, queueError)) {
+        sendApiError(409, "action_busy", queueError);
+        return;
+    }
+
+    pendingPtzPresetToken = presetToken;
+    String json = "{\"ok\":true,\"queued\":\"goto_ptz_preset\",";
+    json += "\"presetToken\":\"";
+    json += jsonEscape(presetToken);
+    json += "\",\"message\":\"Movimento PTZ recebido e sera executado pelo loop principal\"}";
+    sendJsonResponse(202, json);
+}
+
 void configureHttpServer()
 {
     httpServer.on("/", HTTP_GET, [] {
@@ -7989,6 +8595,10 @@ void configureHttpServer()
 
     httpServer.on("/api/actions/rediscover", HTTP_POST, [] {
         handleAdminAction(AdminAction::Rediscover);
+    });
+
+    httpServer.on("/api/actions/goto-ptz-preset", HTTP_POST, [] {
+        handleGotoPtzPresetAction();
     });
 
     httpServer.on("/api/actions/reboot-camera", HTTP_POST, [] {
@@ -8167,6 +8777,19 @@ void processPendingAdminAction()
             break;
         }
 
+        case AdminAction::GotoPtzPreset: {
+            const String presetToken = pendingPtzPresetToken;
+            pendingPtzPresetToken = String();
+            const bool accepted = requestOnvifPtzPreset(presetToken);
+            lastAdminActionResult = onvifPtz.lastCommandResult;
+
+            if (!accepted && lastAdminActionResult.isEmpty()) {
+                lastAdminActionResult = currentTimestamp() +
+                    " - movimento PTZ nao executado";
+            }
+            break;
+        }
+
         case AdminAction::CameraReboot: {
             const bool accepted = requestCameraRebootOnvif(true);
             lastAdminActionResult = currentTimestamp() +
@@ -8283,6 +8906,7 @@ void loop()
         maintainCameraSnapshotHttpSession();
         refreshOnvifDeviceMetadata();
         maintainCameraClock();
+        maintainOnvifPtzPresets();
     }
     processPendingEmails();
     processPendingAdminAction();
