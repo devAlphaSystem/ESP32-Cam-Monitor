@@ -2,8 +2,12 @@
 
 #include <Arduino.h>
 
-constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 3;
-constexpr uint16_t RUNTIME_SETTINGS_DEFAULTS_REVISION = 3;
+constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 4;
+constexpr uint16_t RUNTIME_SETTINGS_DEFAULTS_REVISION = 4;
+
+constexpr char LOCAL_HOSTNAME[] = "camera-watchdog";
+constexpr size_t LOCAL_HOSTNAME_MIN_LENGTH = 1;
+constexpr size_t LOCAL_HOSTNAME_MAX_LENGTH = 31;
 
 constexpr char CAMERA_NAME[] = "Camera de seguranca";
 constexpr size_t CAMERA_NAME_MIN_LENGTH = 1;
@@ -117,7 +121,7 @@ constexpr uint32_t SERVICE_RESPONSE_TIMEOUT_MS = 3000UL;
 constexpr uint32_t SERVICE_RESPONSE_TIMEOUT_MIN_MS = 500UL;
 constexpr uint32_t SERVICE_RESPONSE_TIMEOUT_MAX_MS = 10000UL;
 
-constexpr uint32_t SCAN_CONNECT_TIMEOUT_MS = 90UL;
+constexpr uint32_t SCAN_CONNECT_TIMEOUT_MS = 300UL;
 constexpr uint32_t SCAN_CONNECT_TIMEOUT_MIN_MS = 20UL;
 constexpr uint32_t SCAN_CONNECT_TIMEOUT_MAX_MS = 1000UL;
 

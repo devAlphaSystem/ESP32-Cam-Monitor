@@ -206,6 +206,34 @@ border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.018
 .action-item b{font-size:13px}.action-item span{color:var(--dim);font-size:10.8px;line-height:1.45;min-height:32px}
 .action-item .btn{width:100%;margin-top:auto}
 
+/* logs persistentes */
+.logs-hero-tools{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:9px}
+.logs-hero-tools .btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.logs-card{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+box-shadow:var(--shadow);overflow:hidden}
+.logs-toolbar{display:grid;grid-template-columns:minmax(180px,1fr) 150px 150px 180px;gap:10px;padding:14px 16px;
+border-bottom:1px solid var(--line)}
+.logs-toolbar .field label{margin-bottom:5px}
+.logs-table-wrap{overflow:auto;max-height:620px;overscroll-behavior:contain}
+.logs-table{width:100%;border-collapse:collapse;min-width:960px;font-size:12px}
+.logs-table th{position:sticky;top:0;z-index:1;padding:10px 12px;background:#111821;color:var(--dim);
+text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.logs-table td{padding:10px 12px;border-top:1px solid var(--line);color:var(--muted);vertical-align:top}
+.logs-table tbody tr:first-child td{border-top:0}
+.logs-table tbody tr:hover td{background:rgba(255,255,255,.018)}
+.logs-table .mono{font-size:11.5px;white-space:nowrap}
+.logs-level{display:inline-block;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase}
+.logs-level.info{color:var(--info);background:rgba(96,165,250,.12)}
+.logs-level.warning{color:var(--warn);background:rgba(251,191,36,.12)}
+.logs-level.error{color:var(--bad);background:rgba(248,113,113,.12)}
+.logs-event{color:var(--text);font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+.logs-detail{max-width:300px;color:var(--muted);overflow-wrap:anywhere}
+.logs-flags{display:block;margin-top:3px;color:var(--dim);font-size:10px}
+.logs-empty{padding:32px 16px;text-align:center;color:var(--dim);font-size:12.5px}
+.logs-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;
+border-top:1px solid var(--line)}
+.logs-foot .form-result{flex:1 1 260px}
+
 /* modal de confirmacao */
 .modal-overlay{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:16px;
 background:rgba(5,7,10,.72);backdrop-filter:blur(2px)}
@@ -274,6 +302,8 @@ main{padding:14px 12px 36px}
 .button-row{width:100%}.button-row .btn{flex:1 1 auto}
 .settings-kpi{width:100%;text-align:left}
 .settings-tab{padding-inline:12px}
+.logs-toolbar{grid-template-columns:1fr}.logs-hero-tools{width:100%;justify-content:stretch}
+.logs-hero-tools .btn{flex:1 1 auto}.logs-table-wrap{max-height:68vh}
 .viewer-stage{min-height:0}
 .viewer-tools{width:100%}.ptz-open-btn{width:100%;justify-content:center}
 .modal-overlay{padding:8px}.ptz-modal-box{max-height:calc(100vh - 16px);padding:16px}
@@ -296,6 +326,7 @@ main{padding:14px 12px 36px}
       <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false">Prévia</button>
       <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
+      <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false">Logs</button>
       <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false">Configurações</button>
       <button class="tab" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false">Ações</button>
     </nav>
@@ -470,6 +501,95 @@ main{padding:14px 12px 36px}
   </section>
 </div>
 
+<div id="logsView" role="tabpanel" aria-labelledby="logsTab" data-view-panel="logs" hidden>
+  <section class="hero" style="--sc:var(--info);--sbg:rgba(96,165,250,.13);--sbd:rgba(96,165,250,.28)">
+    <div class="hero-main">
+      <span class="badge"><i></i><span id="logsState">carregando histórico</span></span>
+      <h2 class="hero-name">Histórico persistente</h2>
+      <div class="hero-sub">Conexões com a câmera e operações importantes, preservadas entre reinicializações.</div>
+    </div>
+    <div class="logs-hero-tools">
+      <button class="btn" id="logsRefresh" type="button">Atualizar</button>
+      <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Exportar CSV completo</a>
+    </div>
+  </section>
+
+  <div class="grid grid-3">
+    <article class="card">
+      <div class="card-h">Registros armazenados</div>
+      <div class="card-v info" id="logsCount">—</div>
+      <div class="card-m" id="logsCountMeta">limite circular de 10.000 registros</div>
+      <div class="meter"><i id="logsCountMeter"></i></div>
+    </article>
+    <article class="card">
+      <div class="card-h">Partição de logs</div>
+      <div class="card-v info" id="logsStorage">—</div>
+      <div class="card-m" id="logsStorageMeta">aguardando dados do LittleFS</div>
+      <div class="meter"><i id="logsStorageMeter"></i></div>
+    </article>
+    <article class="card">
+      <div class="card-h">Integridade</div>
+      <div class="card-v" id="logsIntegrity">—</div>
+      <div class="card-m" id="logsIntegrityMeta">registros descartados e erros de escrita</div>
+    </article>
+  </div>
+
+  <section class="logs-card" aria-labelledby="logsTableTitle">
+    <div class="logs-toolbar">
+      <div class="field">
+        <label for="logsSearch">Filtrar registros <span>nos itens carregados</span></label>
+        <input id="logsSearch" type="text" maxlength="80" placeholder="Evento, destino, detalhe ou status">
+      </div>
+      <div class="field">
+        <label for="logsLevel">Nível</label>
+        <select id="logsLevel">
+          <option value="">Todos</option>
+          <option value="info">Informação</option>
+          <option value="warning">Aviso</option>
+          <option value="error">Erro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="logsCategory">Categoria</label>
+        <select id="logsCategory">
+          <option value="">Todas</option>
+          <option value="system">Sistema</option>
+          <option value="wifi">Wi-Fi</option>
+          <option value="camera">Câmera</option>
+          <option value="discovery">Descoberta</option>
+          <option value="onvif">ONVIF</option>
+          <option value="snapshot">Snapshot</option>
+          <option value="rtsp">RTSP</option>
+          <option value="health">Health-check</option>
+          <option value="action">Ações</option>
+          <option value="notification">Notificações</option>
+          <option value="settings">Configurações</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="logsScope">Visualização</label>
+        <select id="logsScope">
+          <option value="diagnostic">Diagnóstico</option>
+          <option value="all">Todas as tentativas</option>
+        </select>
+      </div>
+    </div>
+    <div class="logs-table-wrap">
+      <table class="logs-table">
+        <thead>
+          <tr><th id="logsTableTitle">Data e hora</th><th>Nível</th><th>Evento</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhes</th></tr>
+        </thead>
+        <tbody id="logsTableBody"></tbody>
+      </table>
+      <div class="logs-empty" id="logsEmpty">Nenhum registro carregado.</div>
+    </div>
+    <div class="logs-foot">
+      <div class="form-result" id="logsStatus">Abra esta aba para consultar o histórico persistente.</div>
+      <button class="btn" id="logsLoadMore" type="button" hidden>Carregar mais 100</button>
+    </div>
+  </section>
+</div>
+
 <div id="settingsView" role="tabpanel" aria-labelledby="settingsTab" data-view-panel="settings" hidden>
   <section class="hero" id="settingsHero" style="--sc:var(--info);--sbg:rgba(96,165,250,.13);--sbd:rgba(96,165,250,.28)">
     <div class="hero-main">
@@ -497,9 +617,10 @@ main{padding:14px 12px 36px}
 
     <div class="settings-panels">
       <section class="settings-card settings-panel" id="settingsIdentificationPanel" role="tabpanel" aria-labelledby="settingsIdentificationTab" data-settings-section-panel="identification">
-        <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, perfil JPEG e ritmo do painel.</p></div></div>
+        <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, endereço local, perfil JPEG e ritmo do painel.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
+          <div class="field"><label for="cfgLocalHostname">Endereço local <span>1–31 caracteres</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letras, números e hífens. O acesso será feito por http://nome-escolhido.local/.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
           <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
@@ -552,7 +673,7 @@ main{padding:14px 12px 36px}
         <div class="form-grid">
           <div class="field"><label for="cfgTcpTimeout">Conexão TCP <span>200–5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Padrão: 900 ms.</small></div>
           <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão estável: 3000 ms.</small></div>
-          <div class="field"><label for="cfgScanTimeout">Conexão durante varredura <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Padrão: 90 ms.</small></div>
+          <div class="field"><label for="cfgScanTimeout">Conexão durante varredura <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Padrão: 300 ms.</small></div>
           <div class="field"><label for="cfgSnapshotTimeout">Timeout do JPEG <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Padrão: 5 s.</small></div>
           <div class="field"><label for="cfgSnapshotResolveRetry">Nova resolução do URI <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Padrão: 15 s.</small></div>
           <div class="field"><label for="cfgSnapshotFailuresReresolve">Falhas antes de resolver o URI <span>1–10</span></label><input id="cfgSnapshotFailuresReresolve" type="number" min="1" max="10" step="1" required><small>Padrão: 2.</small></div>
@@ -586,6 +707,7 @@ main{padding:14px 12px 36px}
       <div class="action-item"><b>Redescobrir câmera</b><span>Repete WS-Discovery e confirma o endpoint.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
       <div class="action-item"><b>Reiniciar câmera</b><span>Envia ONVIF SystemReboot respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
       <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas registradas na janela atual.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
+      <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
       <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
     </div>
     <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
@@ -643,6 +765,7 @@ const resourceHistory = { heap: [], rssi: [] };
 function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
+  if (location.hash === '#logs') return 'logs';
   if (location.hash === '#resources') return 'resources';
   if (location.hash === '#feed') return 'feed';
   return 'camera';
@@ -667,6 +790,11 @@ let settingsPasswordRequired = false;
 let ptzPresets = [];
 let ptzCatalog = {};
 let ptzControlsEnabled = false;
+let persistentLogs = [];
+let persistentLogsTotal = 0;
+let persistentLogsHasMore = false;
+let persistentLogsLoading = false;
+let persistentLogsLoaded = false;
 
 function duration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -856,6 +984,243 @@ function renderResources(d) {
   $('historyHeap').textContent = Math.round(heapPercent) + '%';
   $('historyRssi').textContent = d.wifi.connected ? d.wifi.rssi + ' dBm' : 'desconectado';
 }
+
+const LOG_LEVEL_LABELS = { info: 'Info', warning: 'Aviso', error: 'Erro' };
+const LOG_OUTCOME_LABELS = {
+  info: 'informação', started: 'iniciado', success: 'sucesso', failure: 'falha', skipped: 'ignorado'
+};
+const LOG_EVENT_LABELS = {
+  system_boot: 'Inicialização do ESP32', system_restart: 'Reinicialização do ESP32',
+  wifi_connect: 'Conexão Wi-Fi', wifi_disconnect: 'Desconexão Wi-Fi', wifi_reconnect: 'Reconexão Wi-Fi',
+  camera_state: 'Estado da câmera', incident: 'Incidente', health_check: 'Health-check',
+  discovery_probe: 'Envio WS-Discovery', discovery_response: 'Resposta WS-Discovery',
+  discovery_result: 'Resultado da descoberta', subnet_scan: 'Varredura da rede',
+  tcp_scan: 'Tentativa TCP', onvif_probe: 'Sonda ONVIF', onvif_soap: 'Requisição ONVIF/SOAP',
+  snapshot_http: 'Requisição de snapshot', snapshot_transfer: 'Transferência JPEG', rtsp_probe: 'Sonda RTSP',
+  email_http: 'Envio de e-mail', settings_saved: 'Configurações salvas', settings_reset: 'Padrões restaurados',
+  admin_action: 'Ação administrativa', camera_reboot: 'Reboot da câmera', ptz_command: 'Comando PTZ',
+  sntp_sync: 'Sincronização NTP', runtime_context: 'Contexto do firmware',
+  settings_context: 'Contexto das configurações', camera_target_load: 'Destino da câmera carregado',
+  camera_target_save: 'Destino da câmera salvo', logs_cleared: 'Histórico de logs zerado'
+};
+
+function persistentLogFlags(entry) {
+  const flags = entry.flags || {};
+  return [
+    flags.outbound && 'saída',
+    flags.connectionReused && 'conexão reutilizada',
+    flags.authenticationRetry && 'autenticação',
+    flags.manual && 'manual',
+    flags.scheduled && 'automático',
+    entry.timeoutMs && 'timeout ' + entry.timeoutMs + ' ms'
+  ].filter(Boolean).join(' · ');
+}
+
+function persistentLogStatusLabel(entry) {
+  if (!entry.status) return '';
+  if (entry.event === 'runtime_context' || entry.event === 'settings_context') {
+    return 'schema ' + entry.status;
+  }
+  const detail = String(entry.detail || '');
+  if (
+    detail.startsWith('connect_') ||
+    detail.startsWith('connection_') ||
+    detail.endsWith('_unreachable')
+  ) {
+    return entry.status > 0 ? 'errno ' + entry.status : 'erro de socket';
+  }
+  return String(entry.status);
+}
+
+function persistentLogValueLabel(entry) {
+  if (!entry.value || entry.timeoutMs) return '';
+  if (entry.event === 'runtime_context') return 'padrões rev. ' + entry.value;
+  if (entry.event === 'logs_cleared') return entry.value + ' registros removidos';
+  if (entry.event === 'camera_target_load' || entry.event === 'camera_target_save') {
+    return 'RTSP ' + entry.value;
+  }
+  if (entry.event === 'discovery_response') return entry.value + ' bytes';
+  return 'valor ' + entry.value;
+}
+
+function persistentLogMatches(entry) {
+  const level = $('logsLevel').value;
+  const category = $('logsCategory').value;
+  const scope = $('logsScope').value;
+  const query = $('logsSearch').value.trim().toLocaleLowerCase('pt-BR');
+  if (level && entry.level !== level) return false;
+  if (category && entry.category !== category) return false;
+  const routineTcpFailure = entry.event === 'tcp_scan' && entry.outcome === 'info' &&
+    ['port_closed', 'connection_refused', 'connect_timeout'].includes(entry.detail);
+  if (scope === 'diagnostic' && routineTcpFailure) return false;
+  if (!query) return true;
+  const searchable = [
+    entry.id, entry.bootId, entry.contextId, entry.timestamp, entry.timestampUtc,
+    entry.level, entry.category, entry.event, entry.outcome, entry.targetIp, entry.targetPort,
+    entry.status, entry.timeoutMs, entry.detail, persistentLogFlags(entry),
+    LOG_EVENT_LABELS[entry.event]
+  ].join(' ').toLocaleLowerCase('pt-BR');
+  return searchable.includes(query);
+}
+
+function appendPersistentLogCell(row, text, className) {
+  const cell = document.createElement('td');
+  if (className) cell.className = className;
+  cell.textContent = text;
+  row.append(cell);
+  return cell;
+}
+
+function renderPersistentLogs() {
+  const entries = persistentLogs.filter(persistentLogMatches);
+  const fragment = document.createDocumentFragment();
+
+  entries.forEach(entry => {
+    const row = document.createElement('tr');
+    const timestamp = appendPersistentLogCell(row, localizeTimestampText(entry.timestamp), 'mono');
+    const timestampMeta = document.createElement('span');
+    timestampMeta.className = 'logs-flags';
+    timestampMeta.textContent = [
+      '#' + entry.id,
+      entry.bootId ? 'boot ' + entry.bootId : '',
+      entry.contextId ? 'contexto ' + entry.contextId : '',
+      entry.timeSynchronized ? '' : 'sem horário NTP',
+      'uptime ' + entry.uptimeMs + ' ms'
+    ].filter(Boolean).join(' · ');
+    timestamp.append(document.createElement('br'), timestampMeta);
+
+    const levelCell = document.createElement('td');
+    const level = document.createElement('span');
+    level.className = 'logs-level ' + entry.level;
+    level.textContent = LOG_LEVEL_LABELS[entry.level] || entry.level;
+    levelCell.append(level);
+    row.append(levelCell);
+
+    const eventCell = document.createElement('td');
+    const eventName = document.createElement('span');
+    eventName.className = 'logs-event';
+    eventName.textContent = LOG_EVENT_LABELS[entry.event] || entry.event;
+    const category = document.createElement('span');
+    category.className = 'logs-flags';
+    category.textContent = entry.category;
+    eventCell.append(eventName, category);
+    row.append(eventCell);
+
+    appendPersistentLogCell(
+      row,
+      entry.targetIp
+        ? entry.targetIp + (entry.targetPort ? ':' + entry.targetPort : '')
+        : entry.targetPort ? 'externo:' + entry.targetPort : 'local',
+      'mono'
+    );
+    appendPersistentLogCell(
+      row,
+      (LOG_OUTCOME_LABELS[entry.outcome] || entry.outcome)
+        + (persistentLogStatusLabel(entry) ? ' · ' + persistentLogStatusLabel(entry) : ''),
+      'mono'
+    );
+    appendPersistentLogCell(row, entry.durationMs + ' ms', 'mono');
+
+    const detailCell = appendPersistentLogCell(row, entry.detail || '—', 'logs-detail');
+    const flags = [
+      persistentLogFlags(entry),
+      persistentLogValueLabel(entry)
+    ].filter(Boolean).join(' · ');
+    if (flags) {
+      const flagsElement = document.createElement('span');
+      flagsElement.className = 'logs-flags';
+      flagsElement.textContent = flags;
+      detailCell.append(document.createElement('br'), flagsElement);
+    }
+    fragment.append(row);
+  });
+
+  $('logsTableBody').replaceChildren(fragment);
+  $('logsEmpty').hidden = entries.length > 0;
+  $('logsEmpty').textContent = persistentLogs.length
+    ? 'Nenhum dos registros carregados corresponde aos filtros.'
+    : 'Nenhum registro persistente disponível.';
+  $('logsLoadMore').hidden = !persistentLogsHasMore;
+  $('logsStatus').className = 'form-result';
+  $('logsStatus').textContent = persistentLogsLoaded
+    ? entries.length + ' exibidos · ' + persistentLogs.length + ' carregados de ' + persistentLogsTotal
+    : 'Carregando histórico persistente…';
+}
+
+function renderPersistentLogStats(payload) {
+  const total = Number(payload.total) || 0;
+  const capacity = Number(payload.capacity) || 0;
+  const storage = payload.storage || {};
+  const countPercent = capacity ? total / capacity * 100 : 0;
+  const storagePercent = storage.totalBytes ? storage.usedBytes / storage.totalBytes * 100 : 0;
+  const integrityErrors = (Number(storage.dropped) || 0) + (Number(storage.writeErrors) || 0);
+
+  $('logsCount').textContent = total.toLocaleString('pt-BR');
+  $('logsCountMeta').textContent = capacity
+    ? Math.round(countPercent) + '% do limite circular de ' + capacity.toLocaleString('pt-BR')
+    : 'armazenamento indisponível';
+  $('logsCountMeter').style.width = Math.min(100, countPercent) + '%';
+  $('logsCountMeter').className = countPercent >= 90 ? 'warn' : '';
+
+  $('logsStorage').textContent = formatBytes(Number(storage.usedBytes) || 0);
+  $('logsStorageMeta').textContent = formatBytes(Number(storage.fileBytes) || 0)
+    + ' no arquivo · ' + formatBytes(Number(storage.totalBytes) || 0) + ' disponíveis na partição';
+  $('logsStorageMeter').style.width = Math.min(100, storagePercent) + '%';
+  $('logsStorageMeter').className = storagePercent >= 90 ? 'warn' : '';
+
+  $('logsIntegrity').textContent = integrityErrors ? integrityErrors + ' ocorrências' : 'íntegro';
+  $('logsIntegrity').className = 'card-v ' + (integrityErrors ? 'bad' : 'ok');
+  $('logsIntegrityMeta').textContent = (Number(storage.dropped) || 0) + ' descartados · '
+    + (Number(storage.writeErrors) || 0) + ' erros de escrita · '
+    + (Number(storage.pending) || 0) + ' pendentes';
+  $('logsState').textContent = payload.ready ? 'histórico persistente ativo' : 'partição de logs indisponível';
+}
+
+async function loadPersistentLogs(reset) {
+  if (persistentLogsLoading) return;
+  persistentLogsLoading = true;
+  $('logsRefresh').disabled = true;
+  $('logsLoadMore').disabled = true;
+  if (reset) {
+    persistentLogs = [];
+    persistentLogsHasMore = false;
+    persistentLogsLoaded = false;
+    renderPersistentLogs();
+  }
+
+  try {
+    const offset = reset ? 0 : persistentLogs.length;
+    const response = await fetch('/api/logs?offset=' + offset + '&limit=100', { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const payload = await response.json();
+    const entries = Array.isArray(payload.entries) ? payload.entries : [];
+    if (reset) {
+      persistentLogs = entries;
+    } else {
+      const knownIds = new Set(persistentLogs.map(entry => entry.id));
+      persistentLogs.push(...entries.filter(entry => !knownIds.has(entry.id)));
+    }
+    persistentLogsTotal = Number(payload.total) || 0;
+    persistentLogsHasMore = Boolean(payload.hasMore) && persistentLogs.length < persistentLogsTotal;
+    persistentLogsLoaded = true;
+    renderPersistentLogStats(payload);
+    renderPersistentLogs();
+  } catch (error) {
+    $('logsState').textContent = 'falha ao consultar os logs';
+    $('logsStatus').textContent = 'Não foi possível carregar os logs: ' + error.message;
+    $('logsStatus').className = 'form-result bad';
+  } finally {
+    persistentLogsLoading = false;
+    $('logsRefresh').disabled = false;
+    $('logsLoadMore').disabled = false;
+  }
+}
+
+$('logsRefresh').addEventListener('click', () => loadPersistentLogs(true));
+$('logsLoadMore').addEventListener('click', () => loadPersistentLogs(false));
+['logsSearch', 'logsLevel', 'logsCategory', 'logsScope'].forEach(id => {
+  $(id).addEventListener(id === 'logsSearch' ? 'input' : 'change', renderPersistentLogs);
+});
 
 function setProbe(prefix, tcp, spoke, code, latency, protocol) {
   const value = $('v-' + prefix), meta = $('m-' + prefix);
@@ -1168,6 +1533,7 @@ function validateSettingsForm() {
 
 const SETTINGS_FIELDS = {
   cameraName: { id: 'cfgCameraName', kind: 'text' },
+  localHostname: { id: 'cfgLocalHostname', kind: 'text' },
   snapshotProfileMatch: { id: 'cfgSnapshotProfileMatch', kind: 'text' },
   cameraRtspPort: { id: 'cfgCameraRtspPort' },
   healthCheckIntervalMs: { id: 'cfgHealthCheckInterval', scale: 1000 },
@@ -1395,7 +1761,11 @@ async function saveSettings(password) {
   try {
     const payload = await postForm('/api/settings', collectMutationParams(true, password));
     populateSettings(payload);
-    setSettingsStatus('Configurações salvas e aplicadas.', 'ok');
+    setSettingsStatus(
+      'Configurações salvas e aplicadas. Endereço: http://'
+        + payload.values.localHostname + '.local/',
+      'ok'
+    );
     refresh();
   } catch (error) {
     setSettingsStatus('Não foi possível salvar: ' + error.message, 'bad');
@@ -1418,7 +1788,11 @@ async function resetSettings(password) {
   try {
     const payload = await postForm('/api/settings/reset', collectMutationParams(false, password));
     populateSettings(payload);
-    setSettingsStatus('Padrões restaurados e aplicados.', 'ok');
+    setSettingsStatus(
+      'Padrões restaurados e aplicados. Endereço: http://'
+        + payload.values.localHostname + '.local/',
+      'ok'
+    );
     refresh();
   } catch (error) {
     setSettingsStatus('Não foi possível restaurar: ' + error.message, 'bad');
@@ -1433,6 +1807,7 @@ const ADMIN_ACTIONS = {
   rediscover: ['/api/actions/rediscover', 'Redescoberta solicitada.', false],
   'reboot-camera': ['/api/actions/reboot-camera', 'Reboot ONVIF solicitado.', true],
   'reset-reboot-limiter': ['/api/actions/reset-reboot-limiter', 'Limitador de reboots será limpo.', true],
+  'clear-logs': ['/api/actions/clear-logs', 'Todos os registros atuais serão removidos permanentemente e substituídos por um marcador de auditoria.', true],
   'reboot-esp32': ['/api/actions/reboot-esp32', 'O ESP32 será reiniciado.', true]
 };
 
@@ -1715,9 +2090,12 @@ function render(d) {
   $('stateText').textContent = label + ' · há ' + duration(d.stateSinceSeconds);
 
   $('camName').textContent = d.camera.name;
+  const esp32Address = d.wifi.mdnsAvailable
+    ? d.wifi.localUrl
+    : 'http://' + d.wifi.ip + '/';
   $('camSub').innerHTML = d.camera.known
-    ? 'IP <b>' + d.camera.ip + '</b> · RTSP <b>' + d.camera.rtspPort + '</b> · ESP32 em <b>' + d.wifi.ip + '</b>'
-    : 'Câmera ainda não localizada na rede · ESP32 em <b>' + d.wifi.ip + '</b>';
+    ? 'IP <b>' + d.camera.ip + '</b> · RTSP <b>' + d.camera.rtspPort + '</b> · ESP32 em <b>' + esp32Address + '</b>'
+    : 'Câmera ainda não localizada na rede · ESP32 em <b>' + esp32Address + '</b>';
   cameraKnown = d.camera.known;
   cameraRecovering = Boolean(d.recovery && d.recovery.graceActive);
 
@@ -1771,7 +2149,9 @@ function render(d) {
   wifi.className = 'card-v ' + (level >= 3 ? 'ok' : level === 2 ? 'warn' : 'bad');
   [...$('bars').children].forEach((bar, i) => bar.classList.toggle('on', i < level));
   $('rssi').textContent = d.wifi.connected ? rssi + ' dBm' : 'desconectado';
-  $('m-wifi').textContent = d.wifi.connected ? d.wifi.ssid + ' · gateway ' + d.wifi.gateway : 'tentando reconectar';
+  $('m-wifi').textContent = d.wifi.connected
+    ? d.wifi.ssid + ' · ' + esp32Address + ' · gateway ' + d.wifi.gateway
+    : 'tentando reconectar';
   pip('p-wifi', level >= 3 ? 'ok' : level === 2 ? 'warn' : 'bad');
 
   const currentSequence = c.consecutiveInconclusiveChecks
@@ -1883,7 +2263,7 @@ setInterval(() => {
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = ['actions', 'settings', 'resources', 'feed'].includes(name)
+  const nextView = ['actions', 'settings', 'logs', 'resources', 'feed'].includes(name)
     ? name
     : 'camera';
   activeView = nextView;
@@ -1897,6 +2277,8 @@ function activateView(name, updateHash) {
     ? 'Ações'
     : nextView === 'settings'
       ? 'Configurações'
+      : nextView === 'logs'
+        ? 'Logs'
       : nextView === 'resources'
         ? 'Recursos'
         : nextView === 'feed' ? 'Prévia' : 'Câmera';
@@ -1904,6 +2286,10 @@ function activateView(name, updateHash) {
 
   if (nextView === 'settings' || nextView === 'actions') {
     loadSettings(false);
+  }
+
+  if (nextView === 'logs') {
+    loadPersistentLogs(true);
   }
 
   if (nextView === 'feed') {
@@ -1971,6 +2357,7 @@ document.addEventListener('visibilitychange', () => {
   refresh();
   if (activeView === 'feed') scheduleFeed(0);
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
+  if (activeView === 'logs') loadPersistentLogs(true);
 });
 
 activateSettingsSection(activeSettingsSection, false);

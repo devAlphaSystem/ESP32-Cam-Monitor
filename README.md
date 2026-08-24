@@ -1,12 +1,14 @@
-# ESP32 Camera Watchdog 0.11.0
+# ESP32 Camera Watchdog 0.13.0
 
 Firmware para ESP32 que monitora uma câmera IP por ONVIF, valida snapshots JPEG e disponibiliza uma Prévia local no navegador. O watchdog também pode enviar alertas e executar uma recuperação controlada quando a câmera deixa de fornecer imagens válidas.
 
-## Escopo da versão 0.11.0
+## Escopo da versão 0.13.0
 
 A visualização da câmera é feita exclusivamente pela Prévia JPEG. O navegador nunca acessa a câmera diretamente: o ESP32 resolve o perfil ONVIF, autentica a solicitação, valida o JPEG e transfere o quadro ao painel.
 
 O RTSP permanece somente como uma sonda básica de disponibilidade e como apoio opcional à descoberta da câmera. Ele não é usado para exibir imagens.
+
+As comunicações externas e operações relevantes são gravadas em um histórico persistente circular com até 10.000 registros. Ao atingir o limite, cada novo registro sobrescreve o mais antigo.
 
 ## Principais recursos
 
@@ -24,7 +26,9 @@ O RTSP permanece somente como uma sonda básica de disponibilidade e como apoio 
 - reinicialização ONVIF manual ou automática com tolerância, cooldown e limite por janela;
 - alertas por e-mail através da API HTTPS do Resend;
 - configurações persistentes e validadas na NVS;
-- painel responsivo com diagnóstico, recursos e histórico da sessão.
+- histórico persistente das conexões ONVIF, snapshot, RTSP, descoberta e varredura;
+- registro de health-checks, incidentes, Wi-Fi, ações, alertas e reinicializações;
+- painel responsivo com consulta paginada e exportação CSV completa dos logs.
 
 ## Arquitetura
 
@@ -34,6 +38,7 @@ flowchart LR
     ESP -->|Prévia JPEG e painel HTTP| BROWSER[Navegador local]
     ESP -->|HTTPS opcional| RESEND[API Resend]
     ESP -->|Configurações| NVS[NVS]
+    ESP -->|10.000 registros circulares| LOGS[LittleFS dedicado]
 ```
 
 O acesso à câmera é serializado para evitar operações concorrentes entre Prévia, PTZ, health-check, descoberta e recuperação. As credenciais ONVIF permanecem no firmware e não são enviadas ao navegador.
@@ -116,6 +121,18 @@ http://IP_DO_ESP32/
 http://camera-watchdog.local/
 ```
 
+O nome usado pelo mDNS pode ser alterado em `Configurações > Identificação`,
+sem adicionar `http://` ou `.local` ao valor. O padrão de fábrica permanece em
+`include/app_config.h`:
+
+```cpp
+constexpr char LOCAL_HOSTNAME[] = "camera-watchdog";
+```
+
+O painel mostra o endereço mDNS quando o serviço é iniciado com sucesso e
+mantém o endereço IP como alternativa. Ao salvar outro nome, o serviço mDNS é
+reiniciado e o novo endereço passa a valer imediatamente.
+
 | Porta | Finalidade |
 |---|---|
 | 80/TCP | painel e API HTTP do ESP32 |
@@ -149,6 +166,16 @@ O navegador solicita `GET /api/camera/snapshot`. Para cada quadro, o firmware:
 
 Exibe heap, maior bloco alocável, menor heap desde o boot, flash, PSRAM, Wi-Fi, catálogo ONVIF, relógio da câmera e eventos anunciados.
 
+### Logs
+
+Exibe os registros persistentes em ordem decrescente, com filtros locais por nível, categoria, texto e modo de visualização. O modo `Diagnóstico` oculta apenas tentativas rotineiras de portas fechadas; `Todas as tentativas` e a exportação preservam o histórico integral. A listagem carrega 100 itens por vez, enquanto `Exportar CSV completo` transmite todos os registros diretamente da flash sem montar o arquivo inteiro na heap.
+
+Cada registro ocupa 80 bytes e contém sequência, identificadores de boot e contexto, horário, uptime, categoria, evento, resultado, IP e porta de destino, status, duração, timeout, valor auxiliar, flags e detalhe limitado. Um mesmo `context_id` agrupa as tentativas e o resultado de cada health-check, prévia ou ação administrativa. A entrega da prévia aponta para o cliente do navegador e não é classificada como conexão iniciada contra a câmera. O firmware também registra a origem do destino da câmera, o contexto das configurações, respostas WS-Discovery e o motivo disponível para falhas de socket. Credenciais, tokens de autenticação, corpos SOAP, conteúdo de e-mail e bytes do JPEG não são gravados. Registros no formato anterior continuam legíveis, com os novos identificadores zerados.
+
+O CSV mantém as colunas anteriores e acrescenta `boot_id`, `context_id`, `timestamp_utc`, `time_synchronized` e `timeout_ms` ao final de cada linha.
+
+A partição `logs` possui 960 KiB. O arquivo circular é limitado a 10.000 registros, ou 800.000 bytes, deixando espaço para metadados e nivelamento de desgaste do LittleFS. As escritas normais são agrupadas por até um segundo; eventos críticos forçam a persistência imediata.
+
 ### Configurações
 
 Permite ajustar identificação, perfil JPEG, monitoramento, recuperação, descoberta, notificações, timeouts, LED e ritmo do painel. O backend valida os limites e as relações entre campos antes de gravar a NVS.
@@ -157,7 +184,7 @@ Permite ajustar identificação, perfil JPEG, monitoramento, recuperação, desc
 
 As posições PTZ detectadas ficam na aba Prévia, em uma lista pesquisável e rolável aberta por modal. O firmware mantém até 128 presets, portanto uma câmera com 50 posições não expande nem desorganiza a página. Os presets são atualizados automaticamente a cada minuto, e a Prévia é pausada durante a escolha e o comando para liberar o servidor HTTP e o canal da câmera.
 
-A aba Ações permanece reservada ao health-check manual, redescoberta, reinicialização ONVIF da câmera, limpeza do limitador e reinicialização do ESP32. Operações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa.
+A aba Ações permanece reservada ao health-check manual, redescoberta, reinicialização ONVIF da câmera, limpeza do limitador, exclusão do histórico de logs e reinicialização do ESP32. Ao zerar os logs, o histórico anterior é removido e um novo marcador de auditoria registra a limpeza e a quantidade excluída. Operações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa.
 
 Os nomes personalizados exibidos pelo iCSee podem permanecer apenas no aplicativo. Quando a câmera publica nomes numéricos, o painel usa `Posição <token>`. Nesta câmera XM, o token `100` foi confirmado como o ponto Daemon e está definido por `CAMERA_DAEMON_PRESET_TOKEN` em `include/app_config.h`.
 
@@ -205,6 +232,7 @@ As últimas oito recuperações aceitas mantêm em RAM a evidência do snapshot,
 
 | Configuração | Valor |
 |---|---:|
+| Endereço local | `camera-watchdog.local` |
 | Health-check | 15 s |
 | Tolerância inicial | 90 s |
 | Falhas para redescoberta | 2 |
@@ -223,16 +251,20 @@ As últimas oito recuperações aceitas mantêm em RAM a evidência do snapshot,
 | Atualização do painel | 3 s |
 | Varredura automática | ativa |
 | Alertas por e-mail | ativos |
+| Limite de logs persistentes | 10.000 registros |
 
 ## Configurações persistentes
 
-O firmware `0.11.0` usa o schema de configurações `3`:
+O firmware `0.13.0` usa o schema de configurações `4`:
 
 - `GET /api/settings` lê valores, limites e token de escrita;
 - `POST /api/settings` valida e salva alterações;
 - `POST /api/settings/reset` apaga os valores atuais e restaura os padrões.
 
-Registros persistidos com layout incompatível são removidos e substituídos pelos valores de fábrica. Depois de atualizar a partir de uma versão com outro schema, revise e salve novamente as configurações desejadas.
+As configurações do schema `3` são migradas automaticamente, preservando os
+valores existentes e adicionando `camera-watchdog` como hostname inicial.
+Registros de outros layouts incompatíveis continuam sendo removidos e
+substituídos pelos valores de fábrica.
 
 ## API HTTP
 
@@ -241,6 +273,8 @@ Registros persistidos com layout incompatível são removidos e substituídos pe
 | GET | `/` | painel embarcado |
 | GET | `/health` | disponibilidade do ESP32 |
 | GET | `/api/status` | diagnóstico completo |
+| GET | `/api/logs?offset=0&limit=100` | página do histórico persistente |
+| GET | `/api/logs/export` | exportação CSV completa em streaming |
 | GET | `/api/camera/snapshot` | quadro JPEG da Prévia |
 | GET | `/api/settings` | configurações e token de escrita |
 | POST | `/api/settings` | salvar configurações |
@@ -250,6 +284,7 @@ Registros persistidos com layout incompatível são removidos e substituídos pe
 | POST | `/api/actions/goto-ptz-preset` | mover a câmera para um preset PTZ detectado |
 | POST | `/api/actions/reboot-camera` | reiniciar a câmera por ONVIF |
 | POST | `/api/actions/reset-reboot-limiter` | limpar o limitador |
+| POST | `/api/actions/clear-logs` | zerar o histórico e preservar o marcador da limpeza |
 | POST | `/api/actions/reboot-esp32` | reiniciar o ESP32 |
 
 ## Diagnóstico
@@ -257,6 +292,7 @@ Registros persistidos com layout incompatível são removidos e substituídos pe
 Campos úteis de `GET /api/status`:
 
 - `state`, `lastEvent` e `uptimeSeconds`;
+- `wifi.hostname`, `wifi.localUrl` e `wifi.mdnsAvailable`;
 - `camera.known`, `ip`, `onvifUrl` e `rtspPort`;
 - `probes.onvif*` e `probes.rtsp*`;
 - `snapshot.healthy`, `status`, `latencyMs`, `bytesRead`, `profile` e `detail`;
@@ -286,6 +322,13 @@ Campos úteis de `GET /api/status`:
 - confira as portas candidatas em `ONVIF_PORT_CANDIDATES`;
 - consulte `lastDiscovery` e `lastSubnetScan` no diagnóstico.
 
+### O endereço `.local` não abre
+
+- confirme que o dispositivo usado para acessar o painel está na mesma rede do ESP32;
+- verifique se a rede permite multicast mDNS entre os dispositivos;
+- confirme no monitor serial a mensagem `mDNS: http://<nome-escolhido>.local/`;
+- use o endereço IP exibido no monitor serial como alternativa.
+
 ### A câmera não reinicia automaticamente
 
 Confira `recovery.autoRebootEnabled`, `credentialsConfigured`, `attemptsInWindow`, `maxAttemptsInWindow`, `snapshot.conclusive`, `profileFailoverPending` e `recovery.lastResult`.
@@ -302,7 +345,8 @@ Confira `recovery.autoRebootEnabled`, `credentialsConfigured`, `attemptsInWindow
 - uma câmera monitorada por ESP32;
 - snapshot HTTPS local da câmera não suportado;
 - painel HTTP sem TLS;
-- histórico e contadores da sessão reiniciam no boot;
+- contadores operacionais e evidências recentes em RAM reiniciam no boot;
+- registros anteriores ao primeiro sincronismo NTP usam uptime em vez de horário absoluto;
 - varredura limitada a 254 hosts;
 - Prévia dependente de `GetSnapshotUri` e de um JPEG válido.
 - nomes personalizados do iCSee não são publicados por esta câmera via ONVIF;
@@ -322,10 +366,12 @@ Confira `recovery.autoRebootEnabled`, `credentialsConfigured`, `attemptsInWindow
 ```text
 ESP32/
 ├── src/
-│   └── main.cpp
+│   ├── main.cpp
+│   └── persistent_log.cpp
 ├── include/
 │   ├── app_config.h
 │   ├── dashboard_page.h
+│   ├── persistent_log.h
 │   ├── secrets.example.h
 │   └── secrets.h
 ├── partitions.csv
@@ -337,7 +383,7 @@ ESP32/
 ## Validação recomendada no dispositivo
 
 1. confirme conexão Wi-Fi e endereço IP no monitor serial;
-2. abra o painel por IP e mDNS;
+2. altere o endereço local, salve e abra o painel pelo novo nome mDNS;
 3. confirme a descoberta ONVIF;
 4. abra a Prévia e valide vários quadros consecutivos;
 5. confira perfil, bytes e latência do JPEG;
@@ -347,6 +393,8 @@ ESP32/
 9. confirme cooldown e limite por janela;
 10. acompanhe heap e RSSI durante uso prolongado.
 11. confirme que o modal de posições PTZ aparece na aba Prévia, filtre a lista e teste o retorno ao ponto Daemon.
+12. abra a aba Logs, gere tráfego de Prévia e health-check, confirme a ordem dos registros e exporte o CSV.
+13. reinicie o ESP32 e confirme que os registros anteriores continuam disponíveis.
 
 ## Licença
 
