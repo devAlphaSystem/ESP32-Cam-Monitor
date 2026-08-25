@@ -402,6 +402,7 @@ int openAuthenticatedCameraGet(const String& url, uint16_t contextId = 0)
     request.collectHeaders(responseHeaders, 3);
 
     bool responseUsesChunkedTransfer = false;
+    static unsigned long lastSuccessfulSnapshotHttpLogAtMs = 0;
     const auto executeAttempt = [&](const String& digestAuthorization, bool authenticationRetry) {
         responseUsesChunkedTransfer = false;
         const unsigned long attemptStartedAtMs = millis();
@@ -417,7 +418,16 @@ int openAuthenticatedCameraGet(const String& url, uint16_t contextId = 0)
         applyCameraAuthorization(request, digestAuthorization);
         const int statusCode = request.GET();
         const bool requestAccepted = statusCode >= 200 && statusCode < 400;
-        PersistentLog::record(PersistentLog::Event::SnapshotHttp, requestAccepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, "camera_jpeg", logEndpoint.ip, logEndpoint.port, statusCode, millis() - attemptStartedAtMs, statusCode > 0 ? static_cast<uint32_t>(max(request.getSize(), 0)) : 0, static_cast<uint8_t>(PersistentLog::FlagOutbound | (connectionWasOpen ? PersistentLog::FlagConnectionReused : PersistentLog::FlagNone) | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), statusCode == 401 && !authenticationRetry ? PersistentLog::Level::Warning : PersistentLog::Level::Info, false, logContextId);
+        const unsigned long attemptFinishedAtMs = millis();
+        const bool logAttempt = !requestAccepted || lastSuccessfulSnapshotHttpLogAtMs == 0 || attemptFinishedAtMs - lastSuccessfulSnapshotHttpLogAtMs >= SNAPSHOT_SUCCESS_LOG_INTERVAL_MS;
+
+        if (logAttempt) {
+            PersistentLog::record(PersistentLog::Event::SnapshotHttp, requestAccepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, "camera_jpeg", logEndpoint.ip, logEndpoint.port, statusCode, attemptFinishedAtMs - attemptStartedAtMs, statusCode > 0 ? static_cast<uint32_t>(max(request.getSize(), 0)) : 0, static_cast<uint8_t>(PersistentLog::FlagOutbound | (connectionWasOpen ? PersistentLog::FlagConnectionReused : PersistentLog::FlagNone) | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), statusCode == 401 && !authenticationRetry ? PersistentLog::Level::Warning : PersistentLog::Level::Info, false, logContextId);
+
+            if (requestAccepted) {
+                lastSuccessfulSnapshotHttpLogAtMs = attemptFinishedAtMs;
+            }
+        }
 
         if (connectionWasOpen && statusCode > 0) {
             cameraJpegConnectionReuses++;
@@ -3298,7 +3308,17 @@ void serveCameraSnapshot()
         lastSnapshotResult = "Transferencia do snapshot JPEG incompleta";
     }
 
-    PersistentLog::record(PersistentLog::Event::SnapshotTransfer, validTransfer ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, validTransfer ? "browser_jpeg" : browserDisconnected ? "browser_disconnected" : "incomplete_jpeg", browserIp, browserPort, 200, millis() - snapshotStartedAtMs, static_cast<uint32_t>(bytesTransferred), PersistentLog::FlagNone, PersistentLog::Level::Automatic, false, logContextId);
+    static unsigned long lastSuccessfulSnapshotTransferLogAtMs = 0;
+    const unsigned long transferFinishedAtMs = millis();
+    const bool logTransfer = !validTransfer || lastSuccessfulSnapshotTransferLogAtMs == 0 || transferFinishedAtMs - lastSuccessfulSnapshotTransferLogAtMs >= SNAPSHOT_SUCCESS_LOG_INTERVAL_MS;
+
+    if (logTransfer) {
+        PersistentLog::record(PersistentLog::Event::SnapshotTransfer, validTransfer ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, validTransfer ? "browser_jpeg" : browserDisconnected ? "browser_disconnected" : "incomplete_jpeg", browserIp, browserPort, 200, transferFinishedAtMs - snapshotStartedAtMs, static_cast<uint32_t>(bytesTransferred), PersistentLog::FlagNone, PersistentLog::Level::Automatic, false, logContextId);
+
+        if (validTransfer) {
+            lastSuccessfulSnapshotTransferLogAtMs = transferFinishedAtMs;
+        }
+    }
 }
 
 ServiceProbe probeRtsp(const IPAddress& ip, uint16_t port, uint16_t contextId)

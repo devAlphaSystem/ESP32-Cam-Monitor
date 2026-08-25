@@ -2,7 +2,7 @@
 
 Firmware para ESP32 que monitora uma câmera IP por ONVIF, verifica se ela continua entregando snapshots JPEG válidos e oferece um painel web local para diagnóstico, prévia, configurações, logs e ações de recuperação.
 
-A versão atual é a `0.14.0`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor as credenciais da câmera.
+A versão atual é a `0.14`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor as credenciais da câmera.
 
 ## Principais recursos
 
@@ -17,7 +17,7 @@ A versão atual é a `0.14.0`. O navegador não acessa a câmera diretamente: o 
 - catálogo e acionamento de até 128 presets PTZ;
 - alertas de incidente, recuperação e mudança de IP pela API do Resend;
 - configurações persistentes na NVS;
-- até 10.000 logs circulares persistentes em uma partição LittleFS dedicada;
+- até 7.500 logs circulares persistentes em uma partição LittleFS dedicada;
 - painel responsivo com diagnóstico, recursos, logs, exportação CSV e ações administrativas.
 
 ## Visão geral do funcionamento
@@ -206,7 +206,9 @@ Ações mutáveis exigem o token de escrita da sessão e, quando configurada, a 
 
 ## Logs persistentes
 
-A partição `logs` possui `960 KiB` e usa LittleFS. O arquivo circular armazena até 10.000 registros de 80 bytes; quando fica cheio, os registros mais antigos são sobrescritos. As gravações comuns são agrupadas por até um segundo e eventos críticos forçam a persistência.
+A partição `logs` possui `960 KiB` e usa LittleFS. O arquivo circular armazena até 7.500 registros de 80 bytes; quando fica cheio, os registros mais antigos são sobrescritos. A folga restante é reservada para as operações copy-on-write do sistema de arquivos. As gravações comuns são agrupadas por até um segundo e eventos críticos forçam a persistência.
+
+Snapshots bem-sucedidos são amostrados no histórico no máximo uma vez por minuto; falhas continuam sendo registradas imediatamente. Se uma escrita for interrompida ou a ocupação do LittleFS ficar insegura, a partição exclusiva de logs é reconstruída automaticamente no próximo boot para evitar um ciclo de reinicialização.
 
 O histórico inclui boot, Wi-Fi, descoberta, conexões TCP, ONVIF, RTSP, snapshots, health-checks, incidentes, configurações, PTZ, e-mails e ações administrativas. Corpos SOAP, conteúdo do JPEG, senhas e tokens de autenticação não são gravados.
 
@@ -309,7 +311,7 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.0`;
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.2`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;

@@ -2,7 +2,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.14.0";
+const char FIRMWARE_VERSION[] = "0.14.2";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -381,6 +381,11 @@ bool migrateRuntimeDefaults(RuntimeSettings& values, uint16_t storedDefaultsRevi
     }
 
     if (storedDefaultsRevision < 4 && values.scanConnectTimeoutMs == 90UL) {
+        values.scanConnectTimeoutMs = defaults.scanConnectTimeoutMs;
+        changed = true;
+    }
+
+    if (storedDefaultsRevision < 5 && values.scanConnectTimeoutMs == 300UL) {
         values.scanConnectTimeoutMs = defaults.scanConnectTimeoutMs;
         changed = true;
     }

@@ -2,6 +2,7 @@
 
 #include <FS.h>
 #include <LittleFS.h>
+#include <esp_attr.h>
 #include <stddef.h>
 #include <time.h>
 
@@ -18,6 +19,8 @@ constexpr size_t STORED_CONTEXT_BYTES = 4;
 constexpr size_t STORED_DETAIL_CAPACITY = DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
 constexpr size_t WRITE_QUEUE_CAPACITY = 16;
 constexpr unsigned long FLUSH_INTERVAL_MS = 1000UL;
+constexpr uint8_t STORAGE_RECOVERY_USAGE_PERCENT = 75;
+constexpr uint32_t STORAGE_OPERATION_MAGIC = 0x4C4F4757UL;
 
 struct StoredRecord {
     uint32_t magic;
@@ -39,9 +42,16 @@ struct StoredRecord {
     uint32_t checksum;
 };
 
+struct StorageOperationMarker {
+    uint32_t magic;
+    uint32_t invertedMagic;
+};
+
 static_assert(DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "O payload persistente precisa reservar espaco para o detalhe");
 static_assert(sizeof(StoredRecord) == 80, "O registro persistente deve ocupar exatamente 80 bytes");
-static_assert(CAPACITY * sizeof(StoredRecord) == 800000, "O arquivo circular deve permanecer dentro da particao de logs");
+static_assert(CAPACITY * sizeof(StoredRecord) == 600000, "O arquivo circular deve preservar folga para o LittleFS");
+
+RTC_NOINIT_ATTR volatile StorageOperationMarker storageOperationMarker;
 
 fs::File logFile;
 StoredRecord writeQueue[WRITE_QUEUE_CAPACITY];
@@ -55,6 +65,24 @@ uint32_t writeErrors = 0;
 unsigned long lastFlushAtMs = 0;
 uint16_t currentBootId = 0;
 bool storeReady = false;
+
+bool storageOperationWasInterrupted()
+{
+    return storageOperationMarker.magic == STORAGE_OPERATION_MAGIC && storageOperationMarker.invertedMagic == ~STORAGE_OPERATION_MAGIC;
+}
+
+void markStorageOperationActive()
+{
+    storageOperationMarker.magic = 0;
+    storageOperationMarker.invertedMagic = ~STORAGE_OPERATION_MAGIC;
+    storageOperationMarker.magic = STORAGE_OPERATION_MAGIC;
+}
+
+void clearStorageOperationMarker()
+{
+    storageOperationMarker.magic = 0;
+    storageOperationMarker.invertedMagic = 0;
+}
 
 uint32_t checksumBytes(const void* values, size_t valueSize)
 {
@@ -233,6 +261,55 @@ bool openLogFile()
     return static_cast<bool>(logFile);
 }
 
+bool mountLogStorage(bool forceFormat, bool& formatted)
+{
+    formatted = false;
+    const bool mounted = LittleFS.begin(false, MOUNT_PATH, 3, PARTITION_LABEL);
+
+    if (mounted && !forceFormat) {
+        return true;
+    }
+
+    if (mounted) {
+        LittleFS.end();
+    }
+
+    markStorageOperationActive();
+
+    if (!LittleFS.format() || !LittleFS.begin(false, MOUNT_PATH, 3, PARTITION_LABEL)) {
+        return false;
+    }
+
+    formatted = true;
+    return true;
+}
+
+bool storageNeedsRecovery()
+{
+    const size_t totalBytes = LittleFS.totalBytes();
+    const size_t usedBytes = LittleFS.usedBytes();
+    const size_t maximumFileBytes = CAPACITY * sizeof(StoredRecord);
+
+    if (totalBytes == 0 || usedBytes > totalBytes || logFile.size() > maximumFileBytes) {
+        return true;
+    }
+
+    return static_cast<uint64_t>(usedBytes) * 100ULL > static_cast<uint64_t>(totalBytes) * STORAGE_RECOVERY_USAGE_PERCENT;
+}
+
+bool reformatLogStorage()
+{
+    logFile.close();
+    LittleFS.end();
+    markStorageOperationActive();
+
+    if (!LittleFS.format() || !LittleFS.begin(false, MOUNT_PATH, 3, PARTITION_LABEL)) {
+        return false;
+    }
+
+    return openLogFile();
+}
+
 void decodeRecord(const StoredRecord& stored, Entry& entry)
 {
     entry = Entry{};
@@ -269,13 +346,26 @@ bool begin()
         return true;
     }
 
-    if (!LittleFS.begin(true, MOUNT_PATH, 3, PARTITION_LABEL)) {
+    bool storageFormatted = false;
+
+    if (!mountLogStorage(storageOperationWasInterrupted(), storageFormatted)) {
         return false;
     }
+
+    markStorageOperationActive();
 
     if (!openLogFile()) {
         LittleFS.end();
         return false;
+    }
+
+    if (storageNeedsRecovery()) {
+        if (!reformatLogStorage()) {
+            LittleFS.end();
+            return false;
+        }
+
+        storageFormatted = true;
     }
 
     storeReady = true;
@@ -287,6 +377,12 @@ bool begin()
     }
 
     lastFlushAtMs = millis();
+    clearStorageOperationMarker();
+
+    if (storageFormatted) {
+        Serial.println("Particao de logs reinicializada para recuperar o armazenamento.");
+    }
+
     return true;
 }
 
@@ -355,6 +451,7 @@ bool flush()
         return storeReady;
     }
 
+    markStorageOperationActive();
     size_t writtenRecords = 0;
 
     while (writtenRecords < queuedRecords) {
@@ -385,6 +482,11 @@ bool flush()
     }
 
     queuedRecords -= writtenRecords;
+
+    if (queuedRecords == 0) {
+        clearStorageOperationMarker();
+    }
+
     return queuedRecords == 0;
 }
 
@@ -394,20 +496,14 @@ bool clear()
         return false;
     }
 
-    logFile.close();
-    fs::File clearedFile = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
+    storeReady = false;
 
-    if (!clearedFile) {
+    if (!reformatLogStorage()) {
         writeErrors++;
-
-        if (!openLogFile()) {
-            storeReady = false;
-        }
-
         return false;
     }
 
-    clearedFile.close();
+    storeReady = true;
     queuedRecords = 0;
     persistedRecords = 0;
     nextSlot = 0;
@@ -416,12 +512,7 @@ bool clear()
     droppedRecords = 0;
     writeErrors = 0;
     lastFlushAtMs = millis();
-
-    if (!openLogFile()) {
-        storeReady = false;
-        writeErrors = 1;
-        return false;
-    }
+    clearStorageOperationMarker();
 
     return true;
 }
