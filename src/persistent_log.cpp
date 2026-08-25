@@ -1,9 +1,8 @@
-#include "persistent_log.h"
+#include "persistent_log_format.h"
 
 #include <FS.h>
 #include <LittleFS.h>
 #include <esp_attr.h>
-#include <stddef.h>
 #include <time.h>
 
 namespace PersistentLog {
@@ -12,44 +11,25 @@ namespace {
 constexpr char PARTITION_LABEL[] = "logs";
 constexpr char MOUNT_PATH[] = "/eventlogs";
 constexpr char LOG_FILE_PATH[] = "/events.bin";
-constexpr uint32_t RECORD_MAGIC = 0x434C4F47UL;
-constexpr uint16_t LEGACY_RECORD_SCHEMA_VERSION = 1;
-constexpr uint16_t RECORD_SCHEMA_VERSION = 2;
-constexpr size_t STORED_CONTEXT_BYTES = 4;
-constexpr size_t STORED_DETAIL_CAPACITY = DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
 constexpr size_t WRITE_QUEUE_CAPACITY = 16;
 constexpr unsigned long FLUSH_INTERVAL_MS = 1000UL;
 constexpr uint8_t STORAGE_RECOVERY_USAGE_PERCENT = 75;
 constexpr uint32_t STORAGE_OPERATION_MAGIC = 0x4C4F4757UL;
 
-struct StoredRecord {
-    uint32_t magic;
-    uint32_t sequence;
-    uint32_t epochSeconds;
-    uint32_t uptimeMs;
-    uint32_t targetIp;
-    uint32_t durationMs;
-    uint32_t value;
-    uint16_t targetPort;
-    int16_t statusCode;
-    uint16_t event;
-    uint16_t schemaVersion;
-    uint8_t category;
-    uint8_t level;
-    uint8_t outcome;
-    uint8_t flags;
-    uint8_t payload[DETAIL_CAPACITY];
-    uint32_t checksum;
-};
+using PersistentLogFormat::LEGACY_RECORD_SCHEMA_VERSION;
+using PersistentLogFormat::RECORD_MAGIC;
+using PersistentLogFormat::RECORD_SCHEMA_VERSION;
+using PersistentLogFormat::STORED_CONTEXT_BYTES;
+using PersistentLogFormat::STORED_DETAIL_CAPACITY;
+using PersistentLogFormat::StoredRecord;
+using PersistentLogFormat::readUint16;
+using PersistentLogFormat::recordChecksum;
+using PersistentLogFormat::validRecord;
 
 struct StorageOperationMarker {
     uint32_t magic;
     uint32_t invertedMagic;
 };
-
-static_assert(DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "O payload persistente precisa reservar espaco para o detalhe");
-static_assert(sizeof(StoredRecord) == 80, "O registro persistente deve ocupar exatamente 80 bytes");
-static_assert(CAPACITY * sizeof(StoredRecord) == 600000, "O arquivo circular deve preservar folga para o LittleFS");
 
 RTC_NOINIT_ATTR volatile StorageOperationMarker storageOperationMarker;
 
@@ -84,38 +64,10 @@ void clearStorageOperationMarker()
     storageOperationMarker.invertedMagic = 0;
 }
 
-uint32_t checksumBytes(const void* values, size_t valueSize)
-{
-    const uint8_t* bytes = static_cast<const uint8_t*>(values);
-    uint32_t hash = 2166136261UL;
-
-    for (size_t index = 0; index < valueSize; index++) {
-        hash ^= bytes[index];
-        hash *= 16777619UL;
-    }
-
-    return hash;
-}
-
-uint32_t recordChecksum(const StoredRecord& record)
-{
-    return checksumBytes(&record, offsetof(StoredRecord, checksum));
-}
-
-bool validRecord(const StoredRecord& record)
-{
-    return record.magic == RECORD_MAGIC && (record.schemaVersion == LEGACY_RECORD_SCHEMA_VERSION || record.schemaVersion == RECORD_SCHEMA_VERSION) && record.checksum == recordChecksum(record);
-}
-
 void writeUint16(uint8_t* destination, uint16_t value)
 {
     destination[0] = static_cast<uint8_t>(value & 0xFFU);
     destination[1] = static_cast<uint8_t>((value >> 8) & 0xFFU);
-}
-
-uint16_t readUint16(const uint8_t* source)
-{
-    return static_cast<uint16_t>(source[0]) | (static_cast<uint16_t>(source[1]) << 8);
 }
 
 uint32_t ipToValue(const IPAddress& ip)

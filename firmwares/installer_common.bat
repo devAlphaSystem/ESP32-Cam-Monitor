@@ -6,6 +6,7 @@ set "PROJECT_DIR=%~2"
 
 if /i "%INSTALL_MODE%"=="minimal" goto mode_valid
 if /i "%INSTALL_MODE%"=="zeroed" goto mode_valid
+if /i "%INSTALL_MODE%"=="logreader" goto mode_valid
 
 echo.
 echo ERRO: modo de instalacao invalido.
@@ -31,7 +32,7 @@ if /i "%INSTALL_MODE%"=="minimal" (
     echo Este processo apaga toda a flash, incluindo firmware,
     echo configuracoes, NVS, logs e demais particoes.
     echo Depois, o firmware minimo sera compilado e gravado.
-) else (
+) else if /i "%INSTALL_MODE%"=="zeroed" (
     title ESP32 - Zerar completamente
     echo ============================================================
     echo                   ESP32 - ZERAR FLASH
@@ -40,18 +41,30 @@ if /i "%INSTALL_MODE%"=="minimal" (
     echo Este processo apaga toda a flash, incluindo firmware,
     echo configuracoes, NVS, logs e demais particoes.
     echo Nenhum firmware sera gravado depois.
+) else (
+    title ESP32 - Leitor forense de logs
+    echo ============================================================
+    echo              ESP32 - LEITOR FORENSE DE LOGS
+    echo ============================================================
+    echo.
+    echo Este processo salva uma copia RAW integral dos logs,
+    echo apaga firmware, configuracoes, NVS e demais particoes,
+    echo preserva a particao de logs e instala o leitor local.
+    echo.
+    echo A particao de logs sera conferida antes e depois da gravacao.
+    echo Nenhum apagamento completo da flash sera executado.
 )
 
 :ask_port
 echo.
 set "ESP32_PORT_INPUT="
-set /p "ESP32_PORT_INPUT=Informe a porta serial do ESP32 (exemplo: COM5): "
+set /p "ESP32_PORT_INPUT=Informe a porta serial do ESP32 (exemplo: COM3): "
 set "ESP32_PORT="
 
 for /f "usebackq delims=" %%P in (`powershell.exe -NoLogo -NoProfile -NonInteractive -Command "$p=$env:ESP32_PORT_INPUT.Trim().ToUpperInvariant(); if ($p -match '^COM[1-9][0-9]*$') { $p }"`) do set "ESP32_PORT=%%P"
 
 if not defined ESP32_PORT (
-    echo Porta invalida. Informe no formato COM seguido de um numero, como COM5.
+    echo Porta invalida. Informe no formato COM seguido de um numero, como COM3.
     goto ask_port
 )
 
@@ -59,14 +72,17 @@ echo.
 echo Porta selecionada: %ESP32_PORT%
 if /i "%INSTALL_MODE%"=="minimal" (
     echo Acao: apagar toda a flash e instalar o firmware minimo.
-) else (
+) else if /i "%INSTALL_MODE%"=="zeroed" (
     echo Acao: apagar toda a flash e deixar o ESP32 sem firmware.
+) else (
+    echo Acao: preservar somente os logs e instalar o leitor forense.
 )
 echo.
 choice /c SN /n /m "Confirma a operacao? [S/N]: "
 if errorlevel 2 goto cancelled
 
 if /i "%INSTALL_MODE%"=="minimal" goto install_minimal
+if /i "%INSTALL_MODE%"=="logreader" goto install_logreader
 goto erase_only
 
 :install_minimal
@@ -96,6 +112,64 @@ echo.
 echo ============================================================
 echo RESULTADO: CONCLUIDO
 echo Flash apagada e firmware minimo gravado com sucesso.
+echo ============================================================
+goto success
+
+:install_logreader
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 1/6 - COMPILAR LEITOR DE LOGS
+echo ------------------------------------------------------------
+call :run_platformio build
+if errorlevel 1 goto build_failed
+echo     Compilacao concluida.
+
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 2/6 - SALVAR BACKUP RAW DOS LOGS
+echo ------------------------------------------------------------
+call :run_platformio backup-logs
+if errorlevel 1 goto backup_failed
+
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 3/6 - APAGAR TUDO EXCETO OS LOGS
+echo ------------------------------------------------------------
+call :run_platformio erase-except-logs
+if errorlevel 1 goto selective_erase_failed
+
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 4/6 - CONFERIR LOGS PRESERVADOS
+echo ------------------------------------------------------------
+call :run_platformio verify-logs-after-erase
+if errorlevel 1 goto preserved_logs_failed
+
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 5/6 - GRAVAR LEITOR DE LOGS
+echo ------------------------------------------------------------
+call :run_platformio upload
+if errorlevel 1 goto upload_failed
+
+echo.
+echo ------------------------------------------------------------
+echo ETAPA 6/6 - CONFERIR LOGS APOS A GRAVACAO
+echo ------------------------------------------------------------
+call :run_platformio verify-logs-after-upload
+if errorlevel 1 goto final_logs_failed
+
+echo.
+echo ============================================================
+echo RESULTADO: CONCLUIDO
+echo Leitor forense instalado e particao de logs preservada.
+echo O backup RAW permanece salvo na pasta backups.
+echo.
+echo Rede local: http://esp32-log-reader.local/
+echo Rede alternativa: ESP32-LogReader-XXXXXX
+echo Senha da rede alternativa: Logs-XXXXXX
+echo Use na senha o mesmo sufixo de 6 caracteres exibido no Wi-Fi.
+echo No ponto de acesso, abra http://192.168.4.1/
 echo ============================================================
 goto success
 
@@ -150,6 +224,32 @@ echo O ESP32 nao foi alterado.
 echo ============================================================
 goto failure
 
+:backup_failed
+echo.
+echo ============================================================
+echo RESULTADO: FALHA NO BACKUP DOS LOGS
+echo O apagamento nao foi iniciado e nenhum firmware foi gravado.
+echo ============================================================
+goto failure
+
+:selective_erase_failed
+echo.
+echo ============================================================
+echo RESULTADO: FALHA NO APAGAMENTO SELETIVO
+echo A instalacao foi interrompida. O backup RAW permanece salvo.
+echo A faixa reservada aos logs nao faz parte do apagamento.
+echo ============================================================
+goto failure
+
+:preserved_logs_failed
+echo.
+echo ============================================================
+echo RESULTADO: LOGS NAO CONFIRMADOS
+echo O firmware leitor nao foi gravado.
+echo O backup RAW permanece salvo para recuperacao e analise.
+echo ============================================================
+goto failure
+
 :erase_failed
 echo.
 echo ============================================================
@@ -162,8 +262,22 @@ goto failure
 echo.
 echo ============================================================
 echo RESULTADO: FALHA NA GRAVACAO
-echo A flash foi apagada, mas o firmware nao foi gravado.
+if /i "%INSTALL_MODE%"=="logreader" (
+    echo A area de firmware foi apagada, mas o leitor nao foi gravado.
+    echo Os logs ja foram conferidos e o backup RAW permanece salvo.
+) else (
+    echo A flash foi apagada, mas o firmware nao foi gravado.
+)
 echo Execute o instalador novamente depois de conferir o USB.
+echo ============================================================
+goto failure
+
+:final_logs_failed
+echo.
+echo ============================================================
+echo RESULTADO: GRAVACAO SEM CONFIRMACAO FINAL DOS LOGS
+echo O leitor foi gravado, mas a conferencia final nao foi concluida.
+echo Preserve o backup RAW e nao sobrescreva a particao de logs.
 echo ============================================================
 goto failure
 

@@ -311,7 +311,7 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.2`;
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.3`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;
