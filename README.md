@@ -90,16 +90,16 @@ constexpr char ALERT_EMAIL[] = "recipient@example.com";
 
 Campos:
 
-| Campo | Obrigatório | Uso |
-|---|---|---|
-| `WIFI_SSID` | sim | nome da rede Wi-Fi de 2,4 GHz |
-| `WIFI_PASSWORD` | sim | senha da rede |
-| `CAMERA_ONVIF_USERNAME_VALUE` | conforme a câmera | usuário ONVIF e do snapshot |
-| `CAMERA_ONVIF_PASSWORD_VALUE` | conforme a câmera | senha ONVIF e do snapshot |
-| `DASHBOARD_ADMIN_PASSWORD_VALUE` | recomendado | protege gravações e ações administrativas; vazio desativa a senha |
-| `RESEND_API_KEY` | não | chave da API; deixe vazia para não enviar e-mails |
-| `RESEND_FROM` | apenas para e-mail | remetente aceito pela conta Resend |
-| `ALERT_EMAIL` | apenas para e-mail | destinatário dos alertas |
+| Campo                            | Obrigatório        | Uso                                                               |
+| -------------------------------- | ------------------ | ----------------------------------------------------------------- |
+| `WIFI_SSID`                      | sim                | nome da rede Wi-Fi de 2,4 GHz                                     |
+| `WIFI_PASSWORD`                  | sim                | senha da rede                                                     |
+| `CAMERA_ONVIF_USERNAME_VALUE`    | conforme a câmera  | usuário ONVIF e do snapshot                                       |
+| `CAMERA_ONVIF_PASSWORD_VALUE`    | conforme a câmera  | senha ONVIF e do snapshot                                         |
+| `DASHBOARD_ADMIN_PASSWORD_VALUE` | recomendado        | protege gravações e ações administrativas; vazio desativa a senha |
+| `RESEND_API_KEY`                 | não                | chave da API; deixe vazia para não enviar e-mails                 |
+| `RESEND_FROM`                    | apenas para e-mail | remetente aceito pela conta Resend                                |
+| `ALERT_EMAIL`                    | apenas para e-mail | destinatário dos alertas                                          |
 
 Alterações em `secrets.h` exigem nova compilação e gravação do firmware.
 
@@ -153,17 +153,17 @@ Wi-Fi, credenciais ONVIF, senha administrativa e dados do Resend ficam exclusiva
 
 Abra **Configurações** no painel. Ao salvar, os valores são validados e gravados no namespace `camcfg` da NVS, usando o schema `4`. A maioria é aplicada imediatamente; o timeout inicial do Wi-Fi passa a valer no próximo boot.
 
-| Grupo | Principais ajustes | Padrões |
-|---|---|---|
-| Identificação | nome, hostname mDNS, filtro do perfil, porta RTSP | `Camera de seguranca`, `camera-watchdog`, `snap`, `554` |
-| Interface | intervalo mínimo e ciclo da prévia, atualização do painel | `5 s`, `5 s`, `3 s` |
-| Monitoramento | health-check, tolerância inicial, redescoberta, offline e recuperação | `15 s`, `90 s`, `2`, `3`, `2` |
-| Incidentes | falhas JPEG para alerta e reboot | `2`, `3` |
-| Recuperação | reboot automático, tolerância, cooldown, janela e cota | ativo, `60 s`, `5 min`, `1 h`, `3` |
-| Rede | varredura, descoberta e repetição de buscas | ativa, `3,5 s`, `30 s`, `5 min` |
-| Notificações | alertas, mudança de IP e nova tentativa de e-mail | ativos, ativa, `60 s` |
-| Comunicação | TCP, ONVIF/RTSP, varredura, JPEG e nova resolução | `900 ms`, `3 s`, `300 ms`, `5 s`, `15 s` |
-| Alerta local | LED e intervalo da piscada | ativo no GPIO `2`, `1 s` |
+| Grupo         | Principais ajustes                                                    | Padrões                                                 |
+| ------------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
+| Identificação | nome, hostname mDNS, filtro do perfil, porta RTSP                     | `Camera de seguranca`, `camera-watchdog`, `snap`, `554` |
+| Interface     | intervalo mínimo e ciclo da prévia, atualização do painel             | `5 s`, `5 s`, `3 s`                                     |
+| Monitoramento | health-check, tolerância inicial, redescoberta, offline e recuperação | `15 s`, `90 s`, `2`, `3`, `2`                           |
+| Incidentes    | falhas JPEG para alerta e reboot                                      | `2`, `3`                                                |
+| Recuperação   | reboot automático, tolerância, cooldown, janela e cota                | ativo, `60 s`, `5 min`, `1 h`, `3`                      |
+| Rede          | varredura, descoberta e repetição de buscas                           | ativa, `3,5 s`, `30 s`, `5 min`                         |
+| Notificações  | alertas, mudança de IP e nova tentativa de e-mail                     | ativos, ativa, `60 s`                                   |
+| Comunicação   | TCP, ONVIF/RTSP, varredura, JPEG e nova resolução                     | `900 ms`, `3 s`, `300 ms`, `5 s`, `15 s`                |
+| Alerta local  | LED e intervalo da piscada                                            | ativo no GPIO `2`, `1 s`                                |
 
 O backend também aplica estas relações:
 
@@ -180,16 +180,16 @@ Use **Restaurar padrões** para limpar apenas os ajustes operacionais e voltar a
 
 Edite `include/app_config.h` quando precisar mudar um comportamento que não aparece no painel:
 
-| Constante | Finalidade |
-|---|---|
-| `CAMERA_MATCH` | filtra respostas WS-Discovery pelo texto anunciado pela câmera |
-| `CAMERA_IP_HINT` | sugere um IP inicial quando não existe destino salvo |
-| `CAMERA_DAEMON_PRESET_TOKEN` | identifica o preset destacado como ponto Daemon; padrão `100` |
-| `ONVIF_PORT_CANDIDATES` | portas testadas para o Device Service |
-| `DEFAULT_ONVIF_PATH` | caminho ONVIF usado nos testes de fallback |
-| `CAMERA_ALERT_LED_PIN` | GPIO fixo do LED de alerta; padrão `2` |
-| `MAX_SNAPSHOT_SIZE_BYTES` | tamanho máximo aceito para um JPEG; padrão `512 KiB` |
-| `RELEASE_BLUETOOTH_MEMORY` | libera a memória Bluetooth não utilizada no boot |
+| Constante                    | Finalidade                                                     |
+| ---------------------------- | -------------------------------------------------------------- |
+| `CAMERA_MATCH`               | filtra respostas WS-Discovery pelo texto anunciado pela câmera |
+| `CAMERA_IP_HINT`             | sugere um IP inicial quando não existe destino salvo           |
+| `CAMERA_DAEMON_PRESET_TOKEN` | identifica o preset destacado como ponto Daemon; padrão `100`  |
+| `ONVIF_PORT_CANDIDATES`      | portas testadas para o Device Service                          |
+| `DEFAULT_ONVIF_PATH`         | caminho ONVIF usado nos testes de fallback                     |
+| `CAMERA_ALERT_LED_PIN`       | GPIO fixo do LED de alerta; padrão `2`                         |
+| `MAX_SNAPSHOT_SIZE_BYTES`    | tamanho máximo aceito para um JPEG; padrão `512 KiB`           |
+| `RELEASE_BLUETOOTH_MEMORY`   | libera a memória Bluetooth não utilizada no boot               |
 
 Os demais valores de `app_config.h` são os padrões e limites usados pela configuração persistente. Mudá-los exige recompilar e gravar o firmware. Valores já salvos na NVS podem prevalecer até que os padrões sejam restaurados ou migrados.
 
@@ -216,14 +216,14 @@ Ao usar **Zerar logs**, o histórico anterior é removido e um novo marcador reg
 
 ## Portas e conectividade
 
-| Porta | Direção | Finalidade |
-|---|---|---|
-| `80/TCP` | entrada no ESP32 | painel e API HTTP |
-| `3702/UDP` | rede local | ONVIF WS-Discovery multicast |
-| `5353/UDP` | rede local | resolução mDNS de `*.local` |
-| `554/TCP` | saída, configurável | sonda RTSP e apoio à varredura |
-| `123/UDP` | saída | sincronização NTP |
-| `443/TCP` | saída, opcional | envio de e-mails pelo Resend |
+| Porta      | Direção             | Finalidade                     |
+| ---------- | ------------------- | ------------------------------ |
+| `80/TCP`   | entrada no ESP32    | painel e API HTTP              |
+| `3702/UDP` | rede local          | ONVIF WS-Discovery multicast   |
+| `5353/UDP` | rede local          | resolução mDNS de `*.local`    |
+| `554/TCP`  | saída, configurável | sonda RTSP e apoio à varredura |
+| `123/UDP`  | saída               | sincronização NTP              |
+| `443/TCP`  | saída, opcional     | envio de e-mails pelo Resend   |
 
 As portas ONVIF e do snapshot são obtidas da câmera. ESP32 e câmera devem estar na mesma rede alcançável; WS-Discovery e mDNS dependem de multicast permitido pela rede.
 
@@ -311,7 +311,7 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.3`;
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.4`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;
