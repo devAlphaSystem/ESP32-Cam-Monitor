@@ -2,7 +2,7 @@
 
 Firmware para ESP32 que monitora uma câmera IP por ONVIF, verifica se ela continua entregando snapshots JPEG válidos e oferece um painel web local para diagnóstico, prévia, configurações, logs e ações de recuperação.
 
-A versão atual é a `0.14`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor as credenciais da câmera.
+A versão atual é a `0.15`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor as credenciais da câmera.
 
 ## Principais recursos
 
@@ -195,12 +195,13 @@ Os demais valores de `app_config.h` são os padrões e limites usados pela confi
 
 ## Uso do painel
 
-- **Câmera:** estado, disponibilidade, sondas ONVIF/RTSP, último JPEG e atividade recente.
+- **Visão geral:** estado, disponibilidade, sondas ONVIF/RTSP, último JPEG e atividade recente.
 - **Prévia:** snapshots JPEG, tela cheia e seleção pesquisável de presets PTZ.
-- **Recursos:** heap, fragmentação estimada, PSRAM, flash, Wi-Fi, catálogo ONVIF, relógio e eventos anunciados.
+- **Diagnóstico:** estado completo em JSON, com opção de copiar.
 - **Logs:** histórico paginado, filtros locais e exportação CSV completa.
-- **Configurações:** valores persistentes e limites de segurança.
+- **Recursos:** heap, fragmentação estimada, PSRAM, flash, Wi-Fi, catálogo ONVIF, relógio e eventos anunciados.
 - **Ações:** health-check, redescoberta, reboot da câmera, limpeza do limitador, limpeza dos logs e reboot do ESP32.
+- **Configurações:** valores persistentes e limites de segurança.
 
 Ações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa. O token é recriado a cada boot.
 
@@ -311,7 +312,7 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.14.4`;
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.15.0`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;

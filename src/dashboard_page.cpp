@@ -8,356 +8,325 @@ extern const char DASHBOARD_PAGE[] PROGMEM = R"HTML(<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#070a0f">
-<link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e1520' stroke='%231c2738' stroke-width='2'/%3E%3Cpath d='M14 24h9l4-5h12l4 5h7a5 5 0 0 1 5 5v18a5 5 0 0 1-5 5H14a5 5 0 0 1-5-5V29a5 5 0 0 1 5-5Z' fill='none' stroke='%230ea5e9' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='38' r='9' fill='none' stroke='%23f1f6fc' stroke-width='4'/%3E%3Ccircle cx='50' cy='18' r='6' fill='%2310b981' stroke='%23070a0f' stroke-width='3'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#24262a">
+<link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23242a31'/%3E%3Cpath d='m32 12 19 8v13c0 8-10 15-19 19-9-4-19-11-19-19V20Z' fill='none' stroke='%23e9edf2' stroke-width='3' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='29' r='7' fill='none' stroke='%23e9edf2' stroke-width='3'/%3E%3Cpath d='M32 36v7' stroke='%23e9edf2' stroke-width='3'/%3E%3C/svg%3E">
 <title>Camera Watchdog</title>
 <style>
 *,*::before,*::after{box-sizing:border-box}
 :root{
-  --bg:#070a0f;--surface:#0e1520;--surface-raised:#131c2a;--surface-card:#101824;--surface-hover:#182436;--surface-input:#0a0f16;
-  --line:#1c2738;--line-strong:#26364d;--line-active:#385070;
-  --text:#f1f6fc;--muted:#a3b3c7;--dim:#798b9f;
-  --ok:#10b981;--ok-glow:rgba(16,185,129,.25);--warn:#f59e0b;--warn-glow:rgba(245,158,11,.25);
-  --bad:#f43f5e;--bad-glow:rgba(244,63,94,.25);--info:#0ea5e9;--info-glow:rgba(14,165,233,.25);
-  --accent:#0284c7;--accent-light:#38bdf8;
-  --r:12px;--r-sm:8px;--r-lg:16px;--r-full:999px;
-  --shadow-sm:0 1px 2px rgba(0,0,0,.5),0 0 0 1px var(--line);
-  --shadow:0 4px 14px -2px rgba(0,0,0,.6),0 0 0 1px var(--line);
-  --shadow-lg:0 16px 36px -4px rgba(0,0,0,.75),0 0 0 1px var(--line-strong);
-  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,sans-serif;
+  --bg:#18191b;--surface:#202225;--surface-alt:#24262a;--surface-hover:#2d3035;
+  --line:#34373d;--line-strong:#626973;--text:#e2e4e7;--muted:#b4bac3;--dim:#969ea9;
+  --ok:#80b99a;--warn:#d4b078;--bad:#dc949b;--info:#91b4d5;--accent:#8ab0dc;
+  --button-primary:#355b85;--button-primary-hover:#406b9c;--on-primary:#f0f3f7;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
 }
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;color-scheme:dark}
 [hidden]{display:none!important}
-body{
-  margin:0;color:var(--text);background:var(--bg);background-attachment:fixed;
-  background-image:radial-gradient(1200px 520px at 10% -8%,rgba(14,165,233,.08),transparent 60%),
-    radial-gradient(1000px 480px at 90% -6%,rgba(16,185,129,.06),transparent 55%),
-    linear-gradient(180deg,rgba(7,10,15,.8) 0%,var(--bg) 100%);
-  font:14.5px/1.55 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
-}
-main{max-width:1560px;margin:0 auto;padding:20px 24px 48px}
-h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.015em}
-.mono{font-family:var(--mono);font-feature-settings:"tnum" 1}
-:focus-visible{outline:2px solid var(--accent-light)!important;outline-offset:2px!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit}
+button,a,input,select{-webkit-tap-highlight-color:transparent}
+button,a{touch-action:manipulation}
+h1,h2,h3,p{margin:0}
+h1{font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-.025em}
+h2,h3{font-size:16px;font-weight:600;line-height:1.4}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.skip-link{position:fixed;left:12px;top:-80px;z-index:1001;padding:12px 16px;border:1px solid var(--accent);border-radius:3px;background:var(--surface);color:var(--text)}
+.skip-link:focus{top:12px}
 
-/* cabecalho e status */
-.top{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;padding:8px 0 20px;border-bottom:1px solid var(--line);margin-bottom:20px}
-.brand{min-width:0}
-.brand h1{font-size:19px;line-height:1.25;color:#fff}
-.brand p{margin:3px 0 0;font-size:12.5px;color:var(--dim);line-height:1.35}
-.top-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px}
-.tabs{display:inline-flex;gap:2px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4)}
-.tab{min-height:34px;padding:6px 14px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-size:13px;font-weight:600;line-height:1.4;white-space:nowrap;transition:all .16s ease;display:inline-flex;align-items:center;justify-content:center}
-.tab:hover{color:var(--text);background:var(--surface-raised)}
-.tab[aria-selected="true"]{color:#fff;background:var(--surface-hover);box-shadow:0 1px 3px rgba(0,0,0,.5),inset 0 0 0 1px var(--line-strong)}
-.status-pill{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:550;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-full);padding:6px 14px;white-space:nowrap;box-shadow:var(--shadow-sm);transition:border-color .2s,color .2s}
-.beat{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 0 0 var(--ok-glow);animation:pulse-beat 2.4s infinite cubic-bezier(.4,0,.6,1)}
-@keyframes pulse-beat{0%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}70%{box-shadow:0 0 0 8px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
-.status-pill.stale{color:var(--bad);border-color:rgba(244,63,94,.4);background:rgba(244,63,94,.06)}
-.status-pill.stale .beat{background:var(--bad);animation:none;box-shadow:0 0 6px var(--bad)}
+/* Navegacao */
+.navigation{border-bottom:1px solid var(--line);background:var(--surface-alt)}
+.navigation-inner{display:flex;align-items:center;justify-content:space-between;gap:24px;max-width:1440px;margin:auto;padding:0 32px}
+.tabs{display:flex;flex:1 1 auto;min-width:0;gap:22px;overflow-x:auto;scrollbar-width:thin}
+.tab{flex:none;min-height:56px;padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font-size:14px;white-space:nowrap;cursor:pointer}
+.tab:hover{color:var(--text);border-bottom-color:var(--line-strong)}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.tab-admin-start{margin-left:auto}
+.connection{display:flex;align-items:center;gap:12px;flex:none;padding-left:24px;border-left:1px solid var(--line);font-size:12px}
+.connection>span{color:var(--muted)}
+.status-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+.beat{width:6px;height:6px;background:var(--ok);border-radius:50%;flex:none}
+.status-pill.stale{color:var(--bad)}.status-pill.stale .beat{background:var(--bad)}
+main{max-width:1440px;margin:0 auto;padding:30px 32px 24px;min-width:0}
+[data-view-panel]{min-width:0}
+footer{margin-top:32px;padding-top:16px;color:var(--dim);font-size:12px}
 
-/* hero e gauges de telemetria */
-.hero{background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:22px 26px;display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between;position:relative;overflow:hidden;transition:border-color .3s ease}
-.hero::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:var(--sc,var(--dim));box-shadow:2px 0 12px var(--sc,transparent)}
-.hero-main{min-width:0;flex:1 1 320px}
-.badge{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:5px 13px;border-radius:var(--r-full);background:var(--sbg,rgba(148,163,184,.12));color:var(--sc,var(--muted));border:1px solid var(--sbd,rgba(148,163,184,.22))}
-.badge i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
-.hero-name{margin:12px 0 0;font-size:26px;font-weight:700;letter-spacing:-.025em;line-height:1.22;color:#fff;overflow-wrap:anywhere}
-.hero-sub{margin-top:8px;font-size:13.5px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
-.hero-sub b{color:#fff;font-weight:600;font-family:var(--mono);background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px}
-.gauge{position:relative;width:114px;height:114px;flex:none;margin:0 auto}
-.arc{position:absolute;inset:0;border-radius:50%;transition:background .5s ease;background:conic-gradient(var(--sc,var(--dim)) calc(var(--p,0)*3.6deg),rgba(255,255,255,.06) 0);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
-.hole{position:absolute;inset:10px;border-radius:50%;background:var(--surface);display:grid;place-items:center;line-height:1.15;overflow:hidden;box-shadow:inset 0 2px 5px rgba(0,0,0,.6),0 0 0 1px var(--line)}
-.hole>div{width:100%;min-width:0;padding:0 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-align:center}
-.hole b{display:block;font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1;color:#fff;font-family:var(--mono)}
-.hole span{display:block;max-width:100%;font-size:10px;font-weight:600;color:var(--dim);letter-spacing:.06em;line-height:1.2;text-transform:uppercase}
+/* Identificacao e disponibilidade */
+.device-header{display:flex;align-items:center;justify-content:space-between;gap:32px;padding:0 0 24px;border-bottom:1px solid var(--line)}
+.device-copy{min-width:0;flex:1}
+.device-name{margin:10px 0 8px;overflow-wrap:anywhere}
+.device-meta{color:var(--muted);font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.device-meta b{color:var(--text);font:500 12px/1.7 var(--mono)}
+.badge{display:inline-flex;align-items:center;gap:7px;padding:3px 7px;border:1px solid var(--sbd,var(--line));border-radius:3px;background:var(--sbg,var(--surface-alt));color:var(--sc,var(--muted));font-size:12px;line-height:1.4}
+.badge i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.rate{width:220px;flex:none}
+.rate-label{display:flex;align-items:baseline;justify-content:space-between;gap:16px;color:var(--muted);font-size:13px}
+.rate-label b{font-size:24px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.rate-track{height:4px;margin-top:8px;background:var(--line);overflow:hidden}
+.rate-track::before{content:"";display:block;width:clamp(0%,calc(var(--p,0)*1%),100%);height:100%;background:var(--sc,var(--dim))}
+.rate small{display:block;margin-top:7px;color:var(--dim);font-size:11px}
 
-/* previa da camera */
-.viewer{background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
-.viewer-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;background:var(--surface)}
-.viewer-copy{min-width:0;flex:1 1 300px}
-.viewer-h h2{font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.viewer-h p{margin:3px 0 0;font-size:12.5px;color:var(--dim);line-height:1.4}
+/* Sondas e ultimo registro */
+.probe-panel{margin-top:24px}
+.probe-table{width:100%;border-collapse:collapse;text-align:left;table-layout:fixed}
+.probe-table caption{text-align:left;padding-bottom:12px;font-size:16px;font-weight:600}
+.probe-table th,.probe-table td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+.probe-table thead th{background:var(--surface-alt);color:var(--muted);font-size:12px;font-weight:500}
+.probe-table thead th:nth-child(1){width:18%}.probe-table thead th:nth-child(2){width:24%}
+.probe-table tbody th{font-size:13px;font-weight:600}
+.probe-table .card-v{margin:0;font-size:14px;font-weight:500}
+.probe-table .card-m{margin:0;font-size:13px}
+.pip{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);flex:none}
+.probe-table .pip{margin-left:8px;vertical-align:2px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}
+.pip.ok{background:var(--ok)}.pip.warn{background:var(--warn)}.pip.bad{background:var(--bad)}.pip.info{background:var(--info)}
+.sec{margin-top:28px}
+.sec-t{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:12px}
+.sec-t span{color:var(--dim);font-size:12px}
+.log{margin:0;border-top:1px solid var(--line)}
+.row{display:grid;grid-template-columns:190px minmax(0,1fr);gap:24px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.row:first-child{background:var(--surface-alt)}
+.row dt{margin:0;color:var(--muted);font-size:13px}
+.row dd{margin:0;overflow-wrap:anywhere;font-size:13px;line-height:1.6}
+#l-url{font:12px/1.7 var(--mono)}
+.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:500}
+.tag.ok{background:#24352c;color:var(--ok)}.tag.bad{background:#35282c;color:var(--bad)}
+.diagnostic-output{position:relative;margin-top:20px}
+.diagnostic-copy{position:absolute;top:12px;right:12px;z-index:1;min-width:144px}
+#raw{margin:0;padding:16px;border:1px solid var(--line);border-radius:3px;background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
+
+/* Recursos e historico */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:24px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.card{min-width:0;padding:18px 20px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.card-h{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.card-h .pip{margin-left:auto}
+.card-v{margin-top:8px;font-size:21px;font-weight:600;line-height:1.35;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.card-m{margin-top:6px;color:var(--muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+.bars{display:inline-flex;align-items:flex-end;gap:3px;height:17px;margin-right:9px}
+.bars i{width:4px;background:var(--line)}
+.bars i:nth-child(1){height:5px}.bars i:nth-child(2){height:9px}.bars i:nth-child(3){height:13px}.bars i:nth-child(4){height:17px}
+.bars i.on{background:currentColor}
+.meter{height:3px;margin-top:14px;background:var(--line);overflow:hidden}
+.meter i{display:block;width:0;height:100%;background:var(--ok)}
+.meter i.warn{background:var(--warn)}.meter i.bad{background:var(--bad)}
+.chart-card{margin-top:28px}
+.chart-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px}
+.chart-head p{margin-top:4px;color:var(--dim);font-size:12px}
+.legend{display:flex;flex-wrap:wrap;gap:18px;color:var(--muted);font-size:12px}
+.legend span{display:flex;align-items:center;gap:7px}.legend b{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+.legend i{width:12px;height:3px;background:var(--info)}.legend .wifi-dot{background:var(--warn)}
+.chart{display:block;width:100%;height:210px;margin-top:16px}
+.chart line{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart polyline{fill:none;stroke:var(--info);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.chart .wifi-line{stroke:var(--warn);stroke-dasharray:5 3}
+
+/* Previa */
+.viewer-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;padding-bottom:20px}
+.viewer-copy{min-width:0;flex:1 1 320px}
+.viewer-h p{margin-top:8px;color:var(--muted);font-size:13px;line-height:1.7}
 .viewer-tools{display:flex;align-items:center;gap:10px}
-.ptz-open-btn{display:inline-flex;align-items:center;gap:9px;white-space:nowrap}
-.ptz-count{display:inline-grid;min-width:23px;height:20px;place-items:center;padding:0 6px;border-radius:var(--r-full);background:rgba(255,255,255,.16);color:#fff;font:11px/1 var(--mono)}
-.viewer-h .form-result{margin:0;flex-basis:100%}
-.viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;min-height:240px;background:#030508;overflow:hidden}
-.viewer-stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,#0f1622 0%,#030508 70%)}
-.viewer-stage::after{content:"";position:absolute;inset:14px;border:1px dashed rgba(255,255,255,.08);pointer-events:none;z-index:2;border-radius:4px}
-.viewer-stage img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .25s ease}
+.ptz-open-btn{gap:9px;white-space:nowrap}
+.ptz-count{display:inline-grid;min-width:21px;height:20px;place-items:center;padding:0 5px;border-radius:3px;background:#ffffff26;font-size:11px;font-variant-numeric:tabular-nums}
+.viewer-h .form-result{flex-basis:100%}
+.viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:#171a1e;overflow:hidden}
+.viewer-stage img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;opacity:0}
 .viewer-stage img.ready{opacity:1;cursor:zoom-in}
-.feed-state{position:absolute;z-index:3;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted);font-size:13.5px;background:rgba(3,5,8,.76);backdrop-filter:blur(4px);transition:opacity .2s ease}
+.feed-state{position:absolute;z-index:3;inset:0;display:grid;place-items:center;text-align:center;padding:24px;background:#171a1edd;color:#d9dee4;font-size:14px}
 .feed-state.hidden{opacity:0;pointer-events:none}
-.feed-stamp{position:absolute;z-index:4;right:12px;bottom:12px;padding:5px 10px;border-radius:6px;background:rgba(10,15,24,.78);border:1px solid rgba(255,255,255,.1);color:#cad6e2;font:11.5px/1.3 var(--mono);backdrop-filter:blur(6px);box-shadow:0 2px 6px rgba(0,0,0,.5)}
-.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;width:36px;height:36px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(10,15,24,.78);color:#e2ecf7;cursor:pointer;backdrop-filter:blur(6px);transition:all .16s ease;box-shadow:0 2px 6px rgba(0,0,0,.5)}
-.feed-fs-btn:hover{background:rgba(22,33,50,.95);border-color:rgba(255,255,255,.3);color:#fff;transform:scale(1.05)}
-.feed-fs-btn:focus-visible{outline:2px solid var(--accent-light);outline-offset:2px}
-.feed-fs-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feed-stamp{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:6px 9px;background:#11161dde;color:#e0e5eb;font:11px/1.5 var(--mono)}
+.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;display:grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff40;border-radius:3px;background:#11161dde;color:#fff;cursor:pointer}
+.feed-fs-btn:hover{background:#384352}
+.feed-fs-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen{width:100%;height:100%}
 .viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
-.viewer-stage:fullscreen::before,.viewer-stage:-webkit-full-screen::before,.viewer-stage.fs-fallback::before,.viewer-stage:fullscreen::after,.viewer-stage:-webkit-full-screen::after,.viewer-stage.fs-fallback::after{display:none}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
 
-/* cartoes de metricas */
-.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:16px 0 0}
-.grid.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-.card{background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow);display:flex;flex-direction:column;justify-content:flex-start;position:relative;transition:border-color .16s ease}
-.card:hover{border-color:var(--line-strong)}
-.card-h{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;line-height:1}
-.card-h .pip{width:7px;height:7px;border-radius:50%;background:var(--dim);margin-left:auto;flex:none;transition:background-color .2s,box-shadow .2s}
-.card-v{margin-top:10px;font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.2;color:#fff;overflow-wrap:anywhere;font-feature-settings:"tnum" 1}
-.card-m{margin-top:5px;font-size:12.5px;color:var(--muted);line-height:1.45;overflow-wrap:anywhere}
-.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}
-.pip.ok{background:var(--ok);box-shadow:0 0 6px var(--ok-glow)}.pip.warn{background:var(--warn);box-shadow:0 0 6px var(--warn-glow)}.pip.bad{background:var(--bad);box-shadow:0 0 6px var(--bad-glow)}.pip.info{background:var(--info);box-shadow:0 0 6px var(--info-glow)}
-.bars{display:inline-flex;align-items:flex-end;gap:3px;height:19px;vertical-align:-2px;margin-right:9px}
-.bars i{width:5px;border-radius:1.5px;background:rgba(255,255,255,.12);transition:background-color .2s}
-.bars i:nth-child(1){height:6px}.bars i:nth-child(2){height:10px}.bars i:nth-child(3){height:14px}.bars i:nth-child(4){height:19px}
-.bars i.on{background:currentColor}
-.meter{height:5px;margin-top:12px;border-radius:var(--r-full);background:rgba(255,255,255,.08);overflow:hidden}
-.meter i{display:block;width:0;height:100%;border-radius:inherit;background:var(--ok);transition:width .4s cubic-bezier(.4,0,.2,1)}
-.meter i.warn{background:var(--warn)}.meter i.bad{background:var(--bad)}
-
-/* historico de recursos */
-.chart-card{margin-top:16px;background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;box-shadow:var(--shadow)}
-.chart-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px}
-.chart-head h2{font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.chart-head p{margin:3px 0 0;font-size:12.5px;color:var(--dim)}
-.legend{display:flex;flex-wrap:wrap;gap:16px;color:var(--muted);font-size:12.5px}
-.legend span{display:flex;align-items:center;gap:7px}
-.legend b{color:#fff;font-family:var(--mono)}
-.legend i{width:8px;height:8px;border-radius:50%;background:var(--info);box-shadow:0 0 6px var(--info-glow)}
-.legend .wifi-dot{background:var(--warn);box-shadow:0 0 6px var(--warn-glow)}
-.chart{width:100%;height:210px;margin-top:14px;display:block;overflow:visible;background:rgba(5,8,13,.45);border-radius:8px;border:1px solid var(--line)}
-.chart line{stroke:var(--line);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}
-.chart polyline{fill:none;stroke:var(--info);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 3px rgba(14,165,233,.4))}
-.chart .wifi-line{stroke:var(--warn);filter:drop-shadow(0 0 3px rgba(245,158,11,.4))}
-
-.sec{margin-top:26px}
-.sec-t{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
-.sec-t h2{font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.sec-t span{font-size:12.5px;color:var(--dim)}
-
-/* configuracoes e acoes */
-.settings-kpi{min-width:180px;padding:12px 18px;border:1px solid var(--line);border-radius:var(--r);background:rgba(255,255,255,.02);text-align:right}
-.settings-kpi span{display:block;color:var(--dim);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
-.settings-kpi b{display:block;margin-top:4px;color:var(--info);font-size:21px;font-weight:700;letter-spacing:-.02em;font-family:var(--mono)}
-.settings-tabbar{margin-top:16px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-sm)}
-.settings-tablist{display:flex;gap:4px;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:thin}
-.settings-tab{flex:1 1 0;min-height:40px;padding:8px 14px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-size:12.5px;font-weight:650;white-space:nowrap;text-align:center;transition:all .16s ease}
-.settings-tab:hover{color:#fff;background:var(--surface-raised)}
-.settings-tab[aria-selected="true"]{color:#fff;background:var(--surface-hover);box-shadow:inset 0 0 0 1px var(--line-strong),0 1px 3px rgba(0,0,0,.4)}
-.settings-panels{margin-top:14px}
-.settings-panel[hidden]{display:none!important}
-.settings-card{background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:22px}
-.settings-card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--line)}
-.settings-card-h h2{font-size:16px;color:#fff}
-.settings-card-h p{margin:3px 0 0;color:var(--dim);font-size:12.5px}
-.form-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
-.field{min-width:0}.field.wide{grid-column:auto}
-.field label{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;color:var(--text);font-size:13px;font-weight:600}
-.field label span{color:var(--dim);font-size:11px;font-weight:500;font-family:var(--mono);white-space:nowrap}
-.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{
-  width:100%;height:42px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-input);
-  color:#fff;padding:0 12px;font:13px/1.2 var(--mono);outline:none;transition:border-color .16s ease,box-shadow .16s ease;
-}
-.field input:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,165,233,.2)}
-.field input:disabled,.field select:disabled{opacity:.5;cursor:not-allowed}
-.field small{display:block;margin-top:5px;color:var(--dim);font-size:11.5px;line-height:1.45}
-.checkline{display:flex;align-items:flex-start;gap:12px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:rgba(255,255,255,.015);transition:border-color .16s ease}
-.checkline:hover{border-color:var(--line-strong)}
-.checkline input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--ok);cursor:pointer;flex:none}
-.checkline label{display:flex;flex-direction:column;align-items:flex-start;gap:3px;margin:0;color:var(--muted);font-size:13px;cursor:pointer}
-.checkline label b{display:block;color:#fff;font-size:13px;font-weight:600}
-.checkline label span{display:block;margin-top:0;color:var(--dim);font-size:11.5px;line-height:1.4;white-space:normal}
-.estimate-box{padding:13px 15px;border:1px solid rgba(14,165,233,.28);border-radius:var(--r-sm);background:rgba(14,165,233,.06);color:var(--muted);font-size:12.5px;line-height:1.5}
-.estimate-box b{color:var(--accent-light);font-family:var(--mono)}
-.settings-savebar{display:flex;flex-direction:column;align-items:flex-end;gap:12px;margin-top:16px;background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:18px 20px}
-.settings-savebar .form-result{text-align:right}
-.button-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.btn{min-height:40px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface-raised);color:#fff;padding:8px 16px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;line-height:1.35;transition:all .16s ease;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
-.btn:hover{border-color:#4a688a;background:var(--surface-hover)}
+/* Configuracoes */
+.settings-kpi{min-width:200px;padding-left:24px;border-left:1px solid var(--line)}
+.settings-kpi span{display:block;color:var(--muted);font-size:12px}
+.settings-kpi b{display:block;margin-top:4px;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+#settingsForm{display:grid;grid-template-columns:180px minmax(0,1fr);gap:28px 36px;margin-top:28px;align-items:start}
+.settings-tabbar{position:sticky;top:24px}
+.settings-tablist{display:flex;flex-direction:column;gap:2px}
+.settings-tab{min-height:40px;padding:10px 12px;border:0;border-left:2px solid transparent;background:transparent;color:var(--muted);font-size:13px;text-align:left;cursor:pointer}
+.settings-tab:hover{color:var(--text);background:var(--surface-alt)}
+.settings-tab[aria-selected="true"]{color:var(--accent);border-left-color:var(--accent);background:var(--surface-alt);font-weight:600}
+.settings-panels,.settings-card{min-width:0}
+.settings-card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px}
+.settings-card-h p{margin-top:5px;color:var(--muted);font-size:13px}
+.form-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
+.field{min-width:0}.field.wide,.estimate-box{grid-column:1/-1}
+.field label{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 8px;margin-bottom:7px;font-size:13px;font-weight:500}
+.field label span{color:var(--dim);font-size:11px;font-weight:400;white-space:nowrap}
+.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{width:100%;height:38px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:14px/1.3 var(--sans)}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.field input:disabled,.field select:disabled{opacity:.55;cursor:not-allowed}
+.field small{display:block;margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6}
+.checkline{display:flex;align-items:flex-start;gap:10px}
+.checkline input{width:17px;height:17px;flex:none;margin:2px 0 0;accent-color:var(--accent);cursor:pointer}
+.checkline label{display:block;margin:0;cursor:pointer}
+.checkline label b{display:block;font-size:13px;font-weight:500}
+.checkline label span{display:block;margin-top:5px;color:var(--muted);font-size:12px;line-height:1.6;white-space:normal}
+.estimate-box{padding:14px 16px;border-left:2px solid var(--accent);background:var(--surface-alt);color:var(--muted);font-size:13px;line-height:1.7}
+.estimate-box b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.settings-savebar{grid-column:2;display:flex;flex-direction:column;gap:12px;padding-top:20px;border-top:1px solid var(--line)}
+.settings-savebar .button-row{justify-content:flex-end}.settings-savebar .form-result{text-align:right}
+.button-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 14px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans);text-decoration:none;cursor:pointer;transition:background-color .12s,border-color .12s}
+.btn:hover{background:var(--surface-hover);border-color:var(--dim)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.primary{background:#0284c7;border-color:#38bdf8;color:#fff;box-shadow:0 1px 3px rgba(2,132,199,.3)}
-.btn.primary:hover{background:#0369a1;border-color:#7dd3fc}
-.btn.warn{border-color:rgba(245,158,11,.4);color:var(--warn);background:rgba(245,158,11,.08)}
-.btn.warn:hover{background:rgba(245,158,11,.16);border-color:var(--warn)}
-.btn.bad{border-color:rgba(244,63,94,.4);color:var(--bad);background:rgba(244,63,94,.08)}
-.btn.bad:hover{background:rgba(244,63,94,.16);border-color:var(--bad)}
-.form-result{flex:1 1 100%;min-height:20px;color:var(--dim);font-size:12.5px;line-height:1.4}
+.btn.primary{background:var(--button-primary);border-color:#6f98c7;color:var(--on-primary)}.btn.primary:hover{background:var(--button-primary-hover);border-color:var(--accent)}
+.btn.warn{border-color:#806b49;color:var(--warn)}.btn.warn:hover{background:#393126;border-color:var(--warn)}
+.btn.bad{border-color:#85555b;color:var(--bad)}.btn.bad:hover{background:#3c2b30;border-color:var(--bad)}
+.form-result{min-height:18px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .form-result.ok{color:var(--ok)}.form-result.warn{color:var(--warn)}.form-result.bad{color:var(--bad)}
-.actions-card{margin-top:0}
-.actions-card .form-result{margin-top:18px}
-.action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.action-item{display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-height:160px;padding:16px 18px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);transition:border-color .16s ease}
-.action-item:hover{border-color:var(--line-strong)}
-.action-item b{font-size:14px;color:#fff}
-.action-item span{color:var(--dim);font-size:12px;line-height:1.45;min-height:36px}
-.action-item .btn{width:100%;margin-top:auto}
+.actions-card .form-result{margin-top:22px}
+.action-grid{border-top:1px solid var(--line)}
+.action-item{display:grid;grid-template-columns:180px minmax(0,1fr) 164px;align-items:center;gap:28px;padding:20px 0;border-bottom:1px solid var(--line)}
+.action-item b{font-size:14px;font-weight:600}.action-item span{color:var(--muted);font-size:13px;line-height:1.65}
+.action-item .btn{width:100%}
 
-/* logs persistentes */
-.logs-hero-tools{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px}
-.logs-hero-tools .btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
-.logs-card{margin-top:16px;background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
-.logs-toolbar{display:grid;grid-template-columns:minmax(200px,1.4fr) 150px 160px 160px;gap:12px;padding:16px 18px;background:var(--surface);border-bottom:1px solid var(--line)}
-.logs-toolbar .field label{margin-bottom:6px}
+/* Logs */
+.logs-hero-tools{display:flex;flex-wrap:wrap;gap:8px}
+.logs-card{margin-top:24px;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(3,minmax(0,1fr));gap:16px;padding:16px;border-bottom:1px solid var(--line)}
 .logs-table-wrap{overflow:auto;max-height:620px;overscroll-behavior:contain}
-.logs-table{width:100%;border-collapse:collapse;min-width:980px;font-size:12.5px}
-.logs-table th{position:sticky;top:0;z-index:2;padding:11px 14px;background:#0b1118;color:var(--dim);text-align:left;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line)}
-.logs-table td{padding:11px 14px;border-top:1px solid var(--line);color:var(--muted);vertical-align:top}
-.logs-table tbody tr:first-child td{border-top:0}
-.logs-table tbody tr:hover td{background:rgba(255,255,255,.025)}
+.logs-table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}
+.logs-table th{position:sticky;top:0;z-index:2;padding:12px;background:var(--surface-alt);color:var(--muted);text-align:left;font-size:12px;font-weight:500;border-bottom:1px solid var(--line)}
+.logs-table td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
+.logs-table tbody tr:first-child td{border-top:0}.logs-table tbody tr:hover td{background:var(--surface-hover)}
 .logs-table .mono{font-size:12px;white-space:nowrap}
-.logs-level{display:inline-block;padding:2px 8px;border-radius:var(--r-full);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
-.logs-level.info{color:var(--info);background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.3)}
-.logs-level.warning{color:var(--warn);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3)}
-.logs-level.error{color:var(--bad);background:rgba(244,63,94,.12);border:1px solid rgba(244,63,94,.3)}
-.logs-event{color:#fff;font-family:var(--mono);font-size:12px;white-space:nowrap}
-.logs-detail{max-width:320px;color:var(--muted);overflow-wrap:anywhere;line-height:1.4}
-.logs-flags{display:block;margin-top:4px;color:var(--dim);font-size:10.5px;font-family:var(--mono)}
-.logs-empty{padding:36px 18px;text-align:center;color:var(--dim);font-size:13px}
-.logs-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:var(--surface);border-top:1px solid var(--line)}
+.logs-level{display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:500}
+.logs-level.info{color:var(--info);background:#26323e}.logs-level.warning{color:var(--warn);background:#393126}.logs-level.error{color:var(--bad);background:#35282c}
+.logs-event{color:var(--text);font-size:13px;white-space:nowrap}
+.logs-detail{max-width:340px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6}
+.logs-flags{display:block;margin-top:4px;color:var(--dim);font-size:11px;line-height:1.6}
+.logs-empty{padding:36px 16px;text-align:center;color:var(--dim);font-size:13px}
+.logs-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-top:1px solid var(--line)}
 .logs-foot .form-result{flex:1 1 260px}
 
-/* modal de confirmacao e ptz */
-.modal-overlay{position:fixed;inset:0;z-index:999;display:grid;place-items:center;padding:16px;background:rgba(3,6,10,.82);backdrop-filter:blur(8px)}
-.modal-box{width:100%;max-width:420px;background:var(--surface-card);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);padding:22px;animation:modal-in .2s cubic-bezier(.16,1,.3,1)}
-@keyframes modal-in{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}
-.modal-box h3{margin:0;font-size:17px;color:#fff;letter-spacing:-.015em}
-.modal-desc{margin:8px 0 16px;color:var(--muted);font-size:13px;line-height:1.5}
-.modal-actions{justify-content:flex-end;margin-top:18px}
-.ptz-modal-box{max-width:560px;max-height:calc(100vh - 36px);display:flex;flex-direction:column;overflow:hidden}
-.ptz-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:none}
-.ptz-modal-head .btn{min-height:34px;padding:5px 12px}
-.ptz-filter{flex:none;margin-bottom:12px}
-.ptz-list{min-height:140px;max-height:min(52vh,480px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:10px;background:var(--surface-input);scrollbar-width:thin}
-.ptz-list-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line);transition:background-color .15s ease}
-.ptz-list-item:first-child{border-top:0}
-.ptz-list-item:hover{background:rgba(255,255,255,.03)}
-.ptz-list-copy{min-width:0;flex:1}
-.ptz-list-copy b{display:block;font-size:13.5px;color:#fff;overflow-wrap:anywhere}
-.ptz-list-copy span{display:block;margin-top:3px;color:var(--dim);font:11px/1.4 var(--mono);overflow-wrap:anywhere}
-.ptz-list-item .btn{min-width:72px;flex:none}
-.ptz-empty{padding:28px 18px;text-align:center;color:var(--dim);font-size:13px;line-height:1.55}
-.ptz-modal-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;color:var(--dim);font-size:11.5px;flex:none}
+/* Dialogos */
+.modal-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:#08090bcc}
+.modal-box{width:100%;max-width:460px;max-height:calc(100dvh - 40px);overflow-y:auto;padding:24px;background:var(--surface);border:1px solid var(--line-strong);border-radius:5px;box-shadow:0 12px 40px #0006}
+.modal-box h3{font-size:18px}
+.modal-desc{margin:10px 0 20px;color:var(--muted);font-size:13px;line-height:1.7}
+.modal-actions{justify-content:flex-end;margin-top:22px}
+.ptz-modal-box{max-width:600px;display:flex;flex-direction:column;overflow:hidden}
+.ptz-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex:none}
+.ptz-filter{flex:none;margin-bottom:16px}
+.ptz-list{min-height:80px;max-height:min(50vh,480px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:3px}
+.ptz-list-item{display:flex;align-items:center;gap:14px;padding:12px 14px;border-top:1px solid var(--line)}
+.ptz-list-item:first-child{border:0}.ptz-list-item:hover{background:var(--surface-alt)}
+.ptz-list-copy{min-width:0;flex:1}.ptz-list-copy b{display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.ptz-list-copy span{display:block;margin-top:4px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.ptz-list-item .btn{min-width:60px;flex:none}
+.ptz-empty{padding:28px 16px;text-align:center;color:var(--dim);font-size:13px;line-height:1.7}
+.ptz-modal-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;color:var(--dim);font-size:12px;flex:none}
 
-/* registro e diagnostico */
-.log{background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
-.row{display:flex;flex-wrap:wrap;gap:6px 16px;padding:13px 18px;border-top:1px solid var(--line);font-size:13.5px;align-items:baseline}
-.row:first-child{border-top:0}
-.row dt{flex:0 0 170px;color:var(--dim);font-weight:600;margin:0}
-.row dd{flex:1 1 240px;margin:0;color:var(--text);overflow-wrap:anywhere;font-family:var(--mono);font-size:12.5px}
-.tag{display:inline-block;padding:2px 9px;border-radius:var(--r-full);font-size:11px;font-weight:700;letter-spacing:.03em;font-family:var(--sans)}
-.tag.ok{background:rgba(16,185,129,.12);color:var(--ok);border:1px solid rgba(16,185,129,.3)}
-.tag.bad{background:rgba(244,63,94,.12);color:var(--bad);border:1px solid rgba(244,63,94,.3)}
-details{margin-top:24px;background:var(--surface-card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-summary{padding:14px 18px;cursor:pointer;font-size:13px;font-weight:650;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;list-style:none;display:flex;align-items:center;gap:9px;transition:color .16s ease,background-color .16s ease}
-summary:hover{color:#fff;background:var(--surface-hover)}
-summary::-webkit-details-marker{display:none}
-summary::before{content:"";width:6px;height:6px;border-right:1.8px solid currentColor;border-bottom:1.8px solid currentColor;transform:rotate(-45deg);transition:transform .2s cubic-bezier(.4,0,.2,1)}
-details[open] summary::before{transform:rotate(45deg)}
-pre{margin:0;padding:4px 18px 18px;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--muted)}
-footer{margin-top:32px;text-align:center;font-size:12px;color:var(--dim);letter-spacing:.02em}
-
-@media(max-width:1180px){
-.grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.grid.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
-.action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1000px){
+  .navigation-inner{flex-wrap:wrap;gap:0;padding:0 24px}
+  .tabs{width:100%;gap:24px}.connection{width:100%;justify-content:flex-end;padding:8px 0;border-top:1px solid var(--line);border-left:0}
+  main{padding:24px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #settingsForm{grid-template-columns:160px minmax(0,1fr);gap:24px}
+  .logs-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.logs-toolbar .field:first-child{grid-column:1/-1}
+  .device-header{flex-wrap:wrap;gap:24px}
+  .action-item{grid-template-columns:minmax(0,1fr) 164px;gap:6px 24px}.action-item span{grid-column:1}.action-item .btn{grid-column:2;grid-row:1/3}
 }
 @media(max-width:680px){
-main{padding:14px 12px 36px}
-.top{padding-bottom:14px;margin-bottom:14px}
-.top-tools{width:100%;justify-content:space-between;min-width:0}
-.tabs{flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
-.tab{flex:0 0 auto;min-height:38px}
-.status-pill{min-height:38px}
-.hero{padding:18px 20px;gap:18px}
-.hero-name{font-size:22px}
-.gauge{width:96px;height:96px;margin:0}
-.grid{grid-template-columns:1fr;gap:10px}
-.grid.grid-3{grid-template-columns:1fr}
-.form-grid,.action-grid{grid-template-columns:1fr}
-.settings-card{padding:16px}
-.settings-savebar{align-items:stretch}
-.settings-savebar .form-result{text-align:left}
-.button-row{width:100%}.button-row .btn{flex:1 1 auto}
-.settings-kpi{width:100%;text-align:left}
-.settings-tab{padding-inline:12px}
-.logs-toolbar{grid-template-columns:1fr}.logs-hero-tools{width:100%;justify-content:stretch}
-.logs-hero-tools .btn{flex:1 1 auto}.logs-table-wrap{max-height:68vh}
-.viewer-stage{min-height:0}
-.viewer-tools{width:100%}.ptz-open-btn{width:100%;justify-content:center}
-.modal-overlay{padding:8px}.ptz-modal-box{max-height:calc(100vh - 16px);padding:16px}
-.ptz-list{max-height:54vh}.ptz-list-item{padding:10px}.ptz-list-item .btn{min-width:60px;padding-inline:10px}
-.row dt{flex:1 1 100%}
+  .navigation-inner{padding:0 max(16px,env(safe-area-inset-left)) 0 max(16px,env(safe-area-inset-right))}
+  .tabs{gap:22px}.tab{min-height:48px;font-size:13px}
+  .tab-admin-start{position:relative;margin-left:0;padding-left:22px}
+  .tab-admin-start::before{content:"";position:absolute;left:0;top:50%;height:20px;border-left:1px solid var(--line);transform:translateY(-50%)}
+  .connection,.status-pill{font-size:11px}.connection{justify-content:flex-start}
+  main{padding:24px max(16px,env(safe-area-inset-right)) 20px max(16px,env(safe-area-inset-left))}
+  h1{font-size:22px}
+  .device-header{display:block;padding-bottom:20px}
+  .rate{width:100%;margin-top:20px}.rate-label b{font-size:22px}
+  .probe-table,.probe-table tbody{display:block}
+  .probe-table caption{display:block}
+  .probe-table thead{display:none}
+  .probe-table tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:6px 16px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .probe-table tbody th,.probe-table td{display:block;width:auto;padding:0;border:0}
+  .probe-table .card-v{text-align:right}.probe-table .card-m{grid-column:1/-1;font-size:13px}
+  .sec-t{flex-wrap:wrap;gap:4px}
+  .row{grid-template-columns:1fr;gap:6px;padding:12px 0}
+  .row:first-child{padding:12px}
+  .grid{grid-template-columns:1fr}.card{padding:16px}
+  .chart{height:180px}
+  .viewer-copy{flex-basis:100%}.viewer-tools,.ptz-open-btn{width:100%}
+  .feed-state{padding:16px;font-size:13px}.feed-stamp{font-size:10px}
+  .settings-kpi{margin-top:16px;padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}
+  #settingsForm{grid-template-columns:1fr;gap:20px}
+  .settings-tabbar{position:static;min-width:0}
+  .settings-tablist{flex-direction:row;overflow-x:auto;border-bottom:1px solid var(--line)}
+  .settings-tab{min-height:44px;flex:none;padding:10px 12px;border-left:0;border-bottom:2px solid transparent;white-space:nowrap}
+  .settings-tab[aria-selected="true"]{border-left:0;border-bottom-color:var(--accent)}
+  .settings-savebar{grid-column:1}.settings-savebar .form-result{text-align:left}
+  .settings-savebar .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .btn{min-height:44px;padding-inline:12px}
+  .field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{height:44px;font-size:16px}
+  .action-item{grid-template-columns:1fr;gap:8px;padding:18px 0}.action-item .btn{grid-column:1;grid-row:auto;justify-self:start;width:auto;margin-top:4px}
+  .logs-hero-tools{margin-top:20px}.logs-hero-tools .btn{flex:1}
+  .logs-toolbar{grid-template-columns:1fr 1fr;padding:14px;gap:12px}
+  .logs-toolbar .field:last-child{grid-column:1/-1}.logs-table-wrap{max-height:65vh}
+  .modal-overlay{padding:12px}.modal-box{max-height:calc(100dvh - 24px);padding:20px}
+  .ptz-list-item{padding:12px}
+  footer{font-size:11px}
 }
 @media(prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
 </style>
 </head>
 <body>
-<main>
-
-<header class="top">
-  <div class="brand">
-    <h1>Camera Watchdog</h1>
-    <p>Monitor ONVIF/RTSP com alertas por e-mail</p>
-  </div>
-  <div class="top-tools">
+<button class="skip-link" id="skipToContent" type="button">Pular para o conteúdo</button>
+<div class="navigation">
+  <div class="navigation-inner">
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
-      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Câmera</button>
-      <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false">Prévia</button>
-      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false">Recursos</button>
-      <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false">Logs</button>
-      <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false">Configurações</button>
-      <button class="tab" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false">Ações</button>
+      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Visão geral</button>
+      <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false" tabindex="-1">Prévia</button>
+      <button class="tab" id="diagnosticsTab" type="button" role="tab" data-view="diagnostics" aria-controls="diagnosticsView" aria-selected="false" tabindex="-1">Diagnóstico</button>
+      <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false" tabindex="-1">Logs</button>
+      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Recursos</button>
+      <button class="tab tab-admin-start" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false" tabindex="-1">Ações</button>
+      <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false" tabindex="-1">Configurações</button>
     </nav>
-    <div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div>
+    <div class="connection"><span>ESP32</span><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div></div>
   </div>
-</header>
+</div>
+<main id="mainContent" tabindex="-1">
 
-<div id="cameraView" role="tabpanel" aria-labelledby="cameraTab" data-view-panel="camera">
+<div id="cameraView" role="tabpanel" tabindex="0" aria-labelledby="cameraTab" data-view-panel="camera">
 
-<section class="hero" id="hero">
-  <div class="hero-main">
+<section class="device-header" id="hero">
+  <div class="device-copy">
     <span class="badge" id="badge"><i></i><span id="stateText">carregando</span></span>
-    <h2 class="hero-name" id="camName">—</h2>
-    <div class="hero-sub" id="camSub">aguardando o primeiro ciclo de verificação…</div>
+    <h1 class="device-name" id="camName">—</h1>
+    <div class="device-meta" id="camSub">aguardando o primeiro ciclo de verificação…</div>
   </div>
-  <div>
-    <div class="gauge">
-      <div class="arc" id="arc"></div>
-      <div class="hole"><div><b id="availValue">—</b><span>conclusivos OK</span></div></div>
-    </div>
+  <div class="rate">
+    <div class="rate-label"><span>Disponibilidade</span><b id="availValue">—</b></div>
+    <div class="rate-track" id="arc" aria-hidden="true"></div>
+    <small>Sucesso nas verificações conclusivas</small>
   </div>
 </section>
 
-<div class="grid">
-  <article class="card">
-    <div class="card-h">ONVIF<i class="pip" id="p-onvif"></i></div>
-    <div class="card-v" id="v-onvif">—</div>
-    <div class="card-m" id="m-onvif">—</div>
-  </article>
-  <article class="card">
-    <div class="card-h">RTSP<i class="pip" id="p-rtsp"></i></div>
-    <div class="card-v" id="v-rtsp">—</div>
-    <div class="card-m" id="m-rtsp">—</div>
-  </article>
-  <article class="card">
-    <div class="card-h">Imagem JPEG<i class="pip" id="p-image"></i></div>
-    <div class="card-v" id="v-image">—</div>
-    <div class="card-m" id="m-image">—</div>
-  </article>
-  <article class="card">
-    <div class="card-h">Verificações</div>
-    <div class="card-v" id="v-checks">—</div>
-    <div class="card-m" id="m-checks">—</div>
-  </article>
-</div>
+<section class="probe-panel" aria-labelledby="probesTitle">
+  <table class="probe-table">
+    <caption id="probesTitle">Saúde dos serviços</caption>
+    <thead><tr><th scope="col">Serviço</th><th scope="col">Resultado</th><th scope="col">Detalhes</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">ONVIF<i class="pip" id="p-onvif"></i></th><td class="card-v" id="v-onvif">—</td><td class="card-m" id="m-onvif">—</td></tr>
+      <tr><th scope="row">RTSP<i class="pip" id="p-rtsp"></i></th><td class="card-v" id="v-rtsp">—</td><td class="card-m" id="m-rtsp">—</td></tr>
+      <tr><th scope="row">Imagem JPEG<i class="pip" id="p-image"></i></th><td class="card-v" id="v-image">—</td><td class="card-m" id="m-image">—</td></tr>
+      <tr><th scope="row">Verificações</th><td class="card-v" id="v-checks">—</td><td class="card-m" id="m-checks">—</td></tr>
+    </tbody>
+  </table>
+</section>
 
 <section class="sec">
   <div class="sec-t"><h2>Registro</h2><span>última atividade conhecida</span></div>
@@ -372,17 +341,13 @@ main{padding:14px 12px 36px}
   </dl>
 </section>
 
-<details>
-  <summary>Diagnóstico completo (JSON)</summary>
-  <pre id="raw">Carregando…</pre>
-</details>
 </div>
 
-<div id="feedView" role="tabpanel" aria-labelledby="feedTab" data-view-panel="feed" hidden>
+<div id="feedView" role="tabpanel" tabindex="0" aria-labelledby="feedTab" data-view-panel="feed" hidden>
   <section class="viewer" aria-labelledby="viewerTitle">
     <div class="viewer-h">
       <div class="viewer-copy">
-        <h2 id="viewerTitle">Prévia de diagnóstico</h2>
+        <h1 id="viewerTitle">Prévia de diagnóstico</h1>
         <p id="feedMeta">Quadros JPEG protegidos pelo ESP32 · máximo de 1 FPS · sem expor credenciais</p>
       </div>
       <div class="viewer-tools">
@@ -402,97 +367,20 @@ main{padding:14px 12px 36px}
   </section>
 </div>
 
-<div id="resourcesView" role="tabpanel" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
-  <section class="hero" id="resourcesHero">
-    <div class="hero-main">
-      <span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">carregando</span></span>
-      <h2 class="hero-name" id="resourcesChip">ESP32</h2>
-      <div class="hero-sub" id="resourcesMeta">aguardando dados do dispositivo…</div>
-    </div>
-    <div>
-      <div class="gauge">
-        <div class="arc" id="resourcesArc"></div>
-        <div class="hole"><div><b id="resourcesHeapPercent">—</b><span>heap livre</span></div></div>
-      </div>
-    </div>
-  </section>
-
-  <div class="grid grid-3">
-    <article class="card">
-      <div class="card-h">Heap livre<i class="pip" id="p-rheap"></i></div>
-      <div class="card-v" id="r-heap">—</div>
-      <div class="card-m" id="r-heap-meta">—</div>
-      <div class="meter"><i id="r-heap-meter"></i></div>
-    </article>
-    <article class="card">
-      <div class="card-h">Maior bloco alocável<i class="pip" id="p-rblock"></i></div>
-      <div class="card-v" id="r-block">—</div>
-      <div class="card-m" id="r-block-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Menor heap desde o boot<i class="pip" id="p-rmin"></i></div>
-      <div class="card-v" id="r-min">—</div>
-      <div class="card-m" id="r-min-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Firmware e flash</div>
-      <div class="card-v info" id="r-flash">—</div>
-      <div class="card-m" id="r-flash-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">PSRAM<i class="pip" id="p-rpsram"></i></div>
-      <div class="card-v" id="r-psram">—</div>
-      <div class="card-m" id="r-psram-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Wi-Fi do ESP32<i class="pip" id="p-wifi"></i></div>
-      <div class="card-v" id="v-wifi"><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="rssi">—</span></div>
-      <div class="card-m" id="m-wifi">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Catálogo ONVIF<i class="pip" id="p-ronvif"></i></div>
-      <div class="card-v info" id="r-onvif">—</div>
-      <div class="card-m" id="r-onvif-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Relógio da câmera<i class="pip" id="p-rclock"></i></div>
-      <div class="card-v info" id="r-clock">—</div>
-      <div class="card-m" id="r-clock-meta">—</div>
-    </article>
-    <article class="card">
-      <div class="card-h">Eventos anunciados<i class="pip" id="p-revents"></i></div>
-      <div class="card-v info" id="r-events">—</div>
-      <div class="card-m" id="r-events-meta">—</div>
-    </article>
+<div id="diagnosticsView" role="tabpanel" tabindex="0" aria-labelledby="diagnosticsTab" data-view-panel="diagnostics" hidden>
+  <h1>Diagnóstico completo (JSON)</h1>
+  <div class="diagnostic-output">
+    <button class="btn diagnostic-copy" id="copyDiagnostics" type="button" aria-label="Copiar JSON do diagnóstico" disabled><span id="diagnosticCopyStatus" role="status" aria-live="polite">Copiar JSON</span></button>
+    <pre id="raw">Carregando…</pre>
   </div>
-
-  <section class="chart-card" aria-labelledby="historyTitle">
-    <div class="chart-head">
-      <div>
-        <h2 id="historyTitle">Histórico recente</h2>
-        <p>Até três minutos desta sessão do navegador</p>
-      </div>
-      <div class="legend">
-        <span><i></i>Heap <b id="historyHeap">—</b></span>
-        <span><i class="wifi-dot"></i>Wi-Fi <b id="historyRssi">—</b></span>
-      </div>
-    </div>
-    <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Histórico de heap livre e sinal Wi-Fi">
-      <line x1="0" y1="20" x2="600" y2="20"></line>
-      <line x1="0" y1="90" x2="600" y2="90"></line>
-      <line x1="0" y1="160" x2="600" y2="160"></line>
-      <polyline id="heapHistory" points=""></polyline>
-      <polyline class="wifi-line" id="rssiHistory" points=""></polyline>
-    </svg>
-  </section>
 </div>
 
-<div id="logsView" role="tabpanel" aria-labelledby="logsTab" data-view-panel="logs" hidden>
-  <section class="hero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
-    <div class="hero-main">
+<div id="logsView" role="tabpanel" tabindex="0" aria-labelledby="logsTab" data-view-panel="logs" hidden>
+  <section class="device-header" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
+    <div class="device-copy">
       <span class="badge"><i></i><span id="logsState">carregando histórico</span></span>
-      <h2 class="hero-name">Histórico persistente</h2>
-      <div class="hero-sub">Conexões com a câmera e operações importantes, preservadas entre reinicializações.</div>
+      <h1 class="device-name">Histórico persistente</h1>
+      <div class="device-meta">Conexões com a câmera e operações importantes, preservadas entre reinicializações.</div>
     </div>
     <div class="logs-hero-tools">
       <button class="btn" id="logsRefresh" type="button">Atualizar</button>
@@ -500,7 +388,7 @@ main{padding:14px 12px 36px}
     </div>
   </section>
 
-  <div class="grid grid-3">
+  <div class="grid">
     <article class="card">
       <div class="card-h">Registros armazenados</div>
       <div class="card-v info" id="logsCount">—</div>
@@ -576,12 +464,110 @@ main{padding:14px 12px 36px}
   </section>
 </div>
 
-<div id="settingsView" role="tabpanel" aria-labelledby="settingsTab" data-view-panel="settings" hidden>
-  <section class="hero" id="settingsHero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
-    <div class="hero-main">
+<div id="resourcesView" role="tabpanel" tabindex="0" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
+  <section class="device-header" id="resourcesHero">
+    <div class="device-copy">
+      <span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">carregando</span></span>
+      <h1 class="device-name" id="resourcesChip">ESP32</h1>
+      <div class="device-meta" id="resourcesMeta">aguardando dados do dispositivo…</div>
+    </div>
+    <div class="rate">
+      <div class="rate-label"><span>Heap livre</span><b id="resourcesHeapPercent">—</b></div>
+      <div class="rate-track" id="resourcesArc" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <article class="card">
+      <div class="card-h">Heap livre<i class="pip" id="p-rheap"></i></div>
+      <div class="card-v" id="r-heap">—</div>
+      <div class="card-m" id="r-heap-meta">—</div>
+      <div class="meter"><i id="r-heap-meter"></i></div>
+    </article>
+    <article class="card">
+      <div class="card-h">Maior bloco alocável<i class="pip" id="p-rblock"></i></div>
+      <div class="card-v" id="r-block">—</div>
+      <div class="card-m" id="r-block-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Menor heap desde o boot<i class="pip" id="p-rmin"></i></div>
+      <div class="card-v" id="r-min">—</div>
+      <div class="card-m" id="r-min-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Firmware e flash</div>
+      <div class="card-v info" id="r-flash">—</div>
+      <div class="card-m" id="r-flash-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">PSRAM<i class="pip" id="p-rpsram"></i></div>
+      <div class="card-v" id="r-psram">—</div>
+      <div class="card-m" id="r-psram-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Wi-Fi do ESP32<i class="pip" id="p-wifi"></i></div>
+      <div class="card-v" id="v-wifi"><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="rssi">—</span></div>
+      <div class="card-m" id="m-wifi">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Catálogo ONVIF<i class="pip" id="p-ronvif"></i></div>
+      <div class="card-v info" id="r-onvif">—</div>
+      <div class="card-m" id="r-onvif-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Relógio da câmera<i class="pip" id="p-rclock"></i></div>
+      <div class="card-v info" id="r-clock">—</div>
+      <div class="card-m" id="r-clock-meta">—</div>
+    </article>
+    <article class="card">
+      <div class="card-h">Eventos anunciados<i class="pip" id="p-revents"></i></div>
+      <div class="card-v info" id="r-events">—</div>
+      <div class="card-m" id="r-events-meta">—</div>
+    </article>
+  </div>
+
+  <section class="chart-card" aria-labelledby="historyTitle">
+    <div class="chart-head">
+      <div>
+        <h2 id="historyTitle">Histórico recente</h2>
+        <p>Até três minutos desta sessão do navegador</p>
+      </div>
+      <div class="legend">
+        <span><i></i>Heap <b id="historyHeap">—</b></span>
+        <span><i class="wifi-dot"></i>Wi-Fi <b id="historyRssi">—</b></span>
+      </div>
+    </div>
+    <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Histórico de heap livre e sinal Wi-Fi">
+      <line x1="0" y1="20" x2="600" y2="20"></line>
+      <line x1="0" y1="90" x2="600" y2="90"></line>
+      <line x1="0" y1="160" x2="600" y2="160"></line>
+      <polyline id="heapHistory" points=""></polyline>
+      <polyline class="wifi-line" id="rssiHistory" points=""></polyline>
+    </svg>
+  </section>
+</div>
+
+<div id="actionsView" role="tabpanel" tabindex="0" aria-labelledby="actionsTab" data-view-panel="actions" hidden>
+  <section class="settings-card actions-card">
+    <div class="settings-card-h"><div><h1>Controle manual</h1><p>Ações sensíveis exigem confirmação e respeitam os limites de segurança do firmware.</p></div></div>
+    <div class="action-grid">
+      <div class="action-item"><b>Verificar agora</b><span>Executa ONVIF, RTSP quando necessário e validação JPEG.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
+      <div class="action-item"><b>Redescobrir câmera</b><span>Repete WS-Discovery e confirma o endpoint.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
+      <div class="action-item"><b>Reiniciar câmera</b><span>Envia ONVIF SystemReboot respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
+      <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas registradas na janela atual.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
+      <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
+      <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
+    </div>
+    <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
+  </section>
+</div>
+
+<div id="settingsView" role="tabpanel" tabindex="0" aria-labelledby="settingsTab" data-view-panel="settings" hidden>
+  <section class="device-header" id="settingsHero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
+    <div class="device-copy">
       <span class="badge"><i></i><span id="settingsSource">carregando configurações</span></span>
-      <h2 class="hero-name">Configurações do watchdog</h2>
-      <div class="hero-sub" id="settingsMeta">Valores persistentes na NVS, validados também pelo firmware.</div>
+      <h1 class="device-name">Configurações do watchdog</h1>
+      <div class="device-meta" id="settingsMeta">Valores persistentes na NVS, validados também pelo firmware.</div>
     </div>
     <div class="settings-kpi">
       <span>alerta de imagem estimado</span>
@@ -606,7 +592,7 @@ main{padding:14px 12px 36px}
         <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, endereço local, perfil JPEG e ritmo do painel.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
-          <div class="field"><label for="cfgLocalHostname">Endereço local <span>1–31 caracteres</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letras, números e hífens. O acesso será feito por http://nome-escolhido.local/.</small></div>
+          <div class="field"><label for="cfgLocalHostname">Endereço local <span>1–31 caracteres</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letras, números e hífens. O acesso será feito por http://nome-escolhido.local/.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
           <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
@@ -685,21 +671,6 @@ main{padding:14px 12px 36px}
   </form>
 </div>
 
-<div id="actionsView" role="tabpanel" aria-labelledby="actionsTab" data-view-panel="actions" hidden>
-  <section class="settings-card actions-card">
-    <div class="settings-card-h"><div><h2>Controle manual</h2><p>Ações sensíveis exigem confirmação e respeitam os limites de segurança do firmware.</p></div></div>
-    <div class="action-grid">
-      <div class="action-item"><b>Verificar agora</b><span>Executa ONVIF, RTSP quando necessário e validação JPEG.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
-      <div class="action-item"><b>Redescobrir câmera</b><span>Repete WS-Discovery e confirma o endpoint.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
-      <div class="action-item"><b>Reiniciar câmera</b><span>Envia ONVIF SystemReboot respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
-      <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas registradas na janela atual.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
-      <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
-      <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
-    </div>
-    <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
-  </section>
-</div>
-
 <div class="modal-overlay" id="ptzPresetModal" hidden>
   <div class="modal-box ptz-modal-box" role="dialog" aria-modal="true" aria-labelledby="ptzModalTitle" aria-describedby="ptzMeta">
     <div class="ptz-modal-head">
@@ -752,6 +723,7 @@ function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
   if (location.hash === '#logs') return 'logs';
+  if (location.hash === '#diagnostics') return 'diagnostics';
   if (location.hash === '#resources') return 'resources';
   if (location.hash === '#feed') return 'feed';
   return 'camera';
@@ -1477,7 +1449,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
 });
 
-function activateSettingsSection(name, focusTab) {
+function activateSettingsSection(name) {
   const available = [...document.querySelectorAll('[data-settings-section-panel]')];
   const target = available.find(panel => panel.dataset.settingsSectionPanel === name);
   if (!target) return;
@@ -1490,29 +1462,18 @@ function activateSettingsSection(name, focusTab) {
     const selected = tab.dataset.settingsSection === name;
     tab.setAttribute('aria-selected', selected ? 'true' : 'false');
     tab.tabIndex = selected ? 0 : -1;
-    if (selected && focusTab) tab.focus();
   });
 }
 
-document.querySelectorAll('.settings-tab[data-settings-section]').forEach((tab, index, tabs) => {
-  tab.addEventListener('click', () => activateSettingsSection(tab.dataset.settingsSection, false));
-  tab.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    let nextIndex = index;
-    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
-    if (event.key === 'Home') nextIndex = 0;
-    if (event.key === 'End') nextIndex = tabs.length - 1;
-    activateSettingsSection(tabs[nextIndex].dataset.settingsSection, true);
-  });
+document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
+  tab.addEventListener('click', () => activateSettingsSection(tab.dataset.settingsSection));
 });
 
 function validateSettingsForm() {
   const invalid = $('settingsForm').querySelector(':invalid');
   if (!invalid) return true;
   const panel = invalid.closest('[data-settings-section-panel]');
-  if (panel) activateSettingsSection(panel.dataset.settingsSectionPanel, false);
+  if (panel) activateSettingsSection(panel.dataset.settingsSectionPanel);
   invalid.reportValidity();
   return false;
 }
@@ -2174,6 +2135,7 @@ function render(d) {
   );
 
   $('raw').textContent = JSON.stringify(d, null, 2);
+  $('copyDiagnostics').disabled = false;
   $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + d.firmwareVersion
     + ' · ligado há ' + duration(d.uptimeSeconds);
   renderResources(d);
@@ -2249,7 +2211,7 @@ setInterval(() => {
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = ['actions', 'settings', 'logs', 'resources', 'feed'].includes(name)
+  const nextView = ['actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed'].includes(name)
     ? name
     : 'camera';
   activeView = nextView;
@@ -2257,18 +2219,12 @@ function activateView(name, updateHash) {
     panel.hidden = panel.dataset.viewPanel !== nextView;
   });
   document.querySelectorAll('.tab[data-view]').forEach(tab => {
-    tab.setAttribute('aria-selected', tab.dataset.view === nextView ? 'true' : 'false');
+    const selected = tab.dataset.view === nextView;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.tabIndex = selected ? 0 : -1;
   });
-  const viewTitle = nextView === 'actions'
-    ? 'Ações'
-    : nextView === 'settings'
-      ? 'Configurações'
-      : nextView === 'logs'
-        ? 'Logs'
-      : nextView === 'resources'
-        ? 'Recursos'
-        : nextView === 'feed' ? 'Prévia' : 'Câmera';
-  document.title = viewTitle + ' · Camera Watchdog';
+  const selectedTab = document.querySelector('.tab[aria-selected="true"]');
+  document.title = selectedTab.textContent + ' · Camera Watchdog';
 
   if (nextView === 'settings' || nextView === 'actions') {
     loadSettings(false);
@@ -2310,10 +2266,83 @@ function activateView(name, updateHash) {
 
   const nextHash = '#' + nextView;
   if (updateHash && location.hash !== nextHash) location.hash = nextHash;
+  if (updateHash) window.scrollTo(0, 0);
 }
 
 document.querySelectorAll('.tab[data-view]').forEach(tab => {
   tab.addEventListener('click', () => activateView(tab.dataset.view, true));
+});
+
+$('skipToContent').addEventListener('click', () => $('mainContent').focus());
+
+let diagnosticCopyTimer;
+$('copyDiagnostics').addEventListener('click', async () => {
+  const button = $('copyDiagnostics');
+  if (button.getAttribute('aria-busy') === 'true') return;
+  const status = $('diagnosticCopyStatus');
+  clearTimeout(diagnosticCopyTimer);
+  button.setAttribute('aria-busy', 'true');
+  status.className = '';
+  status.textContent = 'Copiando…';
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText($('raw').textContent);
+    } else {
+      // O acesso HTTP local do ESP32 nao disponibiliza a Clipboard API.
+      const selection = window.getSelection();
+      const previousRanges = [];
+      for (let i = 0; i < selection.rangeCount; i++) {
+        previousRanges.push(selection.getRangeAt(i).cloneRange());
+      }
+      const range = document.createRange();
+      range.selectNodeContents($('raw'));
+      try {
+        selection.removeAllRanges();
+        selection.addRange(range);
+        if (!document.execCommand('copy')) throw new Error('copy_failed');
+      } finally {
+        selection.removeAllRanges();
+        previousRanges.forEach(previousRange => selection.addRange(previousRange));
+      }
+    }
+    status.className = 'ok';
+    status.textContent = 'JSON copiado';
+  } catch (error) {
+    status.className = 'bad';
+    status.textContent = 'Falha ao copiar';
+  } finally {
+    button.removeAttribute('aria-busy');
+    diagnosticCopyTimer = setTimeout(() => {
+      status.className = '';
+      status.textContent = 'Copiar JSON';
+    }, 3000);
+  }
+});
+
+document.querySelectorAll('[role="tablist"]').forEach(tablist => {
+  const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+  const settingsTabs = tablist.classList.contains('settings-tablist');
+  const compact = window.matchMedia('(max-width:680px)');
+  const updateOrientation = () => {
+    tablist.setAttribute('aria-orientation', settingsTabs && !compact.matches ? 'vertical' : 'horizontal');
+  };
+  updateOrientation();
+  compact.addEventListener('change', updateOrientation);
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('keydown', event => {
+      const previousKey = settingsTabs && !compact.matches ? 'ArrowUp' : 'ArrowLeft';
+      const nextKey = settingsTabs && !compact.matches ? 'ArrowDown' : 'ArrowRight';
+      if (![previousKey, nextKey, 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === previousKey) nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === nextKey) nextIndex = (index + 1) % tabs.length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = tabs.length - 1;
+      tabs[nextIndex].focus();
+      tabs[nextIndex].click();
+    });
+  });
 });
 
 window.addEventListener('hashchange', () => {
@@ -2346,7 +2375,7 @@ document.addEventListener('visibilitychange', () => {
   if (activeView === 'logs') loadPersistentLogs(true);
 });
 
-activateSettingsSection(activeSettingsSection, false);
+activateSettingsSection(activeSettingsSection);
 activateView(activeView, false);
 if (activeView !== 'feed') refresh();
 </script>
