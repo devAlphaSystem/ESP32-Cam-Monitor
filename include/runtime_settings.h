@@ -6,11 +6,24 @@
 
 namespace CameraWatchdog {
 
+struct GlobalSettings {
+    uint32_t wifiConnectTimeoutMs;
+    uint8_t enableAutomaticSubnetScan;
+    uint32_t discoveryTimeoutMs;
+    uint32_t rediscoveryIntervalMs;
+    uint32_t subnetScanIntervalMs;
+    uint32_t emailRetryIntervalMs;
+    uint32_t scanConnectTimeoutMs;
+    uint8_t enableCameraAlertLed;
+    uint32_t cameraAlertLedBlinkIntervalMs;
+    uint32_t statusRefreshIntervalMs;
+    char localHostname[LOCAL_HOSTNAME_MAX_LENGTH + 1];
+};
+
 struct RuntimeSettings {
     char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
     char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
     uint16_t cameraRtspPort;
-
     uint32_t healthCheckIntervalMs;
     uint32_t startupGraceMs;
     uint8_t failuresBeforeRediscovery;
@@ -18,36 +31,20 @@ struct RuntimeSettings {
     uint8_t successesBeforeRecovery;
     uint8_t videoFailuresBeforeAlert;
     uint8_t videoFailuresBeforeReboot;
-
     uint8_t enableOnvifAutoReboot;
     uint32_t onvifRebootGraceMs;
     uint32_t onvifRebootCooldownMs;
     uint32_t onvifRebootWindowMs;
     uint8_t maxOnvifRebootAttemptsPerWindow;
-
-    uint32_t wifiConnectTimeoutMs;
-    uint8_t enableAutomaticSubnetScan;
-    uint32_t discoveryTimeoutMs;
-    uint32_t rediscoveryIntervalMs;
-    uint32_t subnetScanIntervalMs;
-
     uint8_t enableEmailAlerts;
     uint8_t emailOnIpChange;
-    uint32_t emailRetryIntervalMs;
-
     uint32_t tcpConnectTimeoutMs;
     uint32_t serviceResponseTimeoutMs;
-    uint32_t scanConnectTimeoutMs;
     uint32_t snapshotHttpTimeoutMs;
     uint32_t snapshotResolveRetryIntervalMs;
     uint8_t snapshotFailuresBeforeReresolve;
-
-    uint8_t enableCameraAlertLed;
-    uint32_t cameraAlertLedBlinkIntervalMs;
     uint32_t feedMinIntervalMs;
     uint32_t feedTargetCycleMs;
-    uint32_t statusRefreshIntervalMs;
-    char localHostname[LOCAL_HOSTNAME_MAX_LENGTH + 1];
     char cameraUsername[CAMERA_USERNAME_MAX_LENGTH + 1];
     char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
 };
@@ -78,6 +75,7 @@ void copySettingText(char (&destination)[Size], const String& source)
     destination[copyLength] = '\0';
 }
 
-RuntimeSettings makeDefaultRuntimeSettings();
+GlobalSettings makeDefaultGlobalSettings();
+RuntimeSettings makeDefaultRuntimeSettings(bool initialCredentials = false);
 
 }

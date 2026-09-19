@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 5;
+constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 6;
 constexpr uint16_t RUNTIME_SETTINGS_DEFAULTS_REVISION = 5;
 
 constexpr char LOCAL_HOSTNAME[] = "camera-watchdog";
@@ -15,7 +15,6 @@ constexpr size_t CAMERA_NAME_MAX_LENGTH = 48;
 constexpr size_t CAMERA_USERNAME_MAX_LENGTH = 64;
 constexpr size_t CAMERA_PASSWORD_MAX_LENGTH = 128;
 
-constexpr char CAMERA_MATCH[] = "";
 constexpr char CAMERA_IP_HINT[] = "";
 
 constexpr char CAMERA_SNAPSHOT_PROFILE_MATCH[] = "snap";
@@ -162,4 +161,3 @@ constexpr uint16_t HTTP_SERVER_PORT = 80;
 constexpr uint16_t WS_DISCOVERY_PORT = 3702;
 constexpr uint16_t WS_DISCOVERY_LOCAL_PORT = 37020;
 constexpr size_t WS_DISCOVERY_BUFFER_SIZE = 4096;
-constexpr size_t MAX_DISCOVERED_CAMERAS = 8;

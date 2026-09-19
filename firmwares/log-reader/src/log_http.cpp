@@ -118,6 +118,8 @@ bool containsQuery(const LogReader::Entry& entry, const String& query)
     searchable += String(entry.bootId);
     searchable += ' ';
     searchable += String(entry.contextId);
+    searchable += ' ';
+    searchable += String(entry.cameraId);
     searchable.toLowerCase();
     return searchable.indexOf(query) >= 0;
 }
@@ -216,6 +218,8 @@ String entryJson(const LogReader::Entry& entry)
     json += String(entry.bootId);
     json += F(",\"contextId\":");
     json += String(entry.contextId);
+    json += F(",\"cameraId\":");
+    json += String(entry.cameraId);
     json += F(",\"level\":");
     appendJsonString(json, LogReader::levelName(entry.level));
     json += F(",\"levelCode\":");
@@ -281,7 +285,7 @@ String entryCsv(const LogReader::Entry& entry)
     String row;
     row.reserve(440);
     row += String(entry.slot) + ',' + String(entry.sequence) + ',' + String(entry.schemaVersion) + ',';
-    row += String(entry.epochSeconds) + ',' + String(entry.uptimeMs) + ',' + String(entry.bootId) + ',' + String(entry.contextId) + ',';
+    row += String(entry.epochSeconds) + ',' + String(entry.uptimeMs) + ',' + String(entry.bootId) + ',' + String(entry.contextId) + ',' + String(entry.cameraId) + ',';
     row += csvField(LogReader::levelName(entry.level)) + ',' + String(static_cast<unsigned int>(entry.level)) + ',';
     row += csvField(LogReader::categoryName(entry.category)) + ',' + String(static_cast<unsigned int>(entry.category)) + ',';
     row += csvField(LogReader::eventName(entry.event)) + ',' + String(entry.event) + ',';
@@ -443,7 +447,7 @@ void handleCsvExport()
     httpServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
     httpServer->send(200, "text/csv; charset=utf-8", "");
     httpServer->sendContent("\xEF\xBB\xBF", 3);
-    httpServer->sendContent("slot,sequence,schema_version,epoch_seconds,uptime_ms,boot_id,context_id,level,level_code,category,category_code,event,event_code,outcome,outcome_code,flags,target_ip,target_ip_value,target_port,status_code,duration_ms,value,detail\r\n");
+    httpServer->sendContent("slot,sequence,schema_version,epoch_seconds,uptime_ms,boot_id,context_id,camera_id,level,level_code,category,category_code,event,event_code,outcome,outcome_code,flags,target_ip,target_ip_value,target_port,status_code,duration_ms,value,detail\r\n");
 
     for (size_t newestIndex = status.validCount; newestIndex > 0; newestIndex--) {
         LogReader::Entry entry;

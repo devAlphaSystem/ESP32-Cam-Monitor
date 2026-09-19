@@ -80,6 +80,7 @@ enum Flag : uint8_t {
 };
 
 struct Entry {
+    uint16_t schemaVersion = 0;
     uint32_t sequence = 0;
     uint32_t epochSeconds = 0;
     uint32_t uptimeMs = 0;
@@ -88,6 +89,7 @@ struct Entry {
     uint32_t value = 0;
     uint16_t bootId = 0;
     uint16_t contextId = 0;
+    uint32_t cameraId = 0;
     uint16_t targetPort = 0;
     int16_t statusCode = 0;
     Event event = Event::SystemBoot;
@@ -101,7 +103,7 @@ struct Entry {
 bool begin();
 bool ready();
 
-void record(Event event, Outcome outcome, const char* detail = nullptr, const IPAddress& target = IPAddress(), uint16_t targetPort = 0, int statusCode = 0, uint32_t durationMs = 0, uint32_t value = 0, uint8_t flags = FlagNone, Level level = Level::Automatic, bool critical = false, uint16_t contextId = 0);
+void record(Event event, Outcome outcome, const char* detail = nullptr, const IPAddress& target = IPAddress(), uint16_t targetPort = 0, int statusCode = 0, uint32_t durationMs = 0, uint32_t value = 0, uint8_t flags = FlagNone, Level level = Level::Automatic, bool critical = false, uint16_t contextId = 0, uint32_t cameraId = 0);
 
 void maintain();
 bool flush();

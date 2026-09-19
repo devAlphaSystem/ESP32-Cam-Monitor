@@ -1,36 +1,38 @@
 # ESP32 Camera Watchdog
 
-Firmware para ESP32 que monitora uma câmera IP por ONVIF, verifica se ela continua entregando snapshots JPEG válidos e oferece um painel web local para diagnóstico, prévia, configurações, logs e ações de recuperação.
+Firmware para ESP32 que monitora várias câmeras IP por ONVIF, verifica se continuam entregando snapshots JPEG válidos e oferece um painel web local para diagnóstico, prévia, configurações, logs e ações de recuperação.
 
-A versão atual é a `0.16`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor a senha da câmera.
+A versão atual é a `0.17.0`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor a senha da câmera.
 
 ## Principais recursos
 
-- descoberta da câmera por ONVIF WS-Discovery;
+- cadastro automático das câmeras anunciadas por ONVIF WS-Discovery, sem limite fixo de quantidade;
 - fallback opcional por varredura limitada da sub-rede;
 - seleção automática de perfil ONVIF e obtenção de `GetSnapshotUri`;
 - autenticação Basic, Digest e WS-Security UsernameToken;
 - usuário e senha da câmera configuráveis pelo painel, com persistência na NVS;
 - validação do tamanho e dos marcadores `FF D8`/`FF D9` do JPEG;
-- prévia JPEG intermediada pelo ESP32, com até 2 FPS configuráveis;
+- seletor central de câmera e prévia JPEG de uma câmera por vez, com até 2 FPS configuráveis;
 - health-check periódico com estados online, instável, recuperando e offline;
 - recuperação por `SystemReboot`, com tolerância, cooldown e limite por janela;
 - catálogo e acionamento de até 128 presets PTZ;
 - alertas de incidente, recuperação e mudança de IP pela API do Resend;
 - configurações persistentes na NVS;
-- até 7.500 logs circulares persistentes em uma partição LittleFS dedicada;
+- até 7.500 warnings e erros persistentes, identificados por câmera, em uma partição LittleFS dedicada;
 - painel responsivo com diagnóstico, recursos, logs, exportação CSV e ações administrativas.
 
 ## Visão geral do funcionamento
 
 1. O ESP32 conecta-se ao Wi-Fi e sincroniza o relógio por NTP.
-2. O último endpoint da câmera é carregado da NVS. Se não existir, o firmware usa o IP sugerido ou executa WS-Discovery.
-3. O catálogo ONVIF, os perfis de mídia, a URI de snapshot e os presets PTZ são consultados.
-4. A cada health-check, o firmware verifica ONVIF, usa RTSP como sonda auxiliar quando necessário e valida um JPEG.
+2. Os cadastros e ajustes de cada câmera são carregados da NVS. A descoberta atualiza endpoints e cadastra novas câmeras automaticamente.
+3. Cada câmera mantém seu catálogo ONVIF, perfil JPEG, credenciais, contadores, incidente e limitador de reinícios. Os presets PTZ são consultados quando a prévia é utilizada.
+4. O agendador alterna as câmeras com verificação pendente. Cada verificação usa ONVIF, RTSP quando necessário e validação JPEG.
 5. Falhas consecutivas podem iniciar um incidente, enviar alertas, redescobrir a câmera e solicitar uma reinicialização ONVIF controlada.
 6. O painel e a API HTTP exibem o estado atual; configurações e destinos descobertos permanecem na NVS.
 
-O acesso à câmera é serializado para evitar concorrência entre prévia, health-check, descoberta, PTZ e recuperação.
+O acesso às câmeras é serializado para evitar concorrência entre prévia, health-check, descoberta, PTZ e recuperação. As verificações vencidas têm prioridade sobre a prévia e tarefas de manutenção. Os intervalos padrão continuam iguais; o intervalo efetivo pode aumentar se a soma dos tempos das sondas exceder a capacidade do dispositivo.
+
+Não existe uma constante de quantidade máxima de câmeras. RAM, espaço livre na NVS e tempo de rede são os limites físicos: o firmware recusa novos cadastros com uma mensagem explícita se não conseguir manter uma reserva de memória para operar. Isso não equivale a capacidade ilimitada no ESP32.
 
 ## Requisitos
 
@@ -148,27 +150,27 @@ Existem três grupos de configuração, com responsabilidades diferentes.
 
 ### Segredos compilados
 
-Wi-Fi, senha administrativa e dados do Resend ficam exclusivamente em `include/secrets.h` e não podem ser alterados pelo painel. As definições ONVIF desse arquivo são apenas valores iniciais para instalações sem configuração salva e para a migração do esquema 4. Depois de salvar, todos os acessos à câmera usam as credenciais da NVS, inclusive quando removidas explicitamente.
+Wi-Fi, senha administrativa e dados do Resend ficam exclusivamente em `include/secrets.h` e não podem ser alterados pelo painel. As definições ONVIF desse arquivo são valores iniciais para importar o destino anterior ou o IP sugerido. Novas câmeras descobertas começam com credenciais próprias vazias; configure cada uma pelo seletor. Depois de salvar, todos os acessos à câmera usam as credenciais da NVS, inclusive quando removidas explicitamente.
 
 ### Ajustes persistentes pelo painel
 
-Abra **Configurações** no painel. Ao salvar, os valores são validados e gravados no namespace `camcfg` da NVS, usando o schema `5`. A atualização migra os valores do esquema 4 sem perder os ajustes existentes. A maioria é aplicada imediatamente; o timeout inicial do Wi-Fi passa a valer no próximo boot.
+Abra **Configurações** no painel. A aba **Global**, acima de Identificação, contém hostname, atualização do painel, Wi-Fi, descoberta, varredura, repetição de e-mail e LED compartilhados. As demais abas pertencem à câmera selecionada. Os valores globais ficam no namespace `camcfg`; os cadastros individuais, em `cameras`, no esquema `6`. A atualização importa a configuração do esquema `5` da versão 0.16 como a primeira câmera, preservando suas credenciais e ajustes. A maioria é aplicada imediatamente; o timeout inicial do Wi-Fi passa a valer no próximo boot.
 
 Em **Autenticação da câmera**, informe o usuário e escolha entre manter a senha atual, definir/substituir a senha ou remover usuário e senha. A senha salva nunca é devolvida pela API; o painel recebe apenas a indicação de que há uma senha configurada. O campo de nova senha pode ficar vazio ao substituir, para câmeras que usam usuário sem senha. Para acesso sem autenticação, remova ambas as credenciais. Espaços são preservados, os limites são 64 bytes para o usuário e 128 bytes para a senha em UTF-8, e caracteres de controle são rejeitados; o usuário também não pode conter dois-pontos.
 
 A gravação usa a autorização administrativa já existente. Alterações nas credenciais renovam a sessão JPEG e o catálogo ONVIF, descartam evidências da sessão anterior e antecipam a próxima verificação. Isso altera apenas o acesso usado pelo watchdog, não a conta cadastrada na câmera.
 
-| Grupo         | Principais ajustes                                                    | Padrões                                                 |
-| ------------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
-| Identificação | nome, hostname mDNS, filtro do perfil, porta RTSP                     | `Camera de seguranca`, `camera-watchdog`, `snap`, `554` |
-| Interface     | intervalo mínimo e ciclo da prévia, atualização do painel             | `5 s`, `5 s`, `3 s`                                     |
-| Monitoramento | health-check, tolerância inicial, redescoberta, offline e recuperação | `15 s`, `90 s`, `2`, `3`, `2`                           |
-| Incidentes    | falhas JPEG para alerta e reboot                                      | `2`, `3`                                                |
-| Recuperação   | reboot automático, tolerância, cooldown, janela e cota                | ativo, `60 s`, `5 min`, `1 h`, `3`                      |
-| Rede          | varredura, descoberta e repetição de buscas                           | ativa, `3,5 s`, `30 s`, `5 min`                         |
-| Notificações  | alertas, mudança de IP e nova tentativa de e-mail                     | ativos, ativa, `60 s`                                   |
-| Comunicação   | TCP, ONVIF/RTSP, varredura, JPEG e nova resolução                     | `900 ms`, `3 s`, `300 ms`, `5 s`, `15 s`                |
-| Alerta local  | LED e intervalo da piscada                                            | ativo no GPIO `2`, `1 s`                                |
+| Grupo         | Principais ajustes                                                    | Padrões                                  |
+| ------------- | --------------------------------------------------------------------- | ---------------------------------------- |
+| Identificação | nome da câmera, filtro do perfil, porta RTSP                          | `Camera N - IP`, `snap`, `554`           |
+| Interface     | intervalo mínimo e ciclo da prévia, atualização do painel             | `5 s`, `5 s`, `3 s`                      |
+| Monitoramento | health-check, tolerância inicial, redescoberta, offline e recuperação | `15 s`, `90 s`, `2`, `3`, `2`            |
+| Incidentes    | falhas JPEG para alerta e reboot                                      | `2`, `3`                                 |
+| Recuperação   | reboot automático, tolerância, cooldown, janela e cota                | ativo, `60 s`, `5 min`, `1 h`, `3`       |
+| Rede          | varredura, descoberta e repetição de buscas                           | ativa, `3,5 s`, `30 s`, `5 min`          |
+| Notificações  | alertas, mudança de IP e nova tentativa de e-mail                     | ativos, ativa, `60 s`                    |
+| Comunicação   | TCP, ONVIF/RTSP, varredura, JPEG e nova resolução                     | `900 ms`, `3 s`, `300 ms`, `5 s`, `15 s` |
+| Alerta local  | LED e intervalo da piscada                                            | ativo no GPIO `2`, `1 s`                 |
 
 O backend também aplica estas relações:
 
@@ -179,44 +181,56 @@ O backend também aplica estas relações:
 
 O painel permite reduzir a prévia a um ciclo de `0,5 s`, com intervalo mínimo de `0,25 s`, resultando em no máximo 2 FPS. O padrão de `5 s` reduz tráfego e contenção com o health-check.
 
-Use **Restaurar padrões** para gravar novamente os ajustes operacionais de `include/app_config.h`, mantendo o usuário e a senha da câmera. A remoção dessas credenciais exige a opção explícita na seção de autenticação. O endpoint de câmera descoberto é armazenado separadamente no namespace `camwatch` para reaproveitamento após reinicializações.
+Use **Restaurar padrões** para restaurar apenas o escopo aberto: Global ou câmera selecionada. As credenciais da câmera são preservadas. A remoção dessas credenciais exige a opção explícita na seção de autenticação. Cada cadastro persiste ID estável, UUID ONVIF quando anunciado, endpoint e ajustes. Os dados antigos de `camwatch` são consultados apenas durante a importação inicial.
 
 ### Ajustes avançados de fábrica
 
 Edite `include/app_config.h` quando precisar mudar um comportamento que não aparece no painel:
 
-| Constante                    | Finalidade                                                     |
-| ---------------------------- | -------------------------------------------------------------- |
-| `CAMERA_MATCH`               | filtra respostas WS-Discovery pelo texto anunciado pela câmera |
-| `CAMERA_IP_HINT`             | sugere um IP inicial quando não existe destino salvo           |
-| `CAMERA_DAEMON_PRESET_TOKEN` | identifica o preset destacado como ponto Daemon; padrão `100`  |
-| `ONVIF_PORT_CANDIDATES`      | portas testadas para o Device Service                          |
-| `DEFAULT_ONVIF_PATH`         | caminho ONVIF usado nos testes de fallback                     |
-| `CAMERA_ALERT_LED_PIN`       | GPIO fixo do LED de alerta; padrão `2`                         |
-| `MAX_SNAPSHOT_SIZE_BYTES`    | tamanho máximo aceito para um JPEG; padrão `512 KiB`           |
-| `RELEASE_BLUETOOTH_MEMORY`   | libera a memória Bluetooth não utilizada no boot               |
+| Constante                    | Finalidade                                                    |
+| ---------------------------- | ------------------------------------------------------------- |
+| `CAMERA_IP_HINT`             | sugere um IP inicial quando não existe destino salvo          |
+| `CAMERA_DAEMON_PRESET_TOKEN` | identifica o preset destacado como ponto Daemon; padrão `100` |
+| `ONVIF_PORT_CANDIDATES`      | portas testadas para o Device Service                         |
+| `DEFAULT_ONVIF_PATH`         | caminho ONVIF usado nos testes de fallback                    |
+| `CAMERA_ALERT_LED_PIN`       | GPIO fixo do LED de alerta; padrão `2`                        |
+| `MAX_SNAPSHOT_SIZE_BYTES`    | tamanho máximo aceito para um JPEG; padrão `512 KiB`          |
+| `RELEASE_BLUETOOTH_MEMORY`   | libera a memória Bluetooth não utilizada no boot              |
 
 Os demais valores de `app_config.h` são os padrões e limites usados pela configuração persistente. Mudá-los exige recompilar e gravar o firmware. Valores já salvos na NVS podem prevalecer até que os padrões sejam restaurados ou migrados.
 
 ## Uso do painel
 
-- **Visão geral:** estado, disponibilidade, sondas ONVIF/RTSP, último JPEG e atividade recente.
+- **Visão geral:** contagem por estado e tabela de todas as câmeras, com idade da última verificação.
+- **Câmera:** a antiga visão geral individual, com disponibilidade, sondas ONVIF/RTSP, último JPEG e atividade recente.
 - **Prévia:** snapshots JPEG, tela cheia e seleção pesquisável de presets PTZ.
 - **Diagnóstico:** estado completo em JSON, com opção de copiar.
-- **Logs:** histórico paginado, filtros locais e exportação CSV completa.
+- **Logs:** warnings e erros de todas as câmeras, identificação de origem, filtros locais e CSV.
 - **Recursos:** heap, fragmentação estimada, PSRAM, flash, Wi-Fi, catálogo ONVIF, relógio e eventos anunciados.
-- **Ações:** health-check, redescoberta, reboot da câmera, limpeza do limitador, limpeza dos logs e reboot do ESP32.
+- **Ações:** verificar, reiniciar e limpar limitador da câmera selecionada; redescobrir todas; reiniciar todas em sequência, respeitando seus limitadores; limpar logs globais e reiniciar ESP32.
 - **Configurações:** valores persistentes e limites de segurança.
 
 Ações mutáveis exigem o token de escrita da sessão e, quando configurada, a senha administrativa. O token é recriado a cada boot.
+
+## API multicâmera
+
+- `GET /api/cameras`: resumo global e lista de IDs estáveis.
+- `GET /api/status?cameraId=1`: estado completo da câmera.
+- `GET /api/camera/snapshot?cameraId=1`: prévia da câmera.
+- `GET/POST /api/settings?scope=global`: ajustes compartilhados. No POST, envie `scope` no formulário.
+- `GET/POST /api/settings?scope=camera&cameraId=1`: ajustes individuais. No POST, envie ambos no formulário.
+- Ações individuais e PTZ exigem `cameraId` explícito; IDs ausentes ou desconhecidos são rejeitados.
+- `POST /api/actions/rediscover` e `POST /api/actions/reboot-all-cameras` são globais.
+
+POSTs continuam exigindo `writeToken` e a senha administrativa quando configurada. Não há uma câmera selecionada global no servidor: cada navegador envia o ID de sua própria seleção.
 
 ## Logs persistentes
 
 A partição `logs` possui `960 KiB` e usa LittleFS. O arquivo circular armazena até 7.500 registros de 80 bytes; quando fica cheio, os registros mais antigos são sobrescritos. A folga restante é reservada para as operações copy-on-write do sistema de arquivos. As gravações comuns são agrupadas por até um segundo e eventos críticos forçam a persistência.
 
-Snapshots bem-sucedidos são amostrados no histórico no máximo uma vez por minuto; falhas continuam sendo registradas imediatamente. Se uma escrita for interrompida ou a ocupação do LittleFS ficar insegura, a partição exclusiva de logs é reconstruída automaticamente no próximo boot para evitar um ciclo de reinicialização.
+Somente níveis Warning e Error são gravados. Sucessos rotineiros e o desafio inicial de autenticação Digest não ocupam o histórico. O registro binário continua com 80 bytes, no esquema 3, incluindo o ID da câmera. Registros antigos continuam legíveis, mas não recebem uma identificação de câmera inventada. Se uma escrita for interrompida ou a ocupação do LittleFS ficar insegura, a partição exclusiva de logs é reconstruída automaticamente no próximo boot para evitar um ciclo de reinicialização.
 
-O histórico inclui boot, Wi-Fi, descoberta, conexões TCP, ONVIF, RTSP, snapshots, health-checks, incidentes, configurações, PTZ, e-mails e ações administrativas. Corpos SOAP, conteúdo do JPEG, senhas e tokens de autenticação não são gravados.
+O histórico inclui avisos e falhas de Wi-Fi, descoberta, ONVIF, RTSP, snapshots, verificações, incidentes, PTZ, e-mails e ações administrativas. Corpos SOAP, conteúdo do JPEG, senhas e tokens de autenticação não são gravados.
 
 Ao usar **Zerar logs**, o histórico anterior é removido e um novo marcador registra a limpeza e a quantidade excluída.
 
@@ -267,9 +281,8 @@ Crie `include/secrets.h` a partir de `include/secrets.example.h` e preencha ao m
 - confirme que ESP32 e câmera estão na mesma rede;
 - permita multicast UDP `3702`;
 - preencha `CAMERA_IP_HINT` se o WS-Discovery não for confiável;
-- ajuste `CAMERA_MATCH` quando houver várias câmeras;
 - confira as portas em `ONVIF_PORT_CANDIDATES`;
-- use **Ações > Redescobrir câmera** e consulte os logs.
+- use **Ações > Redescobrir câmeras** e consulte os logs.
 
 ### A prévia não mostra imagem
 
@@ -317,7 +330,19 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.16.0`;
+Na atualização 0.17.0, a compilação e a gravação foram verificadas em um ESP32 Devkit V1 com uma câmera real. Foram exercitados importação da configuração anterior, ONVIF, JPEG e prévia, gravação isolada por escopo, rejeição de IDs inválidos, redescoberta sem duplicação, reinício coletivo com uma câmera, bloqueio por cooldown e persistência após reiniciar o ESP32. Os ajustes usados nos testes foram restaurados. O leitor independente de logs também foi compilado, sem substituir o firmware principal na placa.
+
+A interface foi exercitada com quinze câmeras simuladas, incluindo seleção direta, navegação circular, formulário individual/global, envio de ação para a câmera 15 e disposição em tela estreita. Isso valida o painel, não a capacidade de monitorar quinze equipamentos físicos. A interação do diálogo nativo de descarte ficou bloqueada na ferramenta do navegador embutido; a preservação das alterações ao cancelar foi validada pelo teste automatizado.
+
+O teste de regressão utiliza o JavaScript real embarcado e verifica também respostas de configuração fora de ordem:
+
+```bash
+node tests/camera_dashboard.test.cjs
+```
+
+Ainda é necessária uma bancada com várias câmeras reais para medir concorrência de rede, atrasos sob falhas simultâneas, consumo de memória por modelos distintos e cadastro automático simultâneo. O teste com uma câmera não comprova esses cenários.
+
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.17.0`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;

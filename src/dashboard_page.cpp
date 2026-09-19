@@ -37,12 +37,27 @@ h2,h3{font-size:16px;font-weight:600;line-height:1.4}
 
 /* Navegacao */
 .navigation{border-bottom:1px solid var(--line);background:var(--surface-alt)}
-.navigation-inner{display:flex;align-items:center;justify-content:space-between;gap:24px;max-width:1440px;margin:auto;padding:0 32px}
+.navigation-inner{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,280px) minmax(0,1fr);align-items:center;gap:20px;max-width:1440px;margin:auto;padding:0 32px}
 .tabs{display:flex;flex:1 1 auto;min-width:0;gap:22px;overflow-x:auto;scrollbar-width:thin}
 .tab{flex:none;min-height:56px;padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font-size:14px;white-space:nowrap;cursor:pointer}
 .tab:hover{color:var(--text);border-bottom-color:var(--line-strong)}
 .tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
-.tab-admin-start{margin-left:auto}
+.tab-admin-start{margin-left:0}
+.navigation-actions{display:flex;align-items:center;justify-content:flex-end;gap:24px;min-width:0}
+.navigation-actions .tabs{flex:none}
+.camera-selector{display:grid;grid-template-columns:36px minmax(0,1fr) 36px;align-items:center;gap:8px;min-width:0}
+.camera-selector button{height:34px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.camera-selector button:disabled{opacity:.35;cursor:default}
+.camera-selector svg{width:16px;height:16px;vertical-align:middle}
+.camera-selector-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-weight:600;font-size:13px}
+.overview-table{width:100%;border-collapse:collapse}
+.overview-table th,.overview-table td{text-align:left;padding:14px 12px;border-bottom:1px solid var(--line)}
+.overview-table th{font-size:12px;color:var(--muted);font-weight:500}
+.camera-link{border:0;padding:0;background:none;color:var(--accent);font:inherit;cursor:pointer;text-align:left}
+.overview-note{margin:16px 0;color:var(--muted);font-size:12px}
+.overview-table .camera-state{font-weight:600;white-space:nowrap}
+.overview-table .check-stale{color:var(--warn)}
+@media(max-width:1250px){.navigation-inner{grid-template-columns:minmax(0,1fr) auto;gap:0 20px}.camera-selector{grid-row:2;grid-column:1/-1;width:280px;justify-self:center;margin:10px 0}.navigation-actions{grid-column:2;grid-row:1;gap:14px}.navigation-actions .connection{padding-left:14px}.tabs{gap:16px}}
 .connection{display:flex;align-items:center;gap:12px;flex:none;padding-left:24px;border-left:1px solid var(--line);font-size:12px}
 .connection>span{color:var(--muted)}
 .status-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
@@ -227,8 +242,8 @@ body.fs-locked{overflow:hidden}
 .ptz-modal-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;color:var(--dim);font-size:12px;flex:none}
 
 @media(max-width:1000px){
-  .navigation-inner{flex-wrap:wrap;gap:0;padding:0 24px}
-  .tabs{width:100%;gap:24px}.connection{width:100%;justify-content:flex-end;padding:8px 0;border-top:1px solid var(--line);border-left:0}
+  .navigation-inner{grid-template-columns:minmax(0,1fr);padding:0 24px}.navigation-actions{grid-column:1;grid-row:3;justify-content:space-between;width:100%;border-top:1px solid var(--line)}
+  .tabs{width:100%;gap:24px}.navigation-actions .tabs{width:auto}.connection{justify-content:flex-end;padding:8px 0;border-left:0}
   main{padding:24px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   #settingsForm{grid-template-columns:160px minmax(0,1fr);gap:24px}
@@ -238,6 +253,7 @@ body.fs-locked{overflow:hidden}
 }
 @media(max-width:680px){
   .navigation-inner{padding:0 max(16px,env(safe-area-inset-left)) 0 max(16px,env(safe-area-inset-right))}
+  .navigation-actions{flex-wrap:wrap;gap:0 16px}.navigation-actions .tabs{flex:1 1 auto}
   .tabs{gap:22px}.tab{min-height:48px;font-size:13px}
   .tab-admin-start{position:relative;margin-left:0;padding-left:22px}
   .tab-admin-start::before{content:"";position:absolute;left:0;top:50%;height:20px;border-left:1px solid var(--line);transform:translateY(-50%)}
@@ -287,20 +303,44 @@ body.fs-locked{overflow:hidden}
 <div class="navigation">
   <div class="navigation-inner">
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
-      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="true">Visão geral</button>
+      <button class="tab" id="overviewTab" type="button" role="tab" data-view="overview" aria-controls="overviewView" aria-selected="true">Visão geral</button>
+      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Câmera</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false" tabindex="-1">Prévia</button>
       <button class="tab" id="diagnosticsTab" type="button" role="tab" data-view="diagnostics" aria-controls="diagnosticsView" aria-selected="false" tabindex="-1">Diagnóstico</button>
       <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false" tabindex="-1">Logs</button>
-      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Recursos</button>
+    </nav>
+    <div class="camera-selector" role="group" aria-label="Selecionar câmera">
+      <button id="previousCamera" type="button" aria-label="Câmera anterior" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
+      <span class="camera-selector-name" id="selectedCameraName" aria-live="polite">Carregando câmeras…</span>
+      <button id="nextCamera" type="button" aria-label="Próxima câmera" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
+    </div>
+    <div class="navigation-actions">
+    <nav class="tabs" role="tablist" aria-label="Administração">
       <button class="tab tab-admin-start" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false" tabindex="-1">Ações</button>
+      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Recursos</button>
       <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false" tabindex="-1">Configurações</button>
     </nav>
     <div class="connection"><span>ESP32</span><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div></div>
+    </div>
   </div>
 </div>
 <main id="mainContent" tabindex="-1">
 
-<div id="cameraView" role="tabpanel" tabindex="0" aria-labelledby="cameraTab" data-view-panel="camera">
+<div id="overviewView" role="tabpanel" tabindex="0" aria-labelledby="overviewTab" data-view-panel="overview">
+  <section class="device-header"><div class="device-copy"><h1 class="device-name">Visão geral das câmeras</h1><div class="device-meta" id="overviewSummary">Carregando o cadastro…</div></div></section>
+  <section class="sec"><div class="grid">
+    <article class="card"><div class="card-h">Online</div><div class="card-v" id="overviewOnline">0</div><div class="card-m">Última verificação concluída com sucesso</div></article>
+    <article class="card"><div class="card-h">Instáveis ou offline</div><div class="card-v" id="overviewProblems">0</div><div class="card-m">Câmeras que precisam de atenção</div></article>
+    <article class="card"><div class="card-h">Recuperando ou iniciando</div><div class="card-v" id="overviewPending">0</div><div class="card-m">Aguardando confirmação de funcionamento</div></article>
+  </div></section>
+  <section class="sec"><div class="sec-t"><h2>Estado de todas as câmeras</h2><span>Selecione um nome para abrir a visão individual</span></div>
+    <div class="logs-table-wrap"><table class="overview-table"><thead><tr><th>Câmera</th><th>IP</th><th>Estado</th><th>Última verificação</th><th>Último evento</th></tr></thead><tbody id="overviewCameras"></tbody></table></div>
+    <p class="overview-note" id="overviewEmpty" hidden>Nenhuma câmera cadastrada. Use Ações &gt; Redescobrir câmeras.</p>
+    <p class="overview-note" id="registryResult"></p>
+  </section>
+</div>
+
+<div id="cameraView" role="tabpanel" tabindex="0" aria-labelledby="cameraTab" data-view-panel="camera" hidden>
 
 <section class="device-header" id="hero">
   <div class="device-copy">
@@ -380,7 +420,7 @@ body.fs-locked{overflow:hidden}
     <div class="device-copy">
       <span class="badge"><i></i><span id="logsState">carregando histórico</span></span>
       <h1 class="device-name">Histórico persistente</h1>
-      <div class="device-meta">Conexões com a câmera e operações importantes, preservadas entre reinicializações.</div>
+      <div class="device-meta">Avisos e erros de todas as câmeras e do ESP32, preservados entre reinicializações.</div>
     </div>
     <div class="logs-hero-tools">
       <button class="btn" id="logsRefresh" type="button">Atualizar</button>
@@ -392,7 +432,7 @@ body.fs-locked{overflow:hidden}
     <article class="card">
       <div class="card-h">Registros armazenados</div>
       <div class="card-v info" id="logsCount">—</div>
-      <div class="card-m" id="logsCountMeta">limite circular de 10.000 registros</div>
+      <div class="card-m" id="logsCountMeta">limite circular de 7.500 registros</div>
       <div class="meter"><i id="logsCountMeter"></i></div>
     </article>
     <article class="card">
@@ -418,7 +458,6 @@ body.fs-locked{overflow:hidden}
         <label for="logsLevel">Nível</label>
         <select id="logsLevel">
           <option value="">Todos</option>
-          <option value="info">Informação</option>
           <option value="warning">Aviso</option>
           <option value="error">Erro</option>
         </select>
@@ -451,7 +490,7 @@ body.fs-locked{overflow:hidden}
     <div class="logs-table-wrap">
       <table class="logs-table">
         <thead>
-          <tr><th id="logsTableTitle">Data e hora</th><th>Nível</th><th>Evento</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhes</th></tr>
+          <tr><th id="logsTableTitle">Data e hora</th><th>Nível</th><th>Câmera</th><th>Evento</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhes</th></tr>
         </thead>
         <tbody id="logsTableBody"></tbody>
       </table>
@@ -551,13 +590,15 @@ body.fs-locked{overflow:hidden}
   <section class="settings-card actions-card">
     <div class="settings-card-h"><div><h1>Controle manual</h1><p>Ações sensíveis exigem confirmação e respeitam os limites de segurança do firmware.</p></div></div>
     <div class="action-grid">
-      <div class="action-item"><b>Verificar agora</b><span>Executa ONVIF, RTSP quando necessário e validação JPEG.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
-      <div class="action-item"><b>Redescobrir câmera</b><span>Repete WS-Discovery e confirma o endpoint.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
-      <div class="action-item"><b>Reiniciar câmera</b><span>Envia ONVIF SystemReboot respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
-      <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas registradas na janela atual.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
+      <div class="action-item"><b>Verificar agora</b><span>Verifica ONVIF, RTSP e JPEG da câmera selecionada.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
+      <div class="action-item"><b>Redescobrir câmeras</b><span>Atualiza as cadastradas e cadastra automaticamente as novas encontradas.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
+      <div class="action-item"><b>Reiniciar câmera</b><span>Reinicia a câmera selecionada, respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
+      <div class="action-item"><b>Reiniciar todas as câmeras</b><span>Envia SystemReboot a todas, em sequência, respeitando os limites de cada câmera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Reiniciar todas</button></div>
+      <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas da câmera selecionada.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
       <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
       <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
     </div>
+    <p class="overview-note" id="actionCameraScope">Câmera selecionada: aguardando cadastro</p>
     <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
   </section>
 </div>
@@ -566,7 +607,7 @@ body.fs-locked{overflow:hidden}
   <section class="device-header" id="settingsHero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
     <div class="device-copy">
       <span class="badge"><i></i><span id="settingsSource">carregando configurações</span></span>
-      <h1 class="device-name">Configurações do watchdog</h1>
+      <h1 class="device-name" id="settingsTitle">Configurações globais</h1>
       <div class="device-meta" id="settingsMeta">Valores persistentes na NVS, validados também pelo firmware.</div>
     </div>
     <div class="settings-kpi">
@@ -578,27 +619,38 @@ body.fs-locked{overflow:hidden}
   <form id="settingsForm" autocomplete="off" novalidate>
     <div class="settings-tabbar">
       <nav class="settings-tablist" role="tablist" aria-label="Categorias das configurações">
-        <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="true" tabindex="0">Identificação</button>
+        <button class="settings-tab" id="settingsGlobalTab" type="button" role="tab" data-settings-section="global" aria-controls="settingsGlobalPanel" aria-selected="true">Global</button>
+        <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="false" tabindex="-1">Identificação</button>
         <button class="settings-tab" id="settingsAuthenticationTab" type="button" role="tab" data-settings-section="authentication" aria-controls="settingsAuthenticationPanel" aria-selected="false" tabindex="-1">Autenticação da câmera</button>
         <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoramento</button>
         <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recuperação</button>
         <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Rede e notificações</button>
         <button class="settings-tab" id="settingsCommunicationTab" type="button" role="tab" data-settings-section="communication" aria-controls="settingsCommunicationPanel" aria-selected="false" tabindex="-1">Comunicação</button>
-        <button class="settings-tab" id="settingsHardwareTab" type="button" role="tab" data-settings-section="hardware" aria-controls="settingsHardwarePanel" aria-selected="false" tabindex="-1">Alerta local</button>
       </nav>
     </div>
 
     <div class="settings-panels">
-      <section class="settings-card settings-panel" id="settingsIdentificationPanel" role="tabpanel" aria-labelledby="settingsIdentificationTab" data-settings-section-panel="identification">
-        <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, endereço local, perfil JPEG e ritmo do painel.</p></div></div>
+      <section class="settings-card settings-panel" id="settingsGlobalPanel" role="tabpanel" aria-labelledby="settingsGlobalTab" data-settings-section-panel="global"><div class="settings-card-h"><div><h2>Configurações globais</h2><p>Rede do ESP32, descoberta compartilhada, painel e alerta local de todas as câmeras.</p></div></div><div class="form-grid">
+          <div class="field"><label for="cfgLocalHostname">Endereço local <span>1–31 caracteres</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letras, números e hífens. O acesso será feito por http://nome-escolhido.local/.</small></div>
+          <div class="field"><label for="cfgWifiTimeout">Timeout inicial do Wi-Fi <span>5–120 s</span></label><input id="cfgWifiTimeout" type="number" min="5" max="120" step="1" required><small>Usado no próximo boot.</small></div>
+          <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
+          <div class="field"><label for="cfgDiscoveryTimeout">Tempo do WS-Discovery <span>1–15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Padrão: 3,5 s.</small></div>
+          <div class="field"><label for="cfgRediscoveryInterval">Intervalo entre redescobertas <span>30–3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Padrão: 30 s.</small></div>
+          <div class="field"><div class="checkline"><input id="cfgAutoScan" type="checkbox"><label for="cfgAutoScan"><b>Permitir varredura automática da sub-rede</b><span>Usada apenas após falhas confirmadas e limitada a 254 hosts.</span></label></div></div>
+          <div class="field"><label for="cfgSubnetScanInterval">Intervalo entre varreduras <span>1–1440 min</span></label><input id="cfgSubnetScanInterval" type="number" min="1" max="1440" step="1" required><small>Padrão: 5 min.</small></div>
+          <div class="field"><label for="cfgScanTimeout">Conexão durante varredura <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Padrão: 300 ms.</small></div>
+          <div class="field"><label for="cfgEmailRetry">Repetição de tentativa de e-mail <span>30–3600 s</span></label><input id="cfgEmailRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 60 s.</small></div>
+          <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox"><label for="cfgLedEnabled"><b>Piscar o LED quando não estiver online</b><span>O GPIO permanece fixo no firmware para evitar conflito de hardware.</span></label></div></div>
+          <div class="field"><label for="cfgLedBlink">Intervalo da piscada <span>200–10000 ms</span></label><input id="cfgLedBlink" type="number" min="200" max="10000" step="100" required><small>Padrão: 1000 ms.</small></div>
+      </div></section>
+      <section class="settings-card settings-panel" id="settingsIdentificationPanel" role="tabpanel" aria-labelledby="settingsIdentificationTab" data-settings-section-panel="identification" hidden>
+        <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, perfil JPEG e ritmo da prévia da câmera selecionada.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgCameraName">Nome da câmera <span>1–48 caracteres</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Exibido no painel e nos assuntos dos e-mails.</small></div>
-          <div class="field"><label for="cfgLocalHostname">Endereço local <span>1–31 caracteres</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letras, números e hífens. O acesso será feito por http://nome-escolhido.local/.</small></div>
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
           <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
           <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Padrão estável: 5 s; mínimo permitido: 0,5 s, limitando a prévia a 2 FPS.</small></div>
-          <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
         </div>
       </section>
 
@@ -638,16 +690,10 @@ body.fs-locked{overflow:hidden}
       </section>
 
       <section class="settings-card settings-panel" id="settingsNetworkPanel" role="tabpanel" aria-labelledby="settingsNetworkTab" data-settings-section-panel="network" hidden>
-        <div class="settings-card-h"><div><h2>Rede e notificações</h2><p>Descoberta da câmera e repetição dos alertas.</p></div></div>
+        <div class="settings-card-h"><div><h2>Rede e notificações</h2><p>Notificações da câmera selecionada.</p></div></div>
         <div class="form-grid">
-          <div class="field"><div class="checkline"><input id="cfgAutoScan" type="checkbox"><label for="cfgAutoScan"><b>Permitir varredura automática da sub-rede</b><span>Usada apenas após falhas confirmadas e limitada a 254 hosts.</span></label></div></div>
           <div class="field"><div class="checkline"><input id="cfgEmailAlerts" type="checkbox"><label for="cfgEmailAlerts"><b>Ativar alertas por e-mail</b><span>Desativar cancela notificações pendentes, mas não apaga as credenciais do Resend.</span></label></div></div>
           <div class="field"><div class="checkline"><input id="cfgEmailIpChange" type="checkbox"><label for="cfgEmailIpChange"><b>Avisar quando a câmera mudar de IP</b><span>Aplicado somente quando os alertas por e-mail estiverem ativos.</span></label></div></div>
-          <div class="field"><label for="cfgWifiTimeout">Timeout inicial do Wi-Fi <span>5–120 s</span></label><input id="cfgWifiTimeout" type="number" min="5" max="120" step="1" required><small>Usado no próximo boot.</small></div>
-          <div class="field"><label for="cfgDiscoveryTimeout">Tempo do WS-Discovery <span>1–15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Padrão: 3,5 s.</small></div>
-          <div class="field"><label for="cfgRediscoveryInterval">Intervalo entre redescobertas <span>30–3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Padrão: 30 s.</small></div>
-          <div class="field"><label for="cfgSubnetScanInterval">Intervalo entre varreduras <span>1–1440 min</span></label><input id="cfgSubnetScanInterval" type="number" min="1" max="1440" step="1" required><small>Padrão: 5 min.</small></div>
-          <div class="field"><label for="cfgEmailRetry">Repetição de tentativa de e-mail <span>30–3600 s</span></label><input id="cfgEmailRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 60 s.</small></div>
         </div>
       </section>
 
@@ -656,20 +702,12 @@ body.fs-locked{overflow:hidden}
         <div class="form-grid">
           <div class="field"><label for="cfgTcpTimeout">Conexão TCP <span>200–5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Padrão: 900 ms.</small></div>
           <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão estável: 3000 ms.</small></div>
-          <div class="field"><label for="cfgScanTimeout">Conexão durante varredura <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Padrão: 300 ms.</small></div>
           <div class="field"><label for="cfgSnapshotTimeout">Timeout do JPEG <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Padrão: 5 s.</small></div>
           <div class="field"><label for="cfgSnapshotResolveRetry">Nova resolução do URI <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Padrão: 15 s.</small></div>
           <div class="field"><label for="cfgSnapshotFailuresReresolve">Falhas antes de resolver o URI <span>1–10</span></label><input id="cfgSnapshotFailuresReresolve" type="number" min="1" max="10" step="1" required><small>Padrão: 2.</small></div>
         </div>
       </section>
 
-      <section class="settings-card settings-panel" id="settingsHardwarePanel" role="tabpanel" aria-labelledby="settingsHardwareTab" data-settings-section-panel="hardware" hidden>
-        <div class="settings-card-h"><div><h2>Alerta local</h2><p>LED integrado do ESP32.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox"><label for="cfgLedEnabled"><b>Piscar o LED quando não estiver online</b><span>O GPIO permanece fixo no firmware para evitar conflito de hardware.</span></label></div></div>
-          <div class="field"><label for="cfgLedBlink">Intervalo da piscada <span>200–10000 ms</span></label><input id="cfgLedBlink" type="number" min="200" max="10000" step="100" required><small>Padrão: 1000 ms.</small></div>
-        </div>
-      </section>
     </div>
 
     <div class="settings-savebar">
@@ -730,6 +768,134 @@ const PALETTE = {
 };
 const HISTORY_LIMIT = 60;
 const resourceHistory = { heap: [], rssi: [] };
+
+function cameraUrl(path, id = selectedCameraId) {
+  return path + (path.includes('?') ? '&' : '?') + 'cameraId=' + encodeURIComponent(id);
+}
+
+function currentSettingsScope() {
+  return (activeView === 'settings' && activeSettingsSection === 'global') || !selectedCameraId ? 'global' : 'camera';
+}
+
+function updateCameraSelector() {
+  const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
+  $('selectedCameraName').textContent = selected ? selected.name : 'Nenhuma câmera cadastrada';
+  $('selectedCameraName').title = selected ? selected.name : '';
+  $('previousCamera').disabled = $('nextCamera').disabled = cameraRegistry.length < 2 || settingsBusy;
+  $('actionCameraScope').textContent = selected ? 'Câmera selecionada: ' + selected.name : 'Nenhuma câmera selecionada';
+  if (activeView === 'settings' && activeSettingsSection !== 'global') {
+    $('settingsTitle').textContent = 'Configurações · ' + (selected ? selected.name : 'nenhuma câmera');
+  }
+  document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
+    tab.disabled = tab.dataset.settingsSection !== 'global' && !selected;
+  });
+}
+
+function updateSettingsScope() {
+  const globalScope = currentSettingsScope() === 'global';
+  Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
+    $(descriptor.id).disabled = GLOBAL_SETTING_FIELDS.has(key) !== globalScope;
+  });
+  $('cfgCameraPasswordAction').disabled = globalScope;
+  updateCameraCredentialFields();
+  const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
+  $('settingsTitle').textContent = globalScope ? 'Configurações globais' : 'Configurações · ' + (selected ? selected.name : 'câmera');
+  $('settingsAlertEstimate').closest('.settings-kpi').hidden = globalScope;
+}
+
+function selectCamera(id) {
+  if (id === selectedCameraId || !cameraRegistry.some(camera => camera.id === id)) return;
+  if (settingsBusy || !$('adminConfirmModal').hidden) return;
+  if (settingsDirty && !window.confirm('Descartar as alterações não salvas antes de trocar de câmera?')) return;
+  settingsDirty = false;
+  selectedCameraId = id;
+  settingsRequestGeneration++;
+  settingsLoaded = false;
+  settingsLoadedKey = '';
+  settingsLoading = false;
+  settingsLoadPromise = null;
+  statusRequestGeneration++;
+  if (statusAbortController) statusAbortController.abort();
+  statusLoading = false;
+  cancelFeedLoad(true);
+  clearTimeout(feedTimer);
+  feedTimer = null;
+  lastOk = 0;
+  cameraKnown = false;
+  cameraRecovering = false;
+  ptzControlsEnabled = false;
+  ptzCatalog = { available: false, presets: [], command: {} };
+  $('ptzPresetModal').hidden = true;
+  $('cameraFeed').removeAttribute('src');
+  $('cameraFeed').classList.remove('ready');
+  $('feedState').classList.remove('hidden');
+  $('feedState').textContent = 'Carregando a câmera selecionada…';
+  $('camName').textContent = cameraRegistry.find(camera => camera.id === id).name;
+  $('stateText').textContent = 'Carregando';
+  ['camSub','v-onvif','m-onvif','v-rtsp','m-rtsp','v-image','m-image','v-checks','m-checks','availValue','l-event','l-url','l-image','l-reboot','l-disc','l-scan','l-mail'].forEach(key => { $(key).textContent = '—'; });
+  updateCameraSelector();
+  setMutationControlsEnabled(false);
+  if (activeView === 'settings' || activeView === 'actions' || activeView === 'feed') loadSettings(true);
+  refresh(true);
+}
+
+function stepCamera(direction) {
+  const current = cameraRegistry.findIndex(camera => camera.id === selectedCameraId);
+  if (cameraRegistry.length > 1) selectCamera(cameraRegistry[(current + direction + cameraRegistry.length) % cameraRegistry.length].id);
+}
+
+$('previousCamera').addEventListener('click', () => stepCamera(-1));
+$('nextCamera').addEventListener('click', () => stepCamera(1));
+
+function renderOverview(payload) {
+  const counts = {};
+  cameraRegistry.forEach(camera => { counts[camera.state] = (counts[camera.state] || 0) + 1; });
+  $('overviewOnline').textContent = counts.online || 0;
+  $('overviewProblems').textContent = (counts.degraded || 0) + (counts.offline || 0);
+  $('overviewPending').textContent = (counts.recovering || 0) + (counts.starting || 0) + (counts.discovering || 0);
+  $('overviewSummary').textContent = (counts.online || 0) + ' online · ' + (counts.degraded || 0) + ' instáveis · ' + (counts.offline || 0) + ' offline · ' + (counts.recovering || 0) + ' recuperando';
+  $('registryResult').textContent = payload.lastResult || '';
+  $('overviewEmpty').hidden = cameraRegistry.length > 0;
+  const rows = document.createDocumentFragment();
+  cameraRegistry.forEach(camera => {
+    const row = document.createElement('tr');
+    const name = document.createElement('td');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'camera-link';
+    button.textContent = camera.name;
+    button.addEventListener('click', () => { selectCamera(camera.id); if (selectedCameraId === camera.id) activateView('camera', true); });
+    name.append(button); row.append(name);
+    appendPersistentLogCell(row, camera.ip, 'mono');
+    const palette = PALETTE[camera.state] || ['Desconhecido','var(--muted)'];
+    const state = appendPersistentLogCell(row, palette[0], 'camera-state');
+    state.style.color = palette[1];
+    const stale = camera.lastCheckAgeSeconds !== null && camera.lastCheckAgeSeconds * 1000 > camera.healthCheckIntervalMs * 2;
+    appendPersistentLogCell(row, camera.lastCheckAgeSeconds === null ? 'Ainda não verificada' : 'há ' + duration(camera.lastCheckAgeSeconds) + (stale ? ' · atrasada' : ''), stale ? 'check-stale' : '');
+    appendPersistentLogCell(row, localizeTimestampText(camera.lastEvent || '—'));
+    rows.append(row);
+  });
+  $('overviewCameras').replaceChildren(rows);
+  if (activeView === 'actions' && payload.adminAction) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
+  $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + payload.firmwareVersion + ' · ligado há ' + duration(payload.uptimeSeconds);
+}
+
+async function loadCameraRegistry(signal) {
+  const response = await fetch('/api/cameras', { cache: 'no-store', signal });
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  const payload = await response.json();
+  cameraRegistry = payload.cameras || [];
+  if (!cameraRegistry.some(camera => camera.id === selectedCameraId)) {
+    selectedCameraId = cameraRegistry.length ? cameraRegistry[0].id : 0;
+    settingsLoaded = false;
+    settingsLoadedKey = '';
+  }
+  statusRefreshIntervalMs = Number(payload.statusRefreshIntervalMs) || statusRefreshIntervalMs;
+  updateCameraSelector();
+  renderOverview(payload);
+  return payload;
+}
+
 function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
@@ -737,11 +903,20 @@ function viewFromHash() {
   if (location.hash === '#diagnostics') return 'diagnostics';
   if (location.hash === '#resources') return 'resources';
   if (location.hash === '#feed') return 'feed';
-  return 'camera';
+  if (location.hash === '#camera') return 'camera';
+  return 'overview';
 }
 
 let activeView = viewFromHash();
-let activeSettingsSection = 'identification';
+let activeSettingsSection = 'global';
+let selectedCameraId = 0;
+let cameraRegistry = [];
+let registryLoading = null;
+let settingsLoadedKey = '';
+let settingsRequestGeneration = 0;
+let settingsDirty = false;
+let persistentLogsNextOffset = 0;
+const GLOBAL_SETTING_FIELDS = new Set(["cameraAlertLedBlinkIntervalMs", "discoveryTimeoutMs", "emailRetryIntervalMs", "enableAutomaticSubnetScan", "enableCameraAlertLed", "localHostname", "rediscoveryIntervalMs", "scanConnectTimeoutMs", "statusRefreshIntervalMs", "subnetScanIntervalMs", "wifiConnectTimeoutMs"]);
 let feedMinimumIntervalMs = 5000;
 let feedTargetCycleMs = 5000;
 let statusRefreshIntervalMs = 3000;
@@ -1024,7 +1199,7 @@ function persistentLogMatches(entry) {
   if (scope === 'diagnostic' && routineTcpFailure) return false;
   if (!query) return true;
   const searchable = [
-    entry.id, entry.bootId, entry.contextId, entry.timestamp, entry.timestampUtc,
+    entry.id, entry.bootId, entry.contextId, entry.cameraId, entry.cameraName, entry.timestamp, entry.timestampUtc,
     entry.level, entry.category, entry.event, entry.outcome, entry.targetIp, entry.targetPort,
     entry.status, entry.timeoutMs, entry.detail, persistentLogFlags(entry),
     LOG_EVENT_LABELS[entry.event]
@@ -1064,6 +1239,7 @@ function renderPersistentLogs() {
     level.textContent = LOG_LEVEL_LABELS[entry.level] || entry.level;
     levelCell.append(level);
     row.append(levelCell);
+    appendPersistentLogCell(row, entry.cameraName || (entry.cameraId ? 'Câmera ' + entry.cameraId : 'Sistema'));
 
     const eventCell = document.createElement('td');
     const eventName = document.createElement('span');
@@ -1158,7 +1334,7 @@ async function loadPersistentLogs(reset) {
   }
 
   try {
-    const offset = reset ? 0 : persistentLogs.length;
+    const offset = reset ? 0 : persistentLogsNextOffset;
     const response = await fetch('/api/logs?offset=' + offset + '&limit=100', { cache: 'no-store' });
     if (!response.ok) throw new Error('HTTP ' + response.status);
     const payload = await response.json();
@@ -1169,6 +1345,7 @@ async function loadPersistentLogs(reset) {
       const knownIds = new Set(persistentLogs.map(entry => entry.id));
       persistentLogs.push(...entries.filter(entry => !knownIds.has(entry.id)));
     }
+    persistentLogsNextOffset = Number(payload.nextOffset);
     persistentLogsTotal = Number(payload.total) || 0;
     persistentLogsHasMore = Boolean(payload.hasMore) && persistentLogs.length < persistentLogsTotal;
     persistentLogsLoaded = true;
@@ -1404,7 +1581,7 @@ function loadFeed() {
     $('feedStamp').textContent = 'prévia temporariamente indisponível';
     scheduleFeed(Math.min(8000, 1000 * Math.pow(2, Math.min(feedFailures, 3))));
   };
-  frame.src = '/api/camera/snapshot?t=' + Date.now();
+  frame.src = cameraUrl('/api/camera/snapshot?t=' + Date.now());
 }
 
 const feedStage = document.querySelector('.viewer-stage');
@@ -1465,6 +1642,9 @@ function activateSettingsSection(name) {
   const target = available.find(panel => panel.dataset.settingsSectionPanel === name);
   if (!target) return;
 
+  const scopeChanged = (name === 'global') !== (activeSettingsSection === 'global');
+  if (scopeChanged && settingsDirty && !window.confirm('Descartar as alterações não salvas antes de mudar o escopo?')) return;
+  if (scopeChanged) { settingsDirty = false; settingsLoaded = false; settingsLoadedKey = ''; }
   activeSettingsSection = name;
   available.forEach(panel => {
     panel.hidden = panel !== target;
@@ -1474,6 +1654,8 @@ function activateSettingsSection(name) {
     tab.setAttribute('aria-selected', selected ? 'true' : 'false');
     tab.tabIndex = selected ? 0 : -1;
   });
+  updateSettingsScope();
+  if (activeView === 'settings' && (scopeChanged || !settingsLoaded)) loadSettings(true);
 }
 
 document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
@@ -1571,7 +1753,8 @@ function setMutationControlsEnabled(enabled) {
   $('settingsSave').disabled = !enabled;
   $('settingsReset').disabled = !enabled;
   document.querySelectorAll('[data-admin-action]').forEach(button => {
-    button.disabled = !enabled;
+    const needsCamera = ['health-check','reboot-camera','reset-reboot-limiter','reboot-all-cameras'].includes(button.dataset.adminAction);
+    button.disabled = !enabled || (needsCamera && !selectedCameraId);
   });
   document.querySelectorAll('[data-ptz-preset-token]').forEach(button => {
     button.disabled = !enabled || !ptzControlsEnabled;
@@ -1608,9 +1791,9 @@ function updateSettingsEstimates() {
 
 function updateCameraCredentialFields() {
   const action = $('cfgCameraPasswordAction').value;
-  $('cfgCameraUsername').disabled = action === 'clear';
+  $('cfgCameraUsername').disabled = currentSettingsScope() === 'global' || action === 'clear';
   $('cfgCameraUsername').setCustomValidity('');
-  $('cfgCameraPassword').disabled = action !== 'replace';
+  $('cfgCameraPassword').disabled = currentSettingsScope() === 'global' || action !== 'replace';
   $('cfgCameraPassword').setCustomValidity('');
   if (action !== 'replace') $('cfgCameraPassword').value = '';
 }
@@ -1650,6 +1833,9 @@ function populateSettings(payload) {
   feedTargetCycleMs = Number(values.feedTargetCycleMs) || feedTargetCycleMs;
   statusRefreshIntervalMs = Number(values.statusRefreshIntervalMs) || statusRefreshIntervalMs;
   settingsLoaded = true;
+  settingsDirty = false;
+  settingsLoadedKey = payload.scope + '/' + payload.cameraId;
+  updateSettingsScope();
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
   if (activeView === 'actions') {
@@ -1664,48 +1850,48 @@ function populateSettings(payload) {
 }
 
 function loadSettings(force) {
-  if (settingsLoading) return settingsLoadPromise || Promise.resolve();
-  if (settingsLoaded && !force) return Promise.resolve();
+  const scope = currentSettingsScope();
+  const id = scope === 'global' ? 0 : selectedCameraId;
+  const key = scope + '/' + id;
+  if (settingsLoading && settingsLoadPromise && settingsLoadPromise.scopeKey === key) return settingsLoadPromise;
+  if (settingsLoaded && settingsLoadedKey === key && !force) return Promise.resolve();
+  const generation = ++settingsRequestGeneration;
   settingsLoading = true;
+  setMutationControlsEnabled(false);
   settingsLoadPromise = (async () => {
-    if (activeView === 'actions') {
-      setAdminActionStatus('Carregando autorização administrativa…', 'warn');
-    } else if (activeView === 'feed') {
-      setPtzActionStatus('Carregando autorização do controle PTZ…', 'warn');
-    } else {
-      setSettingsStatus('Lendo configurações do ESP32…', 'warn');
-    }
     try {
-      const response = await fetch('/api/settings', { cache: 'no-store' });
+      const response = await fetch('/api/settings?scope=' + scope + (id ? '&cameraId=' + id : ''), { cache: 'no-store' });
       const payload = await response.json();
+      if (generation !== settingsRequestGeneration) return;
       if (!response.ok || !payload.ok) throw new Error(payload.detail || 'HTTP ' + response.status);
+      if (payload.scope !== currentSettingsScope() || (payload.scope === 'camera' && payload.cameraId !== selectedCameraId)) return;
       populateSettings(payload);
     } catch (error) {
+      if (generation !== settingsRequestGeneration) return;
       setMutationControlsEnabled(false);
-      if (activeView === 'actions') {
-        setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
-      } else if (activeView === 'feed') {
-        setPtzActionStatus('Falha ao carregar autorização PTZ: ' + error.message, 'bad');
-      } else {
-        setSettingsStatus('Falha ao carregar: ' + error.message, 'bad');
-      }
+      setSettingsStatus('Falha ao carregar: ' + error.message, 'bad');
+      if (activeView === 'actions') setAdminActionStatus('Falha ao carregar autorização: ' + error.message, 'bad');
     } finally {
-      settingsLoading = false;
-      settingsLoadPromise = null;
+      if (generation === settingsRequestGeneration) { settingsLoading = false; settingsLoadPromise = null; }
     }
   })();
+  settingsLoadPromise.scopeKey = key;
   return settingsLoadPromise;
 }
 
 function collectMutationParams(includeSettings, password) {
   const params = new URLSearchParams();
   params.set('writeToken', settingsWriteToken);
+  const scope = currentSettingsScope();
+  params.set('scope', scope);
+  if (selectedCameraId) params.set('cameraId', String(selectedCameraId));
   if (settingsPasswordRequired) {
     params.set('adminPassword', password || '');
   }
 
   if (includeSettings) {
     Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
+      if (GLOBAL_SETTING_FIELDS.has(key) !== (scope === 'global')) return;
       const input = $(descriptor.id);
       if (descriptor.kind === 'bool') {
         params.set(key, input.checked ? '1' : '0');
@@ -1716,10 +1902,12 @@ function collectMutationParams(includeSettings, password) {
         params.set(key, String(Math.round(numeric * (descriptor.scale || 1))));
       }
     });
+    if (scope === 'camera') {
     const passwordAction = $('cfgCameraPasswordAction').value;
     params.set('cameraPasswordAction', passwordAction);
     params.set('cameraPassword', passwordAction === 'replace' ? $('cfgCameraPassword').value : '');
     if (passwordAction === 'clear') params.set('cameraUsername', '');
+    }
   }
   return params;
 }
@@ -1740,11 +1928,12 @@ async function postForm(url, params, options) {
   return payload;
 }
 
-$('settingsForm').addEventListener('input', updateSettingsEstimates);
+$('settingsForm').addEventListener('input', () => { settingsDirty = true; updateSettingsEstimates(); });
+$('settingsForm').addEventListener('change', () => { settingsDirty = true; });
 $('settingsForm').addEventListener('submit', event => {
   event.preventDefault();
   if (settingsBusy || !validateSettingsForm() || !settingsAuthorizationReady('settings')) return;
-  openConfirmModal('Gravar as configurações alteradas na NVS.', password => saveSettings(password));
+  openConfirmModal(currentSettingsScope() === 'global' ? 'Gravar as configurações globais do ESP32.' : 'Gravar as configurações de ' + $('selectedCameraName').textContent + '.', password => saveSettings(password));
 });
 
 async function saveSettings(password) {
@@ -1756,8 +1945,7 @@ async function saveSettings(password) {
     const payload = await postForm('/api/settings', collectMutationParams(true, password));
     populateSettings(payload);
     setSettingsStatus(
-      'Configurações salvas e aplicadas. Endereço: http://'
-        + payload.values.localHostname + '.local/',
+      payload.scope === 'global' ? 'Configurações globais salvas. Endereço: http://' + payload.values.localHostname + '.local/' : 'Configurações da câmera salvas e aplicadas.',
       'ok'
     );
     refresh();
@@ -1771,7 +1959,7 @@ async function saveSettings(password) {
 
 $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
-  openConfirmModal('Restaurar os ajustes operacionais para os padrões de fábrica, mantendo o usuário e a senha da câmera.', password => resetSettings(password));
+  openConfirmModal(currentSettingsScope() === 'global' ? 'Restaurar somente os ajustes globais do ESP32.' : 'Restaurar os ajustes de ' + $('selectedCameraName').textContent + ', mantendo suas credenciais.', password => resetSettings(password));
 });
 
 async function resetSettings(password) {
@@ -1783,8 +1971,7 @@ async function resetSettings(password) {
     const payload = await postForm('/api/settings/reset', collectMutationParams(false, password));
     populateSettings(payload);
     setSettingsStatus(
-      'Padrões restaurados e aplicados. Endereço: http://'
-        + payload.values.localHostname + '.local/',
+      payload.scope === 'global' ? 'Padrões globais restaurados.' : 'Padrões da câmera restaurados; credenciais preservadas.',
       'ok'
     );
     refresh();
@@ -1798,7 +1985,8 @@ async function resetSettings(password) {
 
 const ADMIN_ACTIONS = {
   'health-check': ['/api/actions/health-check', 'Verificação manual solicitada.', false],
-  rediscover: ['/api/actions/rediscover', 'Redescoberta solicitada.', false],
+  rediscover: ['/api/actions/rediscover', 'Redescobrir todas as câmeras e cadastrar as novas encontradas.', false],
+  'reboot-all-cameras': ['/api/actions/reboot-all-cameras', 'Reiniciar todas as câmeras cadastradas, respeitando os limites individuais.', true],
   'reboot-camera': ['/api/actions/reboot-camera', 'Reboot ONVIF solicitado.', true],
   'reset-reboot-limiter': ['/api/actions/reset-reboot-limiter', 'Limitador de reboots será limpo.', true],
   'clear-logs': ['/api/actions/clear-logs', 'Todos os registros atuais serão removidos permanentemente e substituídos por um marcador de auditoria.', true],
@@ -1847,7 +2035,8 @@ document.querySelectorAll('[data-admin-action]').forEach(button => {
   button.addEventListener('click', () => {
     const action = ADMIN_ACTIONS[button.dataset.adminAction];
     if (!action || settingsBusy || !settingsAuthorizationReady('actions')) return;
-    openConfirmModal(action[1], password => executeAdminAction(action, password));
+    const individual = ['health-check','reboot-camera','reset-reboot-limiter'].includes(button.dataset.adminAction);
+    openConfirmModal(action[1] + (individual ? '\nCâmera: ' + $('selectedCameraName').textContent : '\nAlcance: global.'), password => executeAdminAction(action, password));
   });
 });
 
@@ -2193,10 +2382,7 @@ function render(d) {
 function scheduleStatusRefresh(delay) {
   clearTimeout(statusRefreshTimer);
   statusRefreshTimer = null;
-  if (
-    document.hidden ||
-    activeView === 'feed'
-  ) return;
+  if (document.hidden) return;
   statusRefreshTimer = setTimeout(refresh, delay == null ? statusRefreshIntervalMs : delay);
 }
 
@@ -2204,50 +2390,38 @@ async function refresh(force) {
   clearTimeout(statusRefreshTimer);
   statusRefreshTimer = null;
   if (statusLoading) return;
-  if (activeView === 'feed' && lastOk && !force) return;
-  if (activeView === 'feed' && feedLoading) {
-    scheduleStatusRefresh(250);
-    return;
-  }
+  if (activeView === 'feed' && feedLoading) { scheduleStatusRefresh(250); return; }
   statusLoading = true;
-  const requestGeneration = ++statusRequestGeneration;
-  const abortController = typeof AbortController === 'function'
-    ? new AbortController()
-    : null;
-  statusAbortController = abortController;
-  let requestTimeout;
+  const generation = ++statusRequestGeneration;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  statusAbortController = controller;
+  const timeout = setTimeout(() => { if (controller) controller.abort(); }, 20000);
   try {
-    const timeoutMs = Math.max(5000, Math.min(30000, statusRefreshIntervalMs * 2));
-    const payload = await Promise.race([
-      (async () => {
-        const response = await fetch('/api/status', {
-          cache: 'no-store',
-          signal: abortController ? abortController.signal : undefined
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return response.json();
-      })(),
-      new Promise((resolve, reject) => {
-        requestTimeout = setTimeout(() => {
-          if (abortController) abortController.abort();
-          reject(new Error('status_timeout'));
-        }, timeoutMs);
-      })
-    ]);
-    if (requestGeneration !== statusRequestGeneration) return;
-    render(payload);
+    await loadCameraRegistry(controller ? controller.signal : undefined);
+    if (generation !== statusRequestGeneration) return;
+    if (selectedCameraId && activeView !== 'overview' && activeView !== 'logs') {
+      const id = selectedCameraId;
+      const response = await fetch(cameraUrl('/api/status', id), { cache: 'no-store', signal: controller ? controller.signal : undefined });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const payload = await response.json();
+      if (generation !== statusRequestGeneration || payload.cameraId !== selectedCameraId) return;
+      render(payload);
+    }
+    if ((activeView === 'settings' || activeView === 'actions' || activeView === 'feed') && !settingsDirty) loadSettings(false);
+    lastOk = Date.now();
     $('deviceStatus').classList.remove('stale');
+    $('deviceStatusText').textContent = 'atualizado agora';
   } catch (error) {
-    if (requestGeneration === statusRequestGeneration && !document.hidden) {
+    if (generation === statusRequestGeneration && !document.hidden) {
       $('deviceStatus').classList.add('stale');
       $('deviceStatusText').textContent = 'sem resposta do dispositivo';
     }
   } finally {
-    clearTimeout(requestTimeout);
-    if (requestGeneration !== statusRequestGeneration) return;
+    clearTimeout(timeout);
+    if (generation !== statusRequestGeneration) return;
     statusAbortController = null;
     statusLoading = false;
-    scheduleStatusRefresh(statusRefreshIntervalMs);
+    scheduleStatusRefresh();
   }
 }
 
@@ -2258,9 +2432,18 @@ setInterval(() => {
 }, 1000);
 
 function activateView(name, updateHash) {
-  const nextView = ['actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed'].includes(name)
+  const nextView = ['overview', 'camera', 'actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed'].includes(name)
     ? name
-    : 'camera';
+    : 'overview';
+  if (activeView === 'settings' && nextView !== activeView && settingsDirty) {
+    if (!window.confirm('Descartar as alterações não salvas antes de sair das configurações?')) {
+      if (updateHash === false) location.hash = '#settings';
+      return;
+    }
+    settingsDirty = false;
+    settingsLoaded = false;
+    settingsLoadedKey = '';
+  }
   activeView = nextView;
   document.querySelectorAll('[data-view-panel]').forEach(panel => {
     panel.hidden = panel.dataset.viewPanel !== nextView;

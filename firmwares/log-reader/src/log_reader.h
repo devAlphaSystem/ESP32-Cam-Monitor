@@ -19,6 +19,7 @@ struct Entry {
     uint32_t value = 0;
     uint16_t bootId = 0;
     uint16_t contextId = 0;
+    uint32_t cameraId = 0;
     uint16_t targetPort = 0;
     int16_t statusCode = 0;
     uint16_t event = 0;

@@ -23,9 +23,9 @@ void appendOnvifEndpointJson(String& json, const char* name, const OnvifServiceE
     json += "\"}";
 }
 
-String buildStatusJson()
+String buildStatusJson(CameraContext& ctx)
 {
-    refreshCameraRebootWindow();
+    refreshCameraRebootWindow(ctx);
     const uint32_t heapTotalBytes = ESP.getHeapSize();
     const uint32_t heapFreeBytes = ESP.getFreeHeap();
     const uint32_t heapMinimumFreeBytes = ESP.getMinFreeHeap();
@@ -39,19 +39,21 @@ String buildStatusJson()
     const bool sntpReferenceIsFresh = sntpReferenceFresh(sntpReference);
 
     String json;
-    json.reserve(22000 + static_cast<size_t>(onvifPtz.presetCount) * 240);
+    json.reserve(22000 + static_cast<size_t>(ctx.onvifPtz.presetCount) * 240);
 
-    json += "{";
+    json += "{\"cameraId\":";
+    json += ctx.id;
+    json += ',';
     json += "\"firmwareVersion\":\"";
     json += FIRMWARE_VERSION;
     json += "\",\"state\":\"";
-    json += stateName(cameraState);
+    json += stateName(ctx.cameraState);
     json += "\",\"lastEvent\":\"";
-    json += jsonEscape(lastEvent);
+    json += jsonEscape(ctx.lastEvent);
     json += "\",\"uptimeSeconds\":";
     json += now / 1000UL;
     json += ",\"stateSinceSeconds\":";
-    json += (now - lastStateChangeAtMs) / 1000UL;
+    json += (now - ctx.lastStateChangeAtMs) / 1000UL;
     json += ',';
 
     json += "\"resources\":{";
@@ -128,9 +130,9 @@ String buildStatusJson()
     json += "\",\"ip\":\"";
     json += WiFi.localIP().toString();
     json += "\",\"hostname\":\"";
-    json += LOCAL_HOSTNAME;
+    json += globalSettings.localHostname;
     json += ".local\",\"localUrl\":\"http://";
-    json += LOCAL_HOSTNAME;
+    json += globalSettings.localHostname;
     json += ".local/\",\"mdnsAvailable\":";
     json += mdnsAvailable && WiFi.status() == WL_CONNECTED ? "true" : "false";
     json += ",\"gateway\":\"";
@@ -140,22 +142,22 @@ String buildStatusJson()
     json += "},";
 
     json += "\"alertLed\":{\"configured\":";
-    json += ENABLE_CAMERA_ALERT_LED ? "true" : "false";
+    json += globalSettings.enableCameraAlertLed ? "true" : "false";
     json += ",\"blinking\":";
     json += cameraAlertLedBlinking ? "true" : "false";
     json += ",\"on\":";
     json += cameraAlertLedOn ? "true" : "false";
     json += ",\"reason\":\"";
 
-    if (!ENABLE_CAMERA_ALERT_LED) {
+    if (!globalSettings.enableCameraAlertLed) {
         json += "disabled";
     } else if (WiFi.status() != WL_CONNECTED) {
         json += "wifi_disconnected";
-    } else if (activeIncident != IncidentKind::None) {
-        json += incidentName(activeIncident);
-    } else if (cameraState == CameraState::Offline) {
+    } else if (ctx.activeIncident != IncidentKind::None) {
+        json += incidentName(ctx.activeIncident);
+    } else if (ctx.cameraState == CameraState::Offline) {
         json += "camera_offline";
-    } else if (cameraState == CameraState::Recovering) {
+    } else if (ctx.cameraState == CameraState::Recovering) {
         json += "camera_recovering";
     } else {
         json += "none";
@@ -164,370 +166,372 @@ String buildStatusJson()
     json += "\"},";
 
     json += "\"camera\":{";
-    json += "\"name\":\"";
-    json += jsonEscape(CAMERA_NAME);
+    json += "\"id\":";
+    json += ctx.id;
+    json += ",\"name\":\"";
+    json += jsonEscape(ctx.settings.cameraName);
     json += "\",\"known\":";
-    json += camera.valid ? "true" : "false";
+    json += ctx.camera.valid ? "true" : "false";
     json += ",\"ip\":\"";
-    json += camera.valid ? camera.ip.toString() : String("");
+    json += ctx.camera.valid ? ctx.camera.ip.toString() : String("");
     json += "\",\"onvifUrl\":\"";
-    json += jsonEscape(camera.onvifUrl);
+    json += jsonEscape(ctx.camera.onvifUrl);
     json += "\",\"uuid\":\"";
-    json += jsonEscape(camera.endpointUuid);
+    json += jsonEscape(ctx.camera.endpointUuid);
     json += "\",\"scopes\":\"";
-    json += jsonEscape(camera.scopes);
+    json += jsonEscape(ctx.camera.scopes);
     json += "\",\"rtspPort\":";
-    json += camera.rtspPort;
+    json += ctx.camera.rtspPort;
     json += "},";
 
     json += "\"onvif\":{";
     json += "\"catalogResolved\":";
-    json += onvifServices.resolved ? "true" : "false";
+    json += ctx.onvifServices.resolved ? "true" : "false";
     json += ",\"usedMediaFallback\":";
-    json += onvifServices.usedMediaFallback ? "true" : "false";
+    json += ctx.onvifServices.usedMediaFallback ? "true" : "false";
     json += ",\"serviceCount\":";
-    json += onvifServices.serviceCount;
+    json += ctx.onvifServices.serviceCount;
     json += ",\"attempts\":";
-    json += onvifServices.attempts;
+    json += ctx.onvifServices.attempts;
     json += ",\"successes\":";
-    json += onvifServices.successes;
+    json += ctx.onvifServices.successes;
     json += ",\"failures\":";
-    json += onvifServices.failures;
+    json += ctx.onvifServices.failures;
     json += ",\"rejectedEndpoints\":";
-    json += onvifServices.rejectedEndpoints;
+    json += ctx.onvifServices.rejectedEndpoints;
     json += ",\"lastStatus\":";
-    json += onvifServices.lastStatusCode;
+    json += ctx.onvifServices.lastStatusCode;
     json += ",\"lastLatencyMs\":";
-    json += onvifServices.lastLatencyMs;
+    json += ctx.onvifServices.lastLatencyMs;
     json += ",\"ageSeconds\":";
-    json += onvifServices.resolvedAtMs == 0 ? 0UL : (now - onvifServices.resolvedAtMs) / 1000UL;
+    json += ctx.onvifServices.resolvedAtMs == 0 ? 0UL : (now - ctx.onvifServices.resolvedAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(onvifServices.lastResult);
+    json += jsonEscape(ctx.onvifServices.lastResult);
     json += "\",\"authentication\":{";
     json += "\"usernameToken\":";
-    json += onvifServices.usernameToken ? "true" : "false";
+    json += ctx.onvifServices.usernameToken ? "true" : "false";
     json += ",\"httpDigest\":";
-    json += onvifServices.httpDigest ? "true" : "false";
+    json += ctx.onvifServices.httpDigest ? "true" : "false";
     json += "},\"capabilities\":{";
     json += "\"snapshotUri\":";
-    json += onvifServices.mediaSnapshotUri ? "true" : "false";
+    json += ctx.onvifServices.mediaSnapshotUri ? "true" : "false";
     json += ",\"eventsPullPoint\":";
-    json += onvifServices.eventsPullPoint ? "true" : "false";
+    json += ctx.onvifServices.eventsPullPoint ? "true" : "false";
     json += ",\"imagingStabilizationAdvertised\":";
-    json += onvifServices.imagingStabilizationAdvertised ? "true" : "false";
+    json += ctx.onvifServices.imagingStabilizationAdvertised ? "true" : "false";
     json += ",\"analyticsRules\":";
-    json += onvifServices.analyticsRules ? "true" : "false";
+    json += ctx.onvifServices.analyticsRules ? "true" : "false";
     json += ",\"analyticsModules\":";
-    json += onvifServices.analyticsModules ? "true" : "false";
+    json += ctx.onvifServices.analyticsModules ? "true" : "false";
     json += "},\"services\":{";
-    appendOnvifEndpointJson(json, "device", onvifServices.device, false);
-    appendOnvifEndpointJson(json, "media1", onvifServices.media1, true);
-    appendOnvifEndpointJson(json, "media2", onvifServices.media2, true);
-    appendOnvifEndpointJson(json, "events", onvifServices.events, true);
-    appendOnvifEndpointJson(json, "ptz", onvifServices.ptz, true);
-    appendOnvifEndpointJson(json, "imaging", onvifServices.imaging, true);
-    appendOnvifEndpointJson(json, "analytics", onvifServices.analytics, true);
-    appendOnvifEndpointJson(json, "deviceIo", onvifServices.deviceIo, true);
+    appendOnvifEndpointJson(json, "device", ctx.onvifServices.device, false);
+    appendOnvifEndpointJson(json, "media1", ctx.onvifServices.media1, true);
+    appendOnvifEndpointJson(json, "media2", ctx.onvifServices.media2, true);
+    appendOnvifEndpointJson(json, "events", ctx.onvifServices.events, true);
+    appendOnvifEndpointJson(json, "ptz", ctx.onvifServices.ptz, true);
+    appendOnvifEndpointJson(json, "imaging", ctx.onvifServices.imaging, true);
+    appendOnvifEndpointJson(json, "analytics", ctx.onvifServices.analytics, true);
+    appendOnvifEndpointJson(json, "deviceIo", ctx.onvifServices.deviceIo, true);
     json += "},\"ptz\":{";
     json += "\"available\":";
-    json += onvifServices.ptz.available ? "true" : "false";
+    json += ctx.onvifServices.ptz.available ? "true" : "false";
     json += ",\"profileResolved\":";
-    json += onvifPtz.profileResolved ? "true" : "false";
+    json += ctx.onvifPtz.profileResolved ? "true" : "false";
     json += ",\"profileToken\":\"";
-    json += jsonEscape(onvifPtz.profileToken);
+    json += jsonEscape(ctx.onvifPtz.profileToken);
     json += "\",\"profileName\":\"";
-    json += jsonEscape(onvifPtz.profileName);
+    json += jsonEscape(ctx.onvifPtz.profileName);
     json += "\",\"presetsLoaded\":";
-    json += onvifPtz.presetsLoaded ? "true" : "false";
+    json += ctx.onvifPtz.presetsLoaded ? "true" : "false";
     json += ",\"presetCount\":";
-    json += onvifPtz.presetCount;
+    json += ctx.onvifPtz.presetCount;
     json += ",\"reportedPresetCount\":";
-    json += onvifPtz.reportedPresetCount;
+    json += ctx.onvifPtz.reportedPresetCount;
     json += ",\"truncated\":";
-    json += onvifPtz.truncated ? "true" : "false";
+    json += ctx.onvifPtz.truncated ? "true" : "false";
     json += ",\"daemonPresetToken\":\"";
     json += jsonEscape(CAMERA_DAEMON_PRESET_TOKEN);
     json += "\",\"refreshAttempts\":";
-    json += onvifPtz.refreshAttempts;
+    json += ctx.onvifPtz.refreshAttempts;
     json += ",\"refreshSuccesses\":";
-    json += onvifPtz.refreshSuccesses;
+    json += ctx.onvifPtz.refreshSuccesses;
     json += ",\"refreshFailures\":";
-    json += onvifPtz.refreshFailures;
+    json += ctx.onvifPtz.refreshFailures;
     json += ",\"lastStatus\":";
-    json += onvifPtz.lastRefreshStatusCode;
+    json += ctx.onvifPtz.lastRefreshStatusCode;
     json += ",\"lastLatencyMs\":";
-    json += onvifPtz.lastRefreshLatencyMs;
+    json += ctx.onvifPtz.lastRefreshLatencyMs;
     json += ",\"ageSeconds\":";
-    json += onvifPtz.refreshedAtMs == 0 ? 0UL : (now - onvifPtz.refreshedAtMs) / 1000UL;
+    json += ctx.onvifPtz.refreshedAtMs == 0 ? 0UL : (now - ctx.onvifPtz.refreshedAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(onvifPtz.lastResult);
+    json += jsonEscape(ctx.onvifPtz.lastResult);
     json += "\",\"command\":{";
     json += "\"attempts\":";
-    json += onvifPtz.commandAttempts;
+    json += ctx.onvifPtz.commandAttempts;
     json += ",\"accepted\":";
-    json += onvifPtz.commandAccepted;
+    json += ctx.onvifPtz.commandAccepted;
     json += ",\"errors\":";
-    json += onvifPtz.commandErrors;
+    json += ctx.onvifPtz.commandErrors;
     json += ",\"lastToken\":\"";
-    json += jsonEscape(onvifPtz.lastCommandToken);
+    json += jsonEscape(ctx.onvifPtz.lastCommandToken);
     json += "\",\"lastStatus\":";
-    json += onvifPtz.lastCommandStatusCode;
+    json += ctx.onvifPtz.lastCommandStatusCode;
     json += ",\"lastLatencyMs\":";
-    json += onvifPtz.lastCommandLatencyMs;
+    json += ctx.onvifPtz.lastCommandLatencyMs;
     json += ",\"ageSeconds\":";
-    json += onvifPtz.lastCommandAtMs == 0 ? 0UL : (now - onvifPtz.lastCommandAtMs) / 1000UL;
+    json += ctx.onvifPtz.lastCommandAtMs == 0 ? 0UL : (now - ctx.onvifPtz.lastCommandAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(onvifPtz.lastCommandResult);
+    json += jsonEscape(ctx.onvifPtz.lastCommandResult);
     json += "\"},\"presets\":[";
 
-    for (uint16_t index = 0; index < onvifPtz.presetCount; index++) {
+    for (uint16_t index = 0; index < ctx.onvifPtz.presetCount; index++) {
         if (index > 0) {
             json += ',';
         }
 
         json += "{\"token\":\"";
-        json += jsonEscape(onvifPtz.presets[index].token);
+        json += jsonEscape(ctx.onvifPtz.presets[index].token);
         json += "\",\"name\":\"";
-        json += jsonEscape(onvifPtz.presets[index].name);
+        json += jsonEscape(ctx.onvifPtz.presets[index].name);
         json += "\",\"daemon\":";
-        json += onvifPtzPresetIsDaemon(onvifPtz.presets[index].token) ? "true" : "false";
+        json += onvifPtzPresetIsDaemon(ctx.onvifPtz.presets[index].token) ? "true" : "false";
         json += '}';
     }
 
     json += "]},\"deviceInfo\":{";
     json += "\"loaded\":";
-    json += onvifMetadata.loaded ? "true" : "false";
+    json += ctx.onvifMetadata.loaded ? "true" : "false";
     json += ",\"inventoryComplete\":";
-    json += onvifMetadata.loadedAtMs != 0 ? "true" : "false";
+    json += ctx.onvifMetadata.loadedAtMs != 0 ? "true" : "false";
     json += ",\"manufacturer\":\"";
-    json += jsonEscape(onvifMetadata.manufacturer);
+    json += jsonEscape(ctx.onvifMetadata.manufacturer);
     json += "\",\"model\":\"";
-    json += jsonEscape(onvifMetadata.model);
+    json += jsonEscape(ctx.onvifMetadata.model);
     json += "\",\"firmware\":\"";
-    json += jsonEscape(onvifMetadata.firmware);
+    json += jsonEscape(ctx.onvifMetadata.firmware);
     json += "\",\"dateTimeType\":\"";
-    json += jsonEscape(onvifMetadata.dateTimeType);
+    json += jsonEscape(ctx.onvifMetadata.dateTimeType);
     json += "\",\"reportedTimeZone\":\"";
-    json += jsonEscape(onvifMetadata.timeZone);
+    json += jsonEscape(ctx.onvifMetadata.timeZone);
     json += "\",\"scopeCount\":";
-    json += onvifMetadata.scopeCount;
+    json += ctx.onvifMetadata.scopeCount;
     json += ",\"profileT\":";
-    json += onvifMetadata.profileT ? "true" : "false";
+    json += ctx.onvifMetadata.profileT ? "true" : "false";
     json += ",\"requests\":";
-    json += onvifMetadata.requests;
+    json += ctx.onvifMetadata.requests;
     json += ",\"failures\":";
-    json += onvifMetadata.failures;
+    json += ctx.onvifMetadata.failures;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(onvifMetadata.lastResult);
+    json += jsonEscape(ctx.onvifMetadata.lastResult);
     json += "\"},\"clock\":{";
     json += "\"checked\":";
-    json += cameraClockStatus.checked ? "true" : "false";
+    json += ctx.cameraClockStatus.checked ? "true" : "false";
     json += ",\"utcValid\":";
-    json += cameraClockStatus.utcValid ? "true" : "false";
+    json += ctx.cameraClockStatus.utcValid ? "true" : "false";
     json += ",\"healthy\":";
-    json += (cameraClockStatus.utcValid && sntpReferenceIsFresh && cameraClockStatus.driftMs >= -CAMERA_CLOCK_HEALTHY_DRIFT_MS && cameraClockStatus.driftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS) ? "true" : "false";
+    json += (ctx.cameraClockStatus.utcValid && sntpReferenceIsFresh && ctx.cameraClockStatus.driftMs >= -CAMERA_CLOCK_HEALTHY_DRIFT_MS && ctx.cameraClockStatus.driftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS) ? "true" : "false";
     json += ",\"referenceSynchronized\":";
     json += sntpReferenceIsFresh ? "true" : "false";
     json += ",\"dateTimeType\":\"";
-    json += jsonEscape(cameraClockStatus.dateTimeType);
+    json += jsonEscape(ctx.cameraClockStatus.dateTimeType);
     json += "\",\"reportedTimeZone\":\"";
-    json += jsonEscape(cameraClockStatus.timeZone);
+    json += jsonEscape(ctx.cameraClockStatus.timeZone);
     json += "\",\"daylightSavings\":";
-    json += cameraClockStatus.daylightSavings ? "true" : "false";
+    json += ctx.cameraClockStatus.daylightSavings ? "true" : "false";
     json += ",\"driftMilliseconds\":";
-    if (cameraClockStatus.utcValid) {
-        json += cameraClockStatus.driftMs;
+    if (ctx.cameraClockStatus.utcValid) {
+        json += ctx.cameraClockStatus.driftMs;
     } else {
         json += "null";
     }
     json += ",\"roundTripMs\":";
-    if (cameraClockStatus.utcValid) {
-        json += cameraClockStatus.roundTripMs;
+    if (ctx.cameraClockStatus.utcValid) {
+        json += ctx.cameraClockStatus.roundTripMs;
     } else {
         json += "null";
     }
     json += ",\"checks\":";
-    json += cameraClockStatus.checks;
+    json += ctx.cameraClockStatus.checks;
     json += ",\"failures\":";
-    json += cameraClockStatus.failures;
+    json += ctx.cameraClockStatus.failures;
     json += ",\"lastCheckAgeSeconds\":";
-    json += cameraClockStatus.lastCheckAtMs == 0 ? 0UL : (now - cameraClockStatus.lastCheckAtMs) / 1000UL;
+    json += ctx.cameraClockStatus.lastCheckAtMs == 0 ? 0UL : (now - ctx.cameraClockStatus.lastCheckAtMs) / 1000UL;
     json += ",\"referenceAgeSeconds\":";
     json += !sntpReference.synchronized || sntpReference.synchronizedAtMs == 0 ? 0UL : (now - sntpReference.synchronizedAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(cameraClockStatus.lastResult);
+    json += jsonEscape(ctx.cameraClockStatus.lastResult);
     json += "\"},\"events\":{";
     json += "\"propertiesLoaded\":";
-    json += onvifMetadata.eventPropertiesLoaded ? "true" : "false";
+    json += ctx.onvifMetadata.eventPropertiesLoaded ? "true" : "false";
     json += ",\"topicCount\":";
-    json += onvifMetadata.eventTopicCount;
+    json += ctx.onvifMetadata.eventTopicCount;
     json += ",\"descriptionCount\":";
-    json += onvifMetadata.eventDescriptionCount;
+    json += ctx.onvifMetadata.eventDescriptionCount;
     json += ",\"motion\":";
-    json += onvifMetadata.motionEvents ? "true" : "false";
+    json += ctx.onvifMetadata.motionEvents ? "true" : "false";
     json += ",\"tamper\":";
-    json += onvifMetadata.tamperEvents ? "true" : "false";
+    json += ctx.onvifMetadata.tamperEvents ? "true" : "false";
     json += ",\"signalLoss\":";
-    json += onvifMetadata.signalLossEvents ? "true" : "false";
+    json += ctx.onvifMetadata.signalLossEvents ? "true" : "false";
     json += ",\"imageQuality\":";
-    json += onvifMetadata.imageQualityEvents ? "true" : "false";
+    json += ctx.onvifMetadata.imageQualityEvents ? "true" : "false";
     json += "}},";
 
     json += "\"probes\":{";
     json += "\"onvifTcp\":";
-    json += lastOnvifProbe.tcpConnected ? "true" : "false";
+    json += ctx.lastOnvifProbe.tcpConnected ? "true" : "false";
     json += ",\"onvifHttp\":";
-    json += lastOnvifProbe.protocolResponded ? "true" : "false";
+    json += ctx.lastOnvifProbe.protocolResponded ? "true" : "false";
     json += ",\"onvifStatus\":";
-    json += lastOnvifProbe.statusCode;
+    json += ctx.lastOnvifProbe.statusCode;
     json += ",\"onvifLatencyMs\":";
-    json += lastOnvifProbe.latencyMs;
+    json += ctx.lastOnvifProbe.latencyMs;
     json += ",\"rtspTcp\":";
-    json += lastRtspProbe.tcpConnected ? "true" : "false";
+    json += ctx.lastRtspProbe.tcpConnected ? "true" : "false";
     json += ",\"rtspAttempted\":";
-    json += lastRtspProbeAttempted ? "true" : "false";
+    json += ctx.lastRtspProbeAttempted ? "true" : "false";
     json += ",\"rtspProtocol\":";
-    json += lastRtspProbe.protocolResponded ? "true" : "false";
+    json += ctx.lastRtspProbe.protocolResponded ? "true" : "false";
     json += ",\"rtspStatus\":";
-    json += lastRtspProbe.statusCode;
+    json += ctx.lastRtspProbe.statusCode;
     json += ",\"rtspLatencyMs\":";
-    json += lastRtspProbe.latencyMs;
+    json += ctx.lastRtspProbe.latencyMs;
     json += "},";
 
     json += "\"healthEvidence\":{\"source\":\"";
-    json += healthEvidenceSourceName(lastHealthEvidenceSource);
+    json += healthEvidenceSourceName(ctx.lastHealthEvidenceSource);
     json += "\",\"ageSeconds\":";
-    json += lastHealthEvidenceAtMs == 0 ? 0UL : (now - lastHealthEvidenceAtMs) / 1000UL;
+    json += ctx.lastHealthEvidenceAtMs == 0 ? 0UL : (now - ctx.lastHealthEvidenceAtMs) / 1000UL;
     json += "},";
 
     json += "\"snapshot\":{";
     json += "\"ready\":";
-    json += snapshotTarget.valid ? "true" : "false";
+    json += ctx.snapshotTarget.valid ? "true" : "false";
     json += ",\"attempted\":";
-    json += lastSnapshotProbe.attempted ? "true" : "false";
+    json += ctx.lastSnapshotProbe.attempted ? "true" : "false";
     json += ",\"requestAttempted\":";
-    json += lastSnapshotProbe.requestAttempted ? "true" : "false";
+    json += ctx.lastSnapshotProbe.requestAttempted ? "true" : "false";
     json += ",\"resolutionAttempted\":";
-    json += lastSnapshotProbe.resolutionAttempted ? "true" : "false";
+    json += ctx.lastSnapshotProbe.resolutionAttempted ? "true" : "false";
     json += ",\"resolutionTransportFailure\":";
-    json += lastSnapshotProbe.resolutionTransportFailure ? "true" : "false";
+    json += ctx.lastSnapshotProbe.resolutionTransportFailure ? "true" : "false";
     json += ",\"conclusive\":";
-    json += lastSnapshotProbe.conclusive ? "true" : "false";
+    json += ctx.lastSnapshotProbe.conclusive ? "true" : "false";
     json += ",\"profileFailoverPending\":";
-    json += snapshotProfileFailoverPending ? "true" : "false";
+    json += ctx.snapshotProfileFailoverPending ? "true" : "false";
     json += ",\"targetResolved\":";
-    json += lastSnapshotProbe.targetResolved ? "true" : "false";
+    json += ctx.lastSnapshotProbe.targetResolved ? "true" : "false";
     json += ",\"healthy\":";
-    json += lastSnapshotProbe.jpegValid ? "true" : "false";
+    json += ctx.lastSnapshotProbe.jpegValid ? "true" : "false";
     json += ",\"httpResponded\":";
-    json += lastSnapshotProbe.httpResponded ? "true" : "false";
+    json += ctx.lastSnapshotProbe.httpResponded ? "true" : "false";
     json += ",\"status\":";
-    json += lastSnapshotProbe.statusCode;
+    json += ctx.lastSnapshotProbe.statusCode;
     json += ",\"latencyMs\":";
-    json += lastSnapshotProbe.latencyMs;
+    json += ctx.lastSnapshotProbe.latencyMs;
     json += ",\"bytesRead\":";
-    json += static_cast<unsigned long>(lastSnapshotProbe.bytesRead);
+    json += static_cast<unsigned long>(ctx.lastSnapshotProbe.bytesRead);
     json += ",\"profile\":\"";
-    json += jsonEscape(snapshotTarget.profileName);
+    json += jsonEscape(ctx.snapshotTarget.profileName);
     json += "\",\"detail\":\"";
-    json += jsonEscape(lastSnapshotProbe.detail);
+    json += jsonEscape(ctx.lastSnapshotProbe.detail);
     json += "\",\"served\":";
-    json += snapshotsServed;
+    json += ctx.snapshotsServed;
     json += ",\"errors\":";
-    json += snapshotErrors;
+    json += ctx.snapshotErrors;
     json += ",\"cameraHttpRequests\":";
-    json += cameraJpegHttpRequests;
+    json += ctx.cameraJpegHttpRequests;
     json += ",\"cameraHttpConnectionReuses\":";
-    json += cameraJpegConnectionReuses;
+    json += ctx.cameraJpegConnectionReuses;
     json += ",\"digestPreemptiveRequests\":";
-    json += cameraJpegDigestPreemptiveRequests;
+    json += ctx.cameraJpegDigestPreemptiveRequests;
     json += ",\"previewFetchOperations\":";
-    json += previewCameraFetches;
+    json += ctx.previewCameraFetches;
     json += ",\"busyResponses\":";
-    json += previewBusyResponses;
+    json += ctx.previewBusyResponses;
     json += ",\"clientAborts\":";
-    json += previewClientAborts;
+    json += ctx.previewClientAborts;
     json += ",\"bytesTransferred\":";
-    appendUnsigned64(json, previewBytesTransferred);
+    appendUnsigned64(json, ctx.previewBytesTransferred);
     json += ",\"healthEvidenceUses\":";
-    json += previewHealthEvidenceUses;
+    json += ctx.previewHealthEvidenceUses;
     json += ",\"lastDeliveredAgeSeconds\":";
-    json += lastBrowserSnapshotDeliveredAtMs == 0 ? 0UL : (now - lastBrowserSnapshotDeliveredAtMs) / 1000UL;
+    json += ctx.lastBrowserSnapshotDeliveredAtMs == 0 ? 0UL : (now - ctx.lastBrowserSnapshotDeliveredAtMs) / 1000UL;
     json += ",\"lastDeliveredBytes\":";
-    json += lastBrowserSnapshotBytes;
+    json += ctx.lastBrowserSnapshotBytes;
     json += ",\"lastDeliveredLatencyMs\":";
-    json += lastBrowserSnapshotLatencyMs;
+    json += ctx.lastBrowserSnapshotLatencyMs;
     json += ",\"probeRuns\":";
-    json += snapshotProbeRuns;
+    json += ctx.snapshotProbeRuns;
     json += ",\"probeFailures\":";
-    json += snapshotProbeFailures;
+    json += ctx.snapshotProbeFailures;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(lastSnapshotResult);
+    json += jsonEscape(ctx.lastSnapshotResult);
     json += "\"},";
 
     json += "\"incident\":{";
     json += "\"kind\":\"";
-    json += incidentName(activeIncident);
+    json += incidentName(ctx.activeIncident);
     json += "\",\"active\":";
-    json += activeIncident != IncidentKind::None ? "true" : "false";
+    json += ctx.activeIncident != IncidentKind::None ? "true" : "false";
     json += ",\"alertSent\":";
-    json += incidentAlertSent ? "true" : "false";
+    json += ctx.incidentAlertSent ? "true" : "false";
     json += ",\"pendingAlert\":";
-    json += pendingIncidentEmail ? "true" : "false";
+    json += ctx.pendingIncidentEmail ? "true" : "false";
     json += ",\"durationSeconds\":";
-    json += incidentStartedAtMs == 0 ? 0UL : (now - incidentStartedAtMs) / 1000UL;
+    json += ctx.incidentStartedAtMs == 0 ? 0UL : (now - ctx.incidentStartedAtMs) / 1000UL;
     json += "},";
 
     json += "\"recovery\":{";
     json += "\"autoRebootEnabled\":";
-    json += ENABLE_ONVIF_AUTO_REBOOT ? "true" : "false";
+    json += ctx.settings.enableOnvifAutoReboot ? "true" : "false";
     json += ",\"credentialsConfigured\":";
-    json += cameraCredentialsConfigured() ? "true" : "false";
+    json += cameraCredentialsConfigured(ctx) ? "true" : "false";
     json += ",\"graceActive\":";
-    json += cameraRebootGraceActive() ? "true" : "false";
+    json += cameraRebootGraceActive(ctx) ? "true" : "false";
     json += ",\"graceRemainingSeconds\":";
-    json += cameraRebootGraceRemainingMs() / 1000UL;
+    json += cameraRebootGraceRemainingMs(ctx) / 1000UL;
     json += ",\"attempts\":";
-    json += cameraRebootAttempts;
+    json += ctx.cameraRebootAttempts;
     json += ",\"accepted\":";
-    json += cameraRebootAccepted;
+    json += ctx.cameraRebootAccepted;
     json += ",\"errors\":";
-    json += cameraRebootErrors;
+    json += ctx.cameraRebootErrors;
     json += ",\"automatic\":{";
     json += "\"attempts\":";
-    json += automaticCameraRebootAttempts;
+    json += ctx.automaticCameraRebootAttempts;
     json += ",\"accepted\":";
-    json += automaticCameraRebootAccepted;
+    json += ctx.automaticCameraRebootAccepted;
     json += ",\"errors\":";
-    json += automaticCameraRebootErrors;
+    json += ctx.automaticCameraRebootErrors;
     json += "},\"manual\":{";
     json += "\"attempts\":";
-    json += manualCameraRebootAttempts;
+    json += ctx.manualCameraRebootAttempts;
     json += ",\"accepted\":";
-    json += manualCameraRebootAccepted;
+    json += ctx.manualCameraRebootAccepted;
     json += ",\"errors\":";
-    json += manualCameraRebootErrors;
+    json += ctx.manualCameraRebootErrors;
     json += "}";
     json += ",\"attemptsInWindow\":";
-    json += cameraRebootAttemptsInWindow;
+    json += ctx.cameraRebootAttemptsInWindow;
     json += ",\"maxAttemptsInWindow\":";
-    json += MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW;
+    json += ctx.settings.maxOnvifRebootAttemptsPerWindow;
     json += ",\"lastAttemptAgeSeconds\":";
-    json += lastCameraRebootAttemptAtMs == 0 ? 0UL : (now - lastCameraRebootAttemptAtMs) / 1000UL;
+    json += ctx.lastCameraRebootAttemptAtMs == 0 ? 0UL : (now - ctx.lastCameraRebootAttemptAtMs) / 1000UL;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(lastCameraRebootResult);
+    json += jsonEscape(ctx.lastCameraRebootResult);
     json += "\",\"lastEvidence\":\"";
-    json += jsonEscape(lastCameraRebootEvidence);
+    json += jsonEscape(ctx.lastCameraRebootEvidence);
     json += "\",\"acceptedHistory\":[";
 
-    const size_t cameraRebootHistoryStart = (cameraRebootHistoryNext + CAMERA_REBOOT_HISTORY_CAPACITY - cameraRebootHistoryCount) % CAMERA_REBOOT_HISTORY_CAPACITY;
+    const size_t cameraRebootHistoryStart = (ctx.cameraRebootHistoryNext + CAMERA_REBOOT_HISTORY_CAPACITY - ctx.cameraRebootHistoryCount) % CAMERA_REBOOT_HISTORY_CAPACITY;
 
-    for (size_t offset = 0; offset < cameraRebootHistoryCount; offset++) {
+    for (size_t offset = 0; offset < ctx.cameraRebootHistoryCount; offset++) {
         if (offset > 0) {
             json += ',';
         }
 
-        const CameraRebootEvidence& evidence = cameraRebootHistory[(cameraRebootHistoryStart + offset) % CAMERA_REBOOT_HISTORY_CAPACITY];
+        const CameraRebootEvidence& evidence = ctx.cameraRebootHistory[(cameraRebootHistoryStart + offset) % CAMERA_REBOOT_HISTORY_CAPACITY];
         json += "{\"timestamp\":\"";
         json += jsonEscape(evidence.timestamp);
         json += "\",\"uptimeSeconds\":";
@@ -556,33 +560,33 @@ String buildStatusJson()
 
     json += "\"counters\":{";
     json += "\"totalChecks\":";
-    json += totalHealthChecks;
+    json += ctx.totalHealthChecks;
     json += ",\"successfulChecks\":";
-    json += successfulHealthChecks;
+    json += ctx.successfulHealthChecks;
     json += ",\"failedChecks\":";
-    json += failedHealthChecks;
+    json += ctx.failedHealthChecks;
     json += ",\"inconclusiveChecks\":";
-    json += inconclusiveHealthChecks;
+    json += ctx.inconclusiveHealthChecks;
     json += ",\"consecutiveFailures\":";
-    json += consecutiveFailures;
+    json += ctx.consecutiveFailures;
     json += ",\"consecutiveImageFailures\":";
-    json += consecutiveFailures;
+    json += ctx.consecutiveFailures;
     json += ",\"consecutiveControlFailures\":";
-    json += consecutiveControlFailures;
+    json += ctx.consecutiveControlFailures;
     json += ",\"consecutiveInconclusiveChecks\":";
-    json += consecutiveInconclusiveChecks;
+    json += ctx.consecutiveInconclusiveChecks;
     json += ",\"consecutiveMediaServiceFailures\":";
-    json += consecutiveMediaServiceFailures;
+    json += ctx.consecutiveMediaServiceFailures;
     json += ",\"consecutiveSuccesses\":";
-    json += consecutiveSuccesses;
+    json += ctx.consecutiveSuccesses;
     json += ",\"discoveryRuns\":";
     json += discoveryRuns;
     json += ",\"subnetScanRuns\":";
     json += subnetScanRuns;
     json += ",\"emailsSent\":";
-    json += emailsSent;
+    json += ctx.emailsSent;
     json += ",\"emailErrors\":";
-    json += emailErrors;
+    json += ctx.emailErrors;
     json += "},";
 
     json += "\"lastDiscovery\":\"";
@@ -590,20 +594,20 @@ String buildStatusJson()
     json += "\",\"lastSubnetScan\":\"";
     json += jsonEscape(lastScanResult);
     json += "\",\"lastEmailResult\":\"";
-    json += jsonEscape(lastEmailResult);
+    json += jsonEscape(ctx.lastEmailResult);
     json += "\",\"resendConfigured\":";
     json += resendConfigured() ? "true" : "false";
     json += ",\"ui\":{";
     json += "\"feedMinimumIntervalMs\":";
-    json += FEED_MIN_INTERVAL_MS;
+    json += ctx.settings.feedMinIntervalMs;
     json += ",\"feedTargetCycleMs\":";
-    json += FEED_TARGET_CYCLE_MS;
+    json += ctx.settings.feedTargetCycleMs;
     json += ",\"previewMaximumFps\":";
-    json += String(1000.0f / FEED_TARGET_CYCLE_MS, 2);
+    json += String(1000.0f / ctx.settings.feedTargetCycleMs, 2);
     json += ",\"statusRefreshIntervalMs\":";
-    json += STATUS_REFRESH_INTERVAL_MS;
+    json += globalSettings.statusRefreshIntervalMs;
     json += ",\"snapshotHttpTimeoutMs\":";
-    json += SNAPSHOT_HTTP_TIMEOUT_MS;
+    json += ctx.settings.snapshotHttpTimeoutMs;
     json += "},\"settings\":{";
     json += "\"defaultsRevision\":";
     json += RUNTIME_SETTINGS_DEFAULTS_REVISION;
@@ -674,6 +678,12 @@ void appendPersistentLogJson(String& json, const PersistentLog::Entry& entry)
     json += entry.bootId;
     json += ",\"contextId\":";
     json += entry.contextId;
+    json += ",\"cameraId\":";
+    json += entry.cameraId;
+    json += ",\"cameraName\":\"";
+    const CameraContext* sourceCamera = findCamera(entry.cameraId);
+    appendJsonEscaped(json, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("Historico sem identificacao") : entry.cameraId == 0 ? String("Sistema") : String("Camera ") + entry.cameraId);
+    json += '"';
     json += ",\"timestamp\":\"";
     json += persistentLogTimestamp(entry);
     json += "\",\"timestampUtc\":\"";
@@ -759,10 +769,11 @@ void handlePersistentLogs()
 
     size_t returned = 0;
 
-    for (size_t index = offset; index < total && returned < limit; index++) {
+    size_t index = offset;
+    for (; index < total && returned < limit; index++) {
         PersistentLog::Entry entry;
 
-        if (!PersistentLog::readNewest(index, entry)) {
+        if (!PersistentLog::readNewest(index, entry) || entry.level == PersistentLog::Level::Info) {
             continue;
         }
 
@@ -775,8 +786,10 @@ void handlePersistentLogs()
 
     json += "],\"returned\":";
     json += returned;
+    json += ",\"nextOffset\":";
+    json += index;
     json += ",\"hasMore\":";
-    json += offset + returned < total ? "true" : "false";
+    json += index < total ? "true" : "false";
     json += '}';
     sendJsonResponse(200, json);
 }
@@ -851,6 +864,11 @@ void appendPersistentLogCsv(String& csv, const PersistentLog::Entry& entry)
     csv += persistentLogTimeSynchronized(entry) ? '1' : '0';
     csv += ';';
     csv += persistentLogTimeoutMs(entry);
+    csv += ';';
+    csv += entry.cameraId;
+    csv += ';';
+    const CameraContext* sourceCamera = findCamera(entry.cameraId);
+    appendCsvText(csv, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("Historico sem identificacao") : entry.cameraId == 0 ? String("Sistema") : String("Camera ") + entry.cameraId);
     csv += "\r\n";
 }
 
@@ -868,13 +886,13 @@ void handlePersistentLogsExport()
     chunk += "id;timestamp;uptime_ms;level;category;event;outcome;";
     chunk += "target_ip;target_port;status;duration_ms;value;outbound;";
     chunk += "connection_reused;authentication_retry;manual;scheduled;detail;";
-    chunk += "boot_id;context_id;timestamp_utc;time_synchronized;timeout_ms\r\n";
+    chunk += "boot_id;context_id;timestamp_utc;time_synchronized;timeout_ms;camera_id;camera_name\r\n";
 
     for (size_t chronological = 0; chronological < total; chronological++) {
         const size_t newestOffset = total - chronological - 1;
         PersistentLog::Entry entry;
 
-        if (!PersistentLog::readNewest(newestOffset, entry)) {
+        if (!PersistentLog::readNewest(newestOffset, entry) || entry.level == PersistentLog::Level::Info) {
             continue;
         }
 
@@ -915,7 +933,7 @@ void sendApiError(int statusCode, const char* code, const String& detail)
 
 bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
 {
-    if (blockDuringHealthCheck && healthCheckInProgress) {
+    if (blockDuringHealthCheck && (healthCheckInProgress || registryBusy || cameraIoDepth != 0)) {
         error = "Verificacao de saude em andamento; tente novamente";
         return false;
     }
@@ -1057,11 +1075,6 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
     }
     copySettingText(candidate.cameraName, textValue);
 
-    if (!readStringSettingArgument("localHostname", LOCAL_HOSTNAME_MIN_LENGTH, LOCAL_HOSTNAME_MAX_LENGTH, textValue, error)) {
-        return false;
-    }
-    copySettingText(candidate.localHostname, textValue);
-
     if (!readStringSettingArgument("snapshotProfileMatch", 0, SNAPSHOT_PROFILE_MATCH_MAX_LENGTH, textValue, error)) {
         return false;
     }
@@ -1137,28 +1150,17 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
     READ_U32(onvifRebootWindowMs, "onvifRebootWindowMs", ONVIF_REBOOT_WINDOW_MIN_MS, ONVIF_REBOOT_WINDOW_MAX_MS);
     READ_U8(maxOnvifRebootAttemptsPerWindow, "maxOnvifRebootAttemptsPerWindow", MAX_ONVIF_REBOOT_ATTEMPTS_MIN, MAX_ONVIF_REBOOT_ATTEMPTS_MAX);
 
-    READ_U32(wifiConnectTimeoutMs, "wifiConnectTimeoutMs", WIFI_CONNECT_TIMEOUT_MIN_MS, WIFI_CONNECT_TIMEOUT_MAX_MS);
-    READ_BOOL(enableAutomaticSubnetScan, "enableAutomaticSubnetScan");
-    READ_U32(discoveryTimeoutMs, "discoveryTimeoutMs", DISCOVERY_TIMEOUT_MIN_MS, DISCOVERY_TIMEOUT_MAX_MS);
-    READ_U32(rediscoveryIntervalMs, "rediscoveryIntervalMs", REDISCOVERY_INTERVAL_MIN_MS, REDISCOVERY_INTERVAL_MAX_MS);
-    READ_U32(subnetScanIntervalMs, "subnetScanIntervalMs", SUBNET_SCAN_INTERVAL_MIN_MS, SUBNET_SCAN_INTERVAL_MAX_MS);
-
     READ_BOOL(enableEmailAlerts, "enableEmailAlerts");
     READ_BOOL(emailOnIpChange, "emailOnIpChange");
-    READ_U32(emailRetryIntervalMs, "emailRetryIntervalMs", EMAIL_RETRY_INTERVAL_MIN_MS, EMAIL_RETRY_INTERVAL_MAX_MS);
 
     READ_U32(tcpConnectTimeoutMs, "tcpConnectTimeoutMs", TCP_CONNECT_TIMEOUT_MIN_MS, TCP_CONNECT_TIMEOUT_MAX_MS);
     READ_U32(serviceResponseTimeoutMs, "serviceResponseTimeoutMs", SERVICE_RESPONSE_TIMEOUT_MIN_MS, SERVICE_RESPONSE_TIMEOUT_MAX_MS);
-    READ_U32(scanConnectTimeoutMs, "scanConnectTimeoutMs", SCAN_CONNECT_TIMEOUT_MIN_MS, SCAN_CONNECT_TIMEOUT_MAX_MS);
     READ_U32(snapshotHttpTimeoutMs, "snapshotHttpTimeoutMs", SNAPSHOT_HTTP_TIMEOUT_MIN_MS, SNAPSHOT_HTTP_TIMEOUT_MAX_MS);
     READ_U32(snapshotResolveRetryIntervalMs, "snapshotResolveRetryIntervalMs", SNAPSHOT_RESOLVE_RETRY_INTERVAL_MIN_MS, SNAPSHOT_RESOLVE_RETRY_INTERVAL_MAX_MS);
     READ_U8(snapshotFailuresBeforeReresolve, "snapshotFailuresBeforeReresolve", SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MIN, SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MAX);
 
-    READ_BOOL(enableCameraAlertLed, "enableCameraAlertLed");
-    READ_U32(cameraAlertLedBlinkIntervalMs, "cameraAlertLedBlinkIntervalMs", CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS, CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS);
     READ_U32(feedMinIntervalMs, "feedMinIntervalMs", FEED_MIN_INTERVAL_MIN_MS, FEED_MIN_INTERVAL_MAX_MS);
     READ_U32(feedTargetCycleMs, "feedTargetCycleMs", FEED_TARGET_CYCLE_MIN_MS, FEED_TARGET_CYCLE_MAX_MS);
-    READ_U32(statusRefreshIntervalMs, "statusRefreshIntervalMs", STATUS_REFRESH_INTERVAL_MIN_MS, STATUS_REFRESH_INTERVAL_MAX_MS);
 #undef READ_BOOL
 #undef READ_U8
 #undef READ_U16
@@ -1167,212 +1169,398 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
     return validateRuntimeSettings(candidate, error);
 }
 
-String buildSettingsJson()
+bool parseGlobalSettingsRequest(GlobalSettings& candidate, String& error)
+{
+    String textValue;
+    uint32_t numericValue = 0;
+    if (!readStringSettingArgument("localHostname", LOCAL_HOSTNAME_MIN_LENGTH, LOCAL_HOSTNAME_MAX_LENGTH, textValue, error)) {
+        return false;
+    }
+    copySettingText(candidate.localHostname, textValue);
+#define READ_U32(field, argument, minimum, maximum) \
+    if (!readUnsignedSettingArgument( \
+        argument, minimum, maximum, numericValue, error \
+    )) { \
+        return false; \
+    } \
+    candidate.field = numericValue
+
+#define READ_U16(field, argument, minimum, maximum) \
+    READ_U32(field, argument, minimum, maximum); \
+    candidate.field = static_cast<uint16_t>(numericValue)
+
+#define READ_U8(field, argument, minimum, maximum) \
+    READ_U32(field, argument, minimum, maximum); \
+    candidate.field = static_cast<uint8_t>(numericValue)
+
+#define READ_BOOL(field, argument) \
+    if (!readBooleanSettingArgument(argument, candidate.field, error)) { \
+        return false; \
+    }
+
+    READ_U32(wifiConnectTimeoutMs, "wifiConnectTimeoutMs", WIFI_CONNECT_TIMEOUT_MIN_MS, WIFI_CONNECT_TIMEOUT_MAX_MS);
+    READ_BOOL(enableAutomaticSubnetScan, "enableAutomaticSubnetScan");
+    READ_U32(discoveryTimeoutMs, "discoveryTimeoutMs", DISCOVERY_TIMEOUT_MIN_MS, DISCOVERY_TIMEOUT_MAX_MS);
+    READ_U32(rediscoveryIntervalMs, "rediscoveryIntervalMs", REDISCOVERY_INTERVAL_MIN_MS, REDISCOVERY_INTERVAL_MAX_MS);
+    READ_U32(subnetScanIntervalMs, "subnetScanIntervalMs", SUBNET_SCAN_INTERVAL_MIN_MS, SUBNET_SCAN_INTERVAL_MAX_MS);
+    READ_U32(emailRetryIntervalMs, "emailRetryIntervalMs", EMAIL_RETRY_INTERVAL_MIN_MS, EMAIL_RETRY_INTERVAL_MAX_MS);
+    READ_U32(scanConnectTimeoutMs, "scanConnectTimeoutMs", SCAN_CONNECT_TIMEOUT_MIN_MS, SCAN_CONNECT_TIMEOUT_MAX_MS);
+    READ_BOOL(enableCameraAlertLed, "enableCameraAlertLed");
+    READ_U32(cameraAlertLedBlinkIntervalMs, "cameraAlertLedBlinkIntervalMs", CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS, CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS);
+    READ_U32(statusRefreshIntervalMs, "statusRefreshIntervalMs", STATUS_REFRESH_INTERVAL_MIN_MS, STATUS_REFRESH_INTERVAL_MAX_MS);
+#undef READ_BOOL
+#undef READ_U8
+#undef READ_U16
+#undef READ_U32
+    return validateGlobalSettings(candidate, error);
+}
+
+String buildSettingsJson(CameraContext* ctx)
 {
     String json;
-    json.reserve(3400);
+    json.reserve(2400);
     json += "{\"ok\":true,\"schemaVersion\":";
     json += RUNTIME_SETTINGS_SCHEMA_VERSION;
     json += ",\"defaultsRevision\":";
     json += RUNTIME_SETTINGS_DEFAULTS_REVISION;
+    json += ",\"scope\":\"";
+    json += ctx == nullptr ? "global" : "camera";
+    json += "\",\"cameraId\":";
+    json += ctx == nullptr ? 0 : ctx->id;
     json += ",\"source\":\"";
-    json += settingsLoadedFromNvs ? "nvs" : "factory";
+    json += (ctx == nullptr ? settingsLoadedFromNvs : ctx->settingsLoadedFromNvs) ? "nvs" : "factory";
     json += "\",\"revision\":";
     json += settingsRevision;
     json += ",\"writeCount\":";
     json += settingsWriteCount;
     json += ",\"lastResult\":\"";
-    json += jsonEscape(lastSettingsResult);
-    json += "\",\"security\":{";
-    json += "\"passwordRequired\":";
+    appendJsonEscaped(json, lastSettingsResult);
+    json += "\",\"security\":{\"passwordRequired\":";
     json += adminPasswordConfigured() ? "true" : "false";
     json += ",\"writeToken\":\"";
     json += settingsWriteToken;
     json += "\",\"cameraPasswordConfigured\":";
-    json += settings.cameraPassword[0] != '\0' ? "true" : "false";
-    json += "},\"estimates\":{";
-    json += "\"imageAlertSeconds\":";
-    json += (static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) * VIDEO_FAILURES_BEFORE_ALERT) / 1000ULL;
-    json += ",\"imageRebootSeconds\":";
-    json += (static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) * VIDEO_FAILURES_BEFORE_REBOOT) / 1000ULL;
-    json += ",\"offlineSeconds\":";
-    json += (static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) * FAILURES_BEFORE_OFFLINE) / 1000ULL;
+    json += ctx != nullptr && ctx->settings.cameraPassword[0] != '\0' ? "true" : "false";
     json += "},\"values\":{";
-    json += "\"cameraName\":\"";
-    json += jsonEscape(CAMERA_NAME);
-    json += "\",\"localHostname\":\"";
-    json += jsonEscape(LOCAL_HOSTNAME);
-    json += "\",\"cameraUsername\":\"";
-    json += jsonEscape(settings.cameraUsername);
-    json += "\",\"snapshotProfileMatch\":\"";
-    json += jsonEscape(CAMERA_SNAPSHOT_PROFILE_MATCH);
-    json += "\",\"cameraRtspPort\":";
-    json += CAMERA_RTSP_PORT;
-    json += ",\"healthCheckIntervalMs\":";
-    json += HEALTH_CHECK_INTERVAL_MS;
-    json += ",\"startupGraceMs\":";
-    json += STARTUP_GRACE_MS;
-    json += ",\"failuresBeforeRediscovery\":";
-    json += FAILURES_BEFORE_REDISCOVERY;
-    json += ",\"failuresBeforeOffline\":";
-    json += FAILURES_BEFORE_OFFLINE;
-    json += ",\"successesBeforeRecovery\":";
-    json += SUCCESSES_BEFORE_RECOVERY;
-    json += ",\"videoFailuresBeforeAlert\":";
-    json += VIDEO_FAILURES_BEFORE_ALERT;
-    json += ",\"videoFailuresBeforeReboot\":";
-    json += VIDEO_FAILURES_BEFORE_REBOOT;
-    json += ",\"enableOnvifAutoReboot\":";
-    json += ENABLE_ONVIF_AUTO_REBOOT ? "true" : "false";
-    json += ",\"onvifRebootGraceMs\":";
-    json += ONVIF_REBOOT_GRACE_MS;
-    json += ",\"onvifRebootCooldownMs\":";
-    json += ONVIF_REBOOT_COOLDOWN_MS;
-    json += ",\"onvifRebootWindowMs\":";
-    json += ONVIF_REBOOT_WINDOW_MS;
-    json += ",\"maxOnvifRebootAttemptsPerWindow\":";
-    json += MAX_ONVIF_REBOOT_ATTEMPTS_PER_WINDOW;
-    json += ",\"wifiConnectTimeoutMs\":";
-    json += WIFI_CONNECT_TIMEOUT_MS;
-    json += ",\"enableAutomaticSubnetScan\":";
-    json += ENABLE_AUTOMATIC_SUBNET_SCAN ? "true" : "false";
-    json += ",\"discoveryTimeoutMs\":";
-    json += DISCOVERY_TIMEOUT_MS;
-    json += ",\"rediscoveryIntervalMs\":";
-    json += REDISCOVERY_INTERVAL_MS;
-    json += ",\"subnetScanIntervalMs\":";
-    json += SUBNET_SCAN_INTERVAL_MS;
-    json += ",\"enableEmailAlerts\":";
-    json += ENABLE_EMAIL_ALERTS ? "true" : "false";
-    json += ",\"emailOnIpChange\":";
-    json += EMAIL_ON_IP_CHANGE ? "true" : "false";
-    json += ",\"emailRetryIntervalMs\":";
-    json += EMAIL_RETRY_INTERVAL_MS;
-    json += ",\"tcpConnectTimeoutMs\":";
-    json += TCP_CONNECT_TIMEOUT_MS;
-    json += ",\"serviceResponseTimeoutMs\":";
-    json += SERVICE_RESPONSE_TIMEOUT_MS;
-    json += ",\"scanConnectTimeoutMs\":";
-    json += SCAN_CONNECT_TIMEOUT_MS;
-    json += ",\"snapshotHttpTimeoutMs\":";
-    json += SNAPSHOT_HTTP_TIMEOUT_MS;
-    json += ",\"snapshotResolveRetryIntervalMs\":";
-    json += SNAPSHOT_RESOLVE_RETRY_INTERVAL_MS;
-    json += ",\"snapshotFailuresBeforeReresolve\":";
-    json += SNAPSHOT_FAILURES_BEFORE_RERESOLVE;
-    json += ",\"enableCameraAlertLed\":";
-    json += ENABLE_CAMERA_ALERT_LED ? "true" : "false";
-    json += ",\"cameraAlertLedBlinkIntervalMs\":";
-    json += CAMERA_ALERT_LED_BLINK_INTERVAL_MS;
-    json += ",\"feedMinIntervalMs\":";
-    json += FEED_MIN_INTERVAL_MS;
-    json += ",\"feedTargetCycleMs\":";
-    json += FEED_TARGET_CYCLE_MS;
-    json += ",\"statusRefreshIntervalMs\":";
-    json += STATUS_REFRESH_INTERVAL_MS;
+    if (ctx == nullptr) {
+        json += "\"wifiConnectTimeoutMs\":";
+        json += globalSettings.wifiConnectTimeoutMs;
+        json += ",\"enableAutomaticSubnetScan\":";
+        json += globalSettings.enableAutomaticSubnetScan;
+        json += ",\"discoveryTimeoutMs\":";
+        json += globalSettings.discoveryTimeoutMs;
+        json += ",\"rediscoveryIntervalMs\":";
+        json += globalSettings.rediscoveryIntervalMs;
+        json += ",\"subnetScanIntervalMs\":";
+        json += globalSettings.subnetScanIntervalMs;
+        json += ",\"emailRetryIntervalMs\":";
+        json += globalSettings.emailRetryIntervalMs;
+        json += ",\"scanConnectTimeoutMs\":";
+        json += globalSettings.scanConnectTimeoutMs;
+        json += ",\"enableCameraAlertLed\":";
+        json += globalSettings.enableCameraAlertLed;
+        json += ",\"cameraAlertLedBlinkIntervalMs\":";
+        json += globalSettings.cameraAlertLedBlinkIntervalMs;
+        json += ",\"statusRefreshIntervalMs\":";
+        json += globalSettings.statusRefreshIntervalMs;
+        json += ",\"localHostname\":";
+        json += '"';
+        appendJsonEscaped(json, globalSettings.localHostname);
+        json += '"';
+    } else {
+        json += "\"cameraName\":";
+        json += '"';
+        appendJsonEscaped(json, ctx->settings.cameraName);
+        json += '"';
+        json += ",\"snapshotProfileMatch\":";
+        json += '"';
+        appendJsonEscaped(json, ctx->settings.snapshotProfileMatch);
+        json += '"';
+        json += ",\"cameraRtspPort\":";
+        json += ctx->settings.cameraRtspPort;
+        json += ",\"healthCheckIntervalMs\":";
+        json += ctx->settings.healthCheckIntervalMs;
+        json += ",\"startupGraceMs\":";
+        json += ctx->settings.startupGraceMs;
+        json += ",\"failuresBeforeRediscovery\":";
+        json += ctx->settings.failuresBeforeRediscovery;
+        json += ",\"failuresBeforeOffline\":";
+        json += ctx->settings.failuresBeforeOffline;
+        json += ",\"successesBeforeRecovery\":";
+        json += ctx->settings.successesBeforeRecovery;
+        json += ",\"videoFailuresBeforeAlert\":";
+        json += ctx->settings.videoFailuresBeforeAlert;
+        json += ",\"videoFailuresBeforeReboot\":";
+        json += ctx->settings.videoFailuresBeforeReboot;
+        json += ",\"enableOnvifAutoReboot\":";
+        json += ctx->settings.enableOnvifAutoReboot;
+        json += ",\"onvifRebootGraceMs\":";
+        json += ctx->settings.onvifRebootGraceMs;
+        json += ",\"onvifRebootCooldownMs\":";
+        json += ctx->settings.onvifRebootCooldownMs;
+        json += ",\"onvifRebootWindowMs\":";
+        json += ctx->settings.onvifRebootWindowMs;
+        json += ",\"maxOnvifRebootAttemptsPerWindow\":";
+        json += ctx->settings.maxOnvifRebootAttemptsPerWindow;
+        json += ",\"enableEmailAlerts\":";
+        json += ctx->settings.enableEmailAlerts;
+        json += ",\"emailOnIpChange\":";
+        json += ctx->settings.emailOnIpChange;
+        json += ",\"tcpConnectTimeoutMs\":";
+        json += ctx->settings.tcpConnectTimeoutMs;
+        json += ",\"serviceResponseTimeoutMs\":";
+        json += ctx->settings.serviceResponseTimeoutMs;
+        json += ",\"snapshotHttpTimeoutMs\":";
+        json += ctx->settings.snapshotHttpTimeoutMs;
+        json += ",\"snapshotResolveRetryIntervalMs\":";
+        json += ctx->settings.snapshotResolveRetryIntervalMs;
+        json += ",\"snapshotFailuresBeforeReresolve\":";
+        json += ctx->settings.snapshotFailuresBeforeReresolve;
+        json += ",\"feedMinIntervalMs\":";
+        json += ctx->settings.feedMinIntervalMs;
+        json += ",\"feedTargetCycleMs\":";
+        json += ctx->settings.feedTargetCycleMs;
+        json += ",\"cameraUsername\":";
+        json += '"';
+        appendJsonEscaped(json, ctx->settings.cameraUsername);
+        json += '"';
+    }
     json += "}}";
     return json;
 }
 
+CameraContext* requestedCamera()
+{
+    if (!httpServer.hasArg("cameraId")) {
+        sendApiError(400, "camera_required", "Identificador da camera ausente");
+        return nullptr;
+    }
+    uint32_t id = 0;
+    String error;
+    if (!readUnsignedSettingArgument("cameraId", 1, UINT32_MAX, id, error)) {
+        sendApiError(422, "invalid_camera", error);
+        return nullptr;
+    }
+    CameraContext* ctx = findCamera(id);
+    if (ctx == nullptr)
+        sendApiError(404, "camera_not_found", "Camera nao cadastrada");
+    return ctx;
+}
+
+bool readSettingsScope(bool& globalScope)
+{
+    const String scope = httpServer.arg("scope");
+    if (scope != "global" && scope != "camera") {
+        sendApiError(422, "invalid_scope", "Informe o escopo global ou camera");
+        return false;
+    }
+    globalScope = scope == "global";
+    return true;
+}
+
+void handleCameraRegistry()
+{
+    httpServer.sendHeader("Cache-Control", "no-store");
+    httpServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    httpServer.send(200, "application/json; charset=utf-8", "");
+    String json;
+    json.reserve(1024);
+    json += "{\"ok\":true,\"firmwareVersion\":\"";
+    json += FIRMWARE_VERSION;
+    json += "\",\"revision\":";
+    json += registryRevision;
+    json += ",\"total\":";
+    json += cameraCount;
+    json += ",\"uptimeSeconds\":";
+    json += millis() / 1000UL;
+    json += ",\"statusRefreshIntervalMs\":";
+    json += globalSettings.statusRefreshIntervalMs;
+    json += ",\"wifiConnected\":";
+    json += WiFi.status() == WL_CONNECTED ? "true" : "false";
+    json += ",\"heapFreeBytes\":";
+    json += ESP.getFreeHeap();
+    json += ",\"heapMinimumFreeBytes\":";
+    json += ESP.getMinFreeHeap();
+    json += ",\"heapLargestBlockBytes\":";
+    json += ESP.getMaxAllocHeap();
+    json += ",\"lastResult\":\"";
+    appendJsonEscaped(json, lastRegistryResult);
+    json += "\",\"adminAction\":{\"pending\":\"";
+    json += adminActionName(currentAdminAction());
+    json += "\",\"cameraId\":";
+    json += activeAdminCameraId != 0 ? activeAdminCameraId : pendingAdminCameraId;
+    json += ",\"completed\":";
+    json += batchCompleted;
+    json += ",\"accepted\":";
+    json += batchAccepted;
+    json += ",\"failed\":";
+    json += batchFailed;
+    json += ",\"lastResult\":\"";
+    appendJsonEscaped(json, lastAdminActionResult);
+    json += "\"},\"cameras\":[";
+    httpServer.sendContent(json);
+    bool first = true;
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        json = first ? "{" : ",{";
+        first = false;
+        json += "\"id\":";
+        json += ctx->id;
+        json += ",\"name\":\"";
+        appendJsonEscaped(json, ctx->settings.cameraName);
+        json += "\",\"ip\":\"";
+        json += ctx->camera.ip.toString();
+        json += "\",\"state\":\"";
+        json += stateName(ctx->cameraState);
+        json += "\",\"lastCheckAgeSeconds\":";
+        if (ctx->lastHealthCheckAtMs == 0)
+            json += "null";
+        else
+            json += (millis() - ctx->lastHealthCheckAtMs) / 1000UL;
+        json += ",\"healthCheckIntervalMs\":";
+        json += ctx->settings.healthCheckIntervalMs;
+        json += ",\"successfulChecks\":";
+        json += ctx->successfulHealthChecks;
+        json += ",\"failedChecks\":";
+        json += ctx->failedHealthChecks;
+        json += ",\"inconclusiveChecks\":";
+        json += ctx->inconclusiveHealthChecks;
+        json += ",\"lastEvent\":\"";
+        appendJsonEscaped(json, ctx->lastEvent);
+        json += "\"}";
+        httpServer.sendContent(json);
+    }
+    httpServer.sendContent("]}");
+    httpServer.sendContent("");
+}
+
 void handleSaveSettings()
 {
-    String authorizationError;
-
-    if (!authorizeSettingsMutation(authorizationError)) {
-        sendApiError(403, "forbidden", authorizationError);
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
         return;
     }
-
-    RuntimeSettings candidate = settings;
-    String validationError;
-
-    if (!parseRuntimeSettingsRequest(candidate, validationError)) {
-        sendApiError(422, "invalid_settings", validationError);
+    bool globalScope = false;
+    if (!readSettingsScope(globalScope))
         return;
-    }
-
-    if (!saveRuntimeSettingsToNvs(candidate)) {
-        sendApiError(500, "nvs_write_failed", "Falha ao gravar a NVS");
+    CameraContext* ctx = globalScope ? nullptr : requestedCamera();
+    if (!globalScope && ctx == nullptr)
         return;
+    if (globalScope) {
+        GlobalSettings candidate = globalSettings;
+        if (!parseGlobalSettingsRequest(candidate, error)) {
+            sendApiError(422, "invalid_settings", error);
+            return;
+        }
+        if (!saveGlobalSettingsToNvs(candidate)) {
+            sendApiError(500, "nvs_write_failed", "Falha ao gravar configuracoes globais");
+            return;
+        }
+        const GlobalSettings previous = globalSettings;
+        globalSettings = candidate;
+        settingsLoadedFromNvs = true;
+        applyGlobalSettings(previous);
+    } else {
+        RuntimeSettings candidate = ctx->settings;
+        if (!parseRuntimeSettingsRequest(candidate, error)) {
+            sendApiError(422, "invalid_settings", error);
+            return;
+        }
+        if (!saveRuntimeSettingsToNvs(*ctx, candidate)) {
+            sendApiError(500, "nvs_write_failed", "Falha ao gravar configuracoes da camera");
+            return;
+        }
+        const RuntimeSettings previous = ctx->settings;
+        ctx->settings = candidate;
+        ctx->settingsLoadedFromNvs = true;
+        applyRuntimeSettings(*ctx, previous);
     }
-
-    const RuntimeSettings previous = settings;
-    settings = candidate;
-    settingsLoadedFromNvs = true;
     settingsRevision++;
     settingsWriteCount++;
     lastSettingsResult = currentTimestamp() + " - configuracoes salvas";
-    applyRuntimeSettings(previous);
-    PersistentLog::record(PersistentLog::Event::SettingsSaved, PersistentLog::Outcome::Success, "runtime_settings", IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Info, true);
-    recordRuntimeSettingsContext("nvs", PersistentLog::FlagManual);
-    sendJsonResponse(200, buildSettingsJson());
+    sendJsonResponse(200, buildSettingsJson(ctx));
 }
 
 void handleResetSettings()
 {
-    String authorizationError;
-
-    if (!authorizeSettingsMutation(authorizationError)) {
-        sendApiError(403, "forbidden", authorizationError);
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
         return;
     }
-
-    RuntimeSettings defaults = makeDefaultRuntimeSettings();
-    copySettingText(defaults.cameraUsername, settings.cameraUsername);
-    copySettingText(defaults.cameraPassword, settings.cameraPassword);
-
-    if (!saveRuntimeSettingsToNvs(defaults)) {
-        sendApiError(500, "nvs_write_failed", "Falha ao gravar os padroes na NVS");
+    bool globalScope = false;
+    if (!readSettingsScope(globalScope))
         return;
+    CameraContext* ctx = globalScope ? nullptr : requestedCamera();
+    if (!globalScope && ctx == nullptr)
+        return;
+    if (globalScope) {
+        const GlobalSettings defaults = makeDefaultGlobalSettings();
+        if (!saveGlobalSettingsToNvs(defaults)) {
+            sendApiError(500, "nvs_write_failed", "Falha ao restaurar padroes globais");
+            return;
+        }
+        const GlobalSettings previous = globalSettings;
+        globalSettings = defaults;
+        settingsLoadedFromNvs = true;
+        applyGlobalSettings(previous);
+    } else {
+        RuntimeSettings defaults = makeDefaultRuntimeSettings();
+        copySettingText(defaults.cameraUsername, ctx->settings.cameraUsername);
+        copySettingText(defaults.cameraPassword, ctx->settings.cameraPassword);
+        if (!saveRuntimeSettingsToNvs(*ctx, defaults)) {
+            sendApiError(500, "nvs_write_failed", "Falha ao restaurar padroes da camera");
+            return;
+        }
+        const RuntimeSettings previous = ctx->settings;
+        ctx->settings = defaults;
+        ctx->settingsLoadedFromNvs = true;
+        applyRuntimeSettings(*ctx, previous);
     }
-
-    const RuntimeSettings previous = settings;
-    settings = defaults;
-    settingsLoadedFromNvs = true;
     settingsRevision++;
     settingsWriteCount++;
-    lastSettingsResult = currentTimestamp() + " - padroes restaurados; credenciais da camera mantidas";
-    applyRuntimeSettings(previous);
-    PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, "factory_defaults", IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
-    recordRuntimeSettingsContext("factory", PersistentLog::FlagManual);
-    sendJsonResponse(200, buildSettingsJson());
+    lastSettingsResult = currentTimestamp() + " - padroes restaurados; credenciais preservadas";
+    PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, globalScope ? "global_defaults" : "camera_defaults", ctx != nullptr ? ctx->camera.ip : IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, ctx != nullptr ? ctx->id : 0);
+    sendJsonResponse(200, buildSettingsJson(ctx));
 }
 
-bool queueAdminAction(AdminAction action, String& error)
+bool queueAdminAction(AdminAction action, uint32_t cameraId, String& error)
 {
-    const AdminAction busyAction = currentAdminAction();
-
-    if (busyAction != AdminAction::None) {
-        error = String("Outra acao esta em andamento: ") + adminActionName(busyAction);
+    if (currentAdminAction() != AdminAction::None) {
+        error = "Outra acao esta em andamento";
         return false;
     }
-
-    pendingAdminAction = action;
+    pendingAdminCameraId = cameraId;
     pendingAdminActionContextId = allocateLogContextId();
+    pendingAdminAction = action;
     lastAdminActionResult = currentTimestamp() + " - acao enfileirada: " + adminActionName(action);
-    PersistentLog::record(PersistentLog::Event::AdminAction, PersistentLog::Outcome::Started, adminActionName(action), camera.ip, camera.onvifPort, 0, 0, static_cast<uint32_t>(action), PersistentLog::FlagManual, PersistentLog::Level::Info, true, pendingAdminActionContextId);
     return true;
 }
 
 void handleAdminAction(AdminAction action)
 {
-    String authorizationError;
-
-    if (!authorizeSettingsMutation(authorizationError)) {
-        sendApiError(403, "forbidden", authorizationError);
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
         return;
     }
-
-    String queueError;
-
-    if (!queueAdminAction(action, queueError)) {
-        sendApiError(409, "action_busy", queueError);
+    const bool individual = action == AdminAction::HealthCheck || action == AdminAction::CameraReboot || action == AdminAction::ResetRebootLimiter;
+    CameraContext* ctx = individual ? requestedCamera() : nullptr;
+    if (individual && ctx == nullptr)
+        return;
+    if (action == AdminAction::RebootAllCameras && cameraCount == 0) {
+        sendApiError(409, "no_cameras", "Nenhuma camera cadastrada");
         return;
     }
-
+    if (!queueAdminAction(action, ctx != nullptr ? ctx->id : 0, error)) {
+        sendApiError(409, "action_busy", error);
+        return;
+    }
     String json = "{\"ok\":true,\"queued\":\"";
     json += adminActionName(action);
-    json += "\",\"message\":\"Acao recebida e sera executada pelo loop principal\"}";
+    json += "\",\"cameraId\":";
+    json += ctx != nullptr ? ctx->id : 0;
+    json += ",\"message\":\"Acao recebida e sera executada pelo loop principal\"}";
     sendJsonResponse(202, json);
 }
 
@@ -1411,6 +1599,10 @@ void handleClearPersistentLogs()
 
 void handleGotoPtzPresetAction()
 {
+    CameraContext* selected = requestedCamera();
+    if (selected == nullptr)
+        return;
+    CameraContext& ctx = *selected;
     String authorizationError;
 
     if (!authorizeSettingsMutation(authorizationError)) {
@@ -1431,14 +1623,14 @@ void handleGotoPtzPresetAction()
         return;
     }
 
-    if (!onvifPtz.presetsLoaded || onvifPtzPresetIndex(presetToken) < 0) {
+    if (!ctx.onvifPtz.presetsLoaded || onvifPtzPresetIndex(ctx, presetToken) < 0) {
         sendApiError(404, "preset_not_found", "Preset nao encontrado no catalogo atual da camera");
         return;
     }
 
     String queueError;
 
-    if (!queueAdminAction(AdminAction::GotoPtzPreset, queueError)) {
+    if (!queueAdminAction(AdminAction::GotoPtzPreset, ctx.id, queueError)) {
         sendApiError(409, "action_busy", queueError);
         return;
     }
@@ -1459,8 +1651,16 @@ void configureHttpServer()
         httpServer.send_P(200, "text/html; charset=utf-8", DASHBOARD_PAGE);
     });
 
+    httpServer.on("/api/cameras", HTTP_GET, handleCameraRegistry);
+
+    httpServer.on("/api/actions/reboot-all-cameras", HTTP_POST, [] {
+        handleAdminAction(AdminAction::RebootAllCameras);
+    });
+
     httpServer.on("/api/status", HTTP_GET, [] {
-        httpServer.send(200, "application/json; charset=utf-8", buildStatusJson());
+        CameraContext* ctx = requestedCamera();
+        if (ctx != nullptr)
+            sendJsonResponse(200, buildStatusJson(*ctx));
     });
 
     httpServer.on("/api/logs", HTTP_GET, [] {
@@ -1472,11 +1672,18 @@ void configureHttpServer()
     });
 
     httpServer.on("/api/camera/snapshot", HTTP_GET, [] {
-        serveCameraSnapshot();
+        CameraContext* ctx = requestedCamera();
+        if (ctx != nullptr)
+            serveCameraSnapshot(*ctx);
     });
 
     httpServer.on("/api/settings", HTTP_GET, [] {
-        sendJsonResponse(200, buildSettingsJson());
+        bool globalScope = false;
+        if (!readSettingsScope(globalScope))
+            return;
+        CameraContext* ctx = globalScope ? nullptr : requestedCamera();
+        if (globalScope || ctx != nullptr)
+            sendJsonResponse(200, buildSettingsJson(ctx));
     });
 
     httpServer.on("/api/settings", HTTP_POST, [] {

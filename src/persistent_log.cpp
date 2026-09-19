@@ -265,6 +265,7 @@ bool reformatLogStorage()
 void decodeRecord(const StoredRecord& stored, Entry& entry)
 {
     entry = Entry{};
+    entry.schemaVersion = stored.schemaVersion;
     entry.sequence = stored.sequence;
     entry.epochSeconds = stored.epochSeconds;
     entry.uptimeMs = stored.uptimeMs;
@@ -284,7 +285,10 @@ void decodeRecord(const StoredRecord& stored, Entry& entry)
     } else {
         entry.bootId = readUint16(stored.payload);
         entry.contextId = readUint16(stored.payload + 2);
-        memcpy(entry.detail, stored.payload + STORED_CONTEXT_BYTES, STORED_DETAIL_CAPACITY);
+        const size_t contextBytes = stored.schemaVersion == PersistentLogFormat::CONTEXT_RECORD_SCHEMA_VERSION ? 4 : STORED_CONTEXT_BYTES;
+        if (stored.schemaVersion == RECORD_SCHEMA_VERSION)
+            entry.cameraId = PersistentLogFormat::readUint32(stored.payload + 4);
+        memcpy(entry.detail, stored.payload + contextBytes, DETAIL_CAPACITY - contextBytes);
     }
 
     entry.detail[DETAIL_CAPACITY - 1] = '\0';
@@ -343,8 +347,14 @@ bool ready()
     return storeReady;
 }
 
-void record(Event event, Outcome outcome, const char* detail, const IPAddress& target, uint16_t targetPort, int statusCode, uint32_t durationMs, uint32_t value, uint8_t flags, Level level, bool critical, uint16_t contextId)
+void record(Event event, Outcome outcome, const char* detail, const IPAddress& target, uint16_t targetPort, int statusCode, uint32_t durationMs, uint32_t value, uint8_t flags, Level level, bool critical, uint16_t contextId, uint32_t cameraId)
 {
+    if (level == Level::Automatic) {
+        level = outcome == Outcome::Failure ? Level::Error : outcome == Outcome::Skipped ? Level::Warning : Level::Info;
+    }
+    if (level != Level::Warning && level != Level::Error)
+        return;
+
     if (!storeReady) {
         droppedRecords++;
         return;
@@ -373,15 +383,13 @@ void record(Event event, Outcome outcome, const char* detail, const IPAddress& t
     stored.schemaVersion = RECORD_SCHEMA_VERSION;
     stored.category = static_cast<uint8_t>(categoryForEvent(event));
 
-    if (level == Level::Automatic) {
-        level = outcome == Outcome::Failure ? Level::Error : outcome == Outcome::Skipped ? Level::Warning : Level::Info;
-    }
-
     stored.level = static_cast<uint8_t>(level);
     stored.outcome = static_cast<uint8_t>(outcome);
     stored.flags = flags;
     writeUint16(stored.payload, currentBootId);
     writeUint16(stored.payload + 2, contextId);
+    for (uint8_t index = 0; index < 4; index++)
+        stored.payload[4 + index] = static_cast<uint8_t>(cameraId >> (index * 8));
     copyDetail(reinterpret_cast<char*>(stored.payload + STORED_CONTEXT_BYTES), STORED_DETAIL_CAPACITY, detail);
     stored.checksum = recordChecksum(stored);
 

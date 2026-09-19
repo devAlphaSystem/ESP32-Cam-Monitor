@@ -2,42 +2,113 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.16.0";
+const char FIRMWARE_VERSION[] = "0.17.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
 constexpr char SETTINGS_NVS_KEY[] = "runtime";
 constexpr char SETTINGS_DEFAULTS_REVISION_KEY[] = "defaults_rev";
 constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
-constexpr uint16_t PREVIOUS_RUNTIME_SETTINGS_SCHEMA_VERSION = 4;
 constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS = 24UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t GLOBAL_SETTINGS_MAGIC = 0x43573036UL;
+constexpr uint32_t CAMERA_RECORD_MAGIC = 0x43414D36UL;
+constexpr char CAMERAS_NVS_NAMESPACE[] = "cameras";
+uint32_t nextCameraId = 1;
+bool cameraRegistryFullyLoaded = true;
 
-struct StoredSettingsBlob {
+struct GlobalSettingsBlob {
     uint32_t magic;
     uint16_t schemaVersion;
     uint16_t payloadSize;
+    GlobalSettings values;
+    uint32_t checksum;
+};
+
+struct CameraRecordHeader {
+    uint32_t magic;
+    uint32_t id;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    uint16_t urlBytes;
+    uint16_t uuidBytes;
     RuntimeSettings values;
     uint32_t checksum;
 };
 
-constexpr size_t PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE = offsetof(RuntimeSettings, cameraUsername);
+struct MigrationSettingsV5 {
+    char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
+    char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
+    uint16_t cameraRtspPort;
 
-struct PreviousStoredSettingsBlob {
+    uint32_t healthCheckIntervalMs;
+    uint32_t startupGraceMs;
+    uint8_t failuresBeforeRediscovery;
+    uint8_t failuresBeforeOffline;
+    uint8_t successesBeforeRecovery;
+    uint8_t videoFailuresBeforeAlert;
+    uint8_t videoFailuresBeforeReboot;
+
+    uint8_t enableOnvifAutoReboot;
+    uint32_t onvifRebootGraceMs;
+    uint32_t onvifRebootCooldownMs;
+    uint32_t onvifRebootWindowMs;
+    uint8_t maxOnvifRebootAttemptsPerWindow;
+
+    uint32_t wifiConnectTimeoutMs;
+    uint8_t enableAutomaticSubnetScan;
+    uint32_t discoveryTimeoutMs;
+    uint32_t rediscoveryIntervalMs;
+    uint32_t subnetScanIntervalMs;
+
+    uint8_t enableEmailAlerts;
+    uint8_t emailOnIpChange;
+    uint32_t emailRetryIntervalMs;
+
+    uint32_t tcpConnectTimeoutMs;
+    uint32_t serviceResponseTimeoutMs;
+    uint32_t scanConnectTimeoutMs;
+    uint32_t snapshotHttpTimeoutMs;
+    uint32_t snapshotResolveRetryIntervalMs;
+    uint8_t snapshotFailuresBeforeReresolve;
+
+    uint8_t enableCameraAlertLed;
+    uint32_t cameraAlertLedBlinkIntervalMs;
+    uint32_t feedMinIntervalMs;
+    uint32_t feedTargetCycleMs;
+    uint32_t statusRefreshIntervalMs;
+    char localHostname[LOCAL_HOSTNAME_MAX_LENGTH + 1];
+    char cameraUsername[CAMERA_USERNAME_MAX_LENGTH + 1];
+    char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
+};
+
+struct MigrationSettingsBlob {
     uint32_t magic;
     uint16_t schemaVersion;
     uint16_t payloadSize;
-    uint8_t values[PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE];
+    MigrationSettingsV5 values;
     uint32_t checksum;
 };
 
-static_assert(PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE == offsetof(RuntimeSettings, localHostname) + LOCAL_HOSTNAME_MAX_LENGTH + 1, "Credenciais devem permanecer apos os campos do esquema 4");
-
-RuntimeSettings settings = makeDefaultRuntimeSettings();
+GlobalSettings globalSettings = makeDefaultGlobalSettings();
+std::unique_ptr<CameraContext> cameras;
+size_t cameraCount = 0;
+uint32_t registryRevision = 1;
+String lastRegistryResult = "Cadastro ainda nao carregado";
+bool registryBusy = false;
+bool discoveryRequested = false;
+bool subnetScanRequested = false;
+uint32_t pendingAdminCameraId = 0;
+uint32_t activeAdminCameraId = 0;
+uint32_t batchNextCameraId = 0;
+uint32_t batchLastCameraId = 0;
+uint32_t batchCompleted = 0;
+uint32_t batchAccepted = 0;
+uint32_t batchFailed = 0;
+uint16_t cameraIoDepth = 0;
 
 WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 Preferences preferences;
-CameraSnapshotHttpSession cameraSnapshotHttpSession;
 SemaphoreHandle_t cameraIoMutex = nullptr;
 
 bool ensureCameraIoMutex()
@@ -62,87 +133,20 @@ String lastAdminActionResult = "Nenhuma acao administrativa executada";
 String pendingPtzPresetToken;
 unsigned long espRestartRequestedAtMs = 0;
 
-CameraTarget camera;
-OnvifServiceCatalog onvifServices;
-OnvifPtzStatus onvifPtz;
-OnvifDeviceMetadata onvifMetadata;
-CameraClockStatus cameraClockStatus;
-OnvifMetadataStage onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
-SnapshotTarget snapshotTarget;
-SnapshotProbe lastSnapshotProbe;
-ServiceProbe lastOnvifProbe;
-ServiceProbe lastRtspProbe;
-bool lastRtspProbeAttempted = false;
-CameraState cameraState = CameraState::Starting;
-IncidentKind activeIncident = IncidentKind::None;
-IncidentKind recoveryIncident = IncidentKind::None;
-
 char discoveryBuffer[WS_DISCOVERY_BUFFER_SIZE + 1];
-DiscoveryCandidate discovered[MAX_DISCOVERED_CAMERAS];
 size_t discoveredCount = 0;
 
-unsigned long bootAtMs = 0;
-unsigned long lastHealthCheckAtMs = 0;
 unsigned long lastRediscoveryAtMs = 0;
 unsigned long lastSubnetScanAtMs = 0;
-unsigned long lastEmailAttemptAtMs = 0;
-unsigned long lastStateChangeAtMs = 0;
 unsigned long lastCameraAlertLedToggleAtMs = 0;
-unsigned long incidentStartedAtMs = 0;
-unsigned long recoveryIncidentDurationMs = 0;
-unsigned long lastCameraRebootAttemptAtMs = 0;
-unsigned long cameraRebootGraceStartedAtMs = 0;
-unsigned long cameraRebootWindowStartedAtMs = 0;
 
-uint32_t totalHealthChecks = 0;
-uint32_t successfulHealthChecks = 0;
-uint32_t failedHealthChecks = 0;
-uint32_t inconclusiveHealthChecks = 0;
 uint32_t discoveryRuns = 0;
 uint32_t subnetScanRuns = 0;
-uint32_t emailsSent = 0;
-uint32_t emailErrors = 0;
-uint32_t snapshotsServed = 0;
-uint32_t snapshotErrors = 0;
-uint32_t previewCameraFetches = 0;
-uint32_t previewBusyResponses = 0;
-uint64_t previewBytesTransferred = 0;
-uint32_t cameraJpegHttpRequests = 0;
-uint32_t cameraJpegConnectionReuses = 0;
-uint32_t cameraJpegDigestPreemptiveRequests = 0;
-uint32_t snapshotProbeRuns = 0;
-uint32_t snapshotProbeFailures = 0;
-uint32_t previewClientAborts = 0;
-uint32_t previewHealthEvidenceUses = 0;
-uint32_t cameraRebootAttempts = 0;
-uint32_t cameraRebootAccepted = 0;
-uint32_t cameraRebootErrors = 0;
-uint32_t automaticCameraRebootAttempts = 0;
-uint32_t automaticCameraRebootAccepted = 0;
-uint32_t automaticCameraRebootErrors = 0;
-uint32_t manualCameraRebootAttempts = 0;
-uint32_t manualCameraRebootAccepted = 0;
-uint32_t manualCameraRebootErrors = 0;
 uint16_t nextLogContextId = 1;
 uint32_t heapBeforeBluetoothReleaseBytes = 0;
 uint32_t heapAfterBluetoothReleaseBytes = 0;
 uint32_t bluetoothMemoryReleasedBytes = 0;
-uint8_t consecutiveFailures = 0;
-uint8_t consecutiveSuccesses = 0;
-uint8_t consecutiveControlFailures = 0;
-uint8_t consecutiveInconclusiveChecks = 0;
-uint8_t consecutiveMediaServiceFailures = 0;
-uint8_t snapshotTargetFailureStreak = 0;
-uint8_t cameraRebootAttemptsInWindow = 0;
-uint8_t onvifMetadataStageFailureStreak = 0;
-unsigned long cameraRebootAcceptedAtMs[MAX_ONVIF_REBOOT_ATTEMPTS_MAX] = {0};
-CameraRebootEvidence cameraRebootHistory[CAMERA_REBOOT_HISTORY_CAPACITY];
-size_t cameraRebootHistoryCount = 0;
-size_t cameraRebootHistoryNext = 0;
 
-bool incidentAlertSent = false;
-bool pendingIncidentEmail = false;
-bool pendingRecoveryEmail = false;
 bool cameraAlertLedOn = false;
 bool cameraAlertLedBlinking = false;
 bool bluetoothMemoryReleaseAttempted = false;
@@ -159,26 +163,8 @@ uint32_t loggedSntpSynchronizationGeneration = 0;
 esp_err_t bluetoothMemoryReleaseResult = ESP_ERR_NOT_SUPPORTED;
 esp_bt_controller_status_t bluetoothControllerStatusBeforeRelease = ESP_BT_CONTROLLER_STATUS_NUM;
 
-String lastEvent = "Inicializando";
-String lastEmailResult = "Nenhum e-mail enviado";
 String lastDiscoveryResult = "Ainda nao executada";
 String lastScanResult = "Ainda nao executada";
-String previousCameraIp;
-String lastSnapshotResult = "Ainda nao solicitada";
-String lastCameraRebootResult = "Ainda nao solicitado";
-String lastCameraRebootEvidence = "Nenhum reboot aceito nesta inicializacao";
-String snapshotProfileTokenToSkip;
-unsigned long lastSnapshotResolveAttemptAtMs = 0;
-unsigned long lastBrowserSnapshotDeliveredAtMs = 0;
-unsigned long lastHealthEvidenceAtMs = 0;
-unsigned long lastOnvifMetadataRequestAtMs = 0;
-uint32_t lastBrowserSnapshotBytes = 0;
-uint32_t lastBrowserSnapshotLatencyMs = 0;
-int lastSnapshotResolveStatusCode = 0;
-bool lastSnapshotResolveTransportFailure = false;
-bool snapshotProfileFailoverPending = false;
-bool lastOnvifMetadataRequestFailed = false;
-HealthEvidenceSource lastHealthEvidenceSource = HealthEvidenceSource::None;
 
 uint32_t settingsChecksumBytes(const void* values, size_t valueSize)
 {
@@ -282,11 +268,6 @@ bool validateRuntimeSettings(const RuntimeSettings& values, String& error)
         return false;
     }
 
-    if (!localHostnameValid(values.localHostname, sizeof(values.localHostname))) {
-        error = "Endereco local invalido; use letras, numeros e hifens";
-        return false;
-    }
-
     if (!settingTextValid(values.snapshotProfileMatch, sizeof(values.snapshotProfileMatch), 0, SNAPSHOT_PROFILE_MATCH_MAX_LENGTH)) {
         error = "Filtro do perfil ONVIF invalido";
         return false;
@@ -310,24 +291,16 @@ bool validateRuntimeSettings(const RuntimeSettings& values, String& error)
     CHECK_SETTING_RANGE(onvifRebootCooldownMs, ONVIF_REBOOT_COOLDOWN_MIN_MS, ONVIF_REBOOT_COOLDOWN_MAX_MS, "Cooldown de reboot fora do limite");
     CHECK_SETTING_RANGE(onvifRebootWindowMs, ONVIF_REBOOT_WINDOW_MIN_MS, ONVIF_REBOOT_WINDOW_MAX_MS, "Janela de reboot fora do limite");
     CHECK_SETTING_RANGE(maxOnvifRebootAttemptsPerWindow, MAX_ONVIF_REBOOT_ATTEMPTS_MIN, MAX_ONVIF_REBOOT_ATTEMPTS_MAX, "Limite de reboots fora do intervalo");
-    CHECK_SETTING_RANGE(wifiConnectTimeoutMs, WIFI_CONNECT_TIMEOUT_MIN_MS, WIFI_CONNECT_TIMEOUT_MAX_MS, "Timeout de Wi-Fi fora do limite");
-    CHECK_SETTING_RANGE(discoveryTimeoutMs, DISCOVERY_TIMEOUT_MIN_MS, DISCOVERY_TIMEOUT_MAX_MS, "Timeout de descoberta fora do limite");
-    CHECK_SETTING_RANGE(rediscoveryIntervalMs, REDISCOVERY_INTERVAL_MIN_MS, REDISCOVERY_INTERVAL_MAX_MS, "Intervalo de redescoberta fora do limite");
-    CHECK_SETTING_RANGE(subnetScanIntervalMs, SUBNET_SCAN_INTERVAL_MIN_MS, SUBNET_SCAN_INTERVAL_MAX_MS, "Intervalo de varredura fora do limite");
-    CHECK_SETTING_RANGE(emailRetryIntervalMs, EMAIL_RETRY_INTERVAL_MIN_MS, EMAIL_RETRY_INTERVAL_MAX_MS, "Intervalo de e-mail fora do limite");
     CHECK_SETTING_RANGE(tcpConnectTimeoutMs, TCP_CONNECT_TIMEOUT_MIN_MS, TCP_CONNECT_TIMEOUT_MAX_MS, "Timeout TCP fora do limite");
     CHECK_SETTING_RANGE(serviceResponseTimeoutMs, SERVICE_RESPONSE_TIMEOUT_MIN_MS, SERVICE_RESPONSE_TIMEOUT_MAX_MS, "Timeout de protocolo fora do limite");
-    CHECK_SETTING_RANGE(scanConnectTimeoutMs, SCAN_CONNECT_TIMEOUT_MIN_MS, SCAN_CONNECT_TIMEOUT_MAX_MS, "Timeout da varredura fora do limite");
     CHECK_SETTING_RANGE(snapshotHttpTimeoutMs, SNAPSHOT_HTTP_TIMEOUT_MIN_MS, SNAPSHOT_HTTP_TIMEOUT_MAX_MS, "Timeout do JPEG fora do limite");
     CHECK_SETTING_RANGE(snapshotResolveRetryIntervalMs, SNAPSHOT_RESOLVE_RETRY_INTERVAL_MIN_MS, SNAPSHOT_RESOLVE_RETRY_INTERVAL_MAX_MS, "Intervalo para resolver snapshot fora do limite");
     CHECK_SETTING_RANGE(snapshotFailuresBeforeReresolve, SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MIN, SNAPSHOT_FAILURES_BEFORE_RERESOLVE_MAX, "Falhas para resolver novamente o snapshot fora do limite");
-    CHECK_SETTING_RANGE(cameraAlertLedBlinkIntervalMs, CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS, CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS, "Intervalo do LED fora do limite");
     CHECK_SETTING_RANGE(feedMinIntervalMs, FEED_MIN_INTERVAL_MIN_MS, FEED_MIN_INTERVAL_MAX_MS, "Intervalo minimo da previa fora do limite");
     CHECK_SETTING_RANGE(feedTargetCycleMs, FEED_TARGET_CYCLE_MIN_MS, FEED_TARGET_CYCLE_MAX_MS, "Ciclo da previa fora do limite");
-    CHECK_SETTING_RANGE(statusRefreshIntervalMs, STATUS_REFRESH_INTERVAL_MIN_MS, STATUS_REFRESH_INTERVAL_MAX_MS, "Atualizacao do painel fora do limite");
 #undef CHECK_SETTING_RANGE
 
-    if (values.enableOnvifAutoReboot > 1 || values.enableAutomaticSubnetScan > 1 || values.enableEmailAlerts > 1 || values.emailOnIpChange > 1 || values.enableCameraAlertLed > 1) {
+    if (values.enableOnvifAutoReboot > 1 || values.enableEmailAlerts > 1 || values.emailOnIpChange > 1) {
         error = "Opcao booleana invalida";
         return false;
     }
@@ -355,194 +328,379 @@ bool validateRuntimeSettings(const RuntimeSettings& values, String& error)
     return true;
 }
 
-bool migrateRuntimeDefaults(RuntimeSettings& values, uint16_t storedDefaultsRevision)
+bool validateGlobalSettings(const GlobalSettings& values, String& error)
 {
-    const RuntimeSettings defaults = makeDefaultRuntimeSettings();
-    bool changed = false;
-
-    if (storedDefaultsRevision < 2) {
-        if (strcmp(values.snapshotProfileMatch, "sub") == 0) {
-            copySettingText(values.snapshotProfileMatch, defaults.snapshotProfileMatch);
-            changed = true;
-        }
-
-#define MIGRATE_LEGACY_DEFAULT(field, legacyValue) \
-        if (values.field == legacyValue) { \
-            values.field = defaults.field; \
-            changed = true; \
-        }
-
-        MIGRATE_LEGACY_DEFAULT(healthCheckIntervalMs, 30000UL);
-        MIGRATE_LEGACY_DEFAULT(startupGraceMs, 45000UL);
-        MIGRATE_LEGACY_DEFAULT(videoFailuresBeforeAlert, 3);
-        MIGRATE_LEGACY_DEFAULT(onvifRebootGraceMs, 90000UL);
-        MIGRATE_LEGACY_DEFAULT(onvifRebootCooldownMs, 15UL * 60UL * 1000UL);
-        MIGRATE_LEGACY_DEFAULT(onvifRebootWindowMs, 24UL * 60UL * 60UL * 1000UL);
-        MIGRATE_LEGACY_DEFAULT(rediscoveryIntervalMs, 60000UL);
-        MIGRATE_LEGACY_DEFAULT(serviceResponseTimeoutMs, 1500UL);
-        MIGRATE_LEGACY_DEFAULT(snapshotHttpTimeoutMs, 7000UL);
-        MIGRATE_LEGACY_DEFAULT(snapshotResolveRetryIntervalMs, 30000UL);
-        MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 1000UL);
-        MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 1000UL);
-        MIGRATE_LEGACY_DEFAULT(feedMinIntervalMs, 2000UL);
-        MIGRATE_LEGACY_DEFAULT(feedTargetCycleMs, 2000UL);
-
-#undef MIGRATE_LEGACY_DEFAULT
+    if (!localHostnameValid(values.localHostname, sizeof(values.localHostname))) {
+        error = "Endereco local invalido; use letras, numeros e hifens";
+        return false;
     }
 
-    if (storedDefaultsRevision < 3 && values.maxOnvifRebootAttemptsPerWindow == 12) {
-        values.maxOnvifRebootAttemptsPerWindow = defaults.maxOnvifRebootAttemptsPerWindow;
-        changed = true;
+#define CHECK_SETTING_RANGE(field, minimum, maximum, message) \
+    if (!settingInRange(values.field, minimum, maximum)) { \
+        error = message; \
+        return false; \
     }
 
-    if (storedDefaultsRevision < 4 && values.scanConnectTimeoutMs == 90UL) {
-        values.scanConnectTimeoutMs = defaults.scanConnectTimeoutMs;
-        changed = true;
+    CHECK_SETTING_RANGE(wifiConnectTimeoutMs, WIFI_CONNECT_TIMEOUT_MIN_MS, WIFI_CONNECT_TIMEOUT_MAX_MS, "Timeout de Wi-Fi fora do limite");
+    CHECK_SETTING_RANGE(discoveryTimeoutMs, DISCOVERY_TIMEOUT_MIN_MS, DISCOVERY_TIMEOUT_MAX_MS, "Timeout de descoberta fora do limite");
+    CHECK_SETTING_RANGE(rediscoveryIntervalMs, REDISCOVERY_INTERVAL_MIN_MS, REDISCOVERY_INTERVAL_MAX_MS, "Intervalo de redescoberta fora do limite");
+    CHECK_SETTING_RANGE(subnetScanIntervalMs, SUBNET_SCAN_INTERVAL_MIN_MS, SUBNET_SCAN_INTERVAL_MAX_MS, "Intervalo de varredura fora do limite");
+    CHECK_SETTING_RANGE(emailRetryIntervalMs, EMAIL_RETRY_INTERVAL_MIN_MS, EMAIL_RETRY_INTERVAL_MAX_MS, "Intervalo de e-mail fora do limite");
+    CHECK_SETTING_RANGE(scanConnectTimeoutMs, SCAN_CONNECT_TIMEOUT_MIN_MS, SCAN_CONNECT_TIMEOUT_MAX_MS, "Timeout da varredura fora do limite");
+    CHECK_SETTING_RANGE(cameraAlertLedBlinkIntervalMs, CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS, CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS, "Intervalo do LED fora do limite");
+    CHECK_SETTING_RANGE(statusRefreshIntervalMs, STATUS_REFRESH_INTERVAL_MIN_MS, STATUS_REFRESH_INTERVAL_MAX_MS, "Atualizacao do painel fora do limite");
+#undef CHECK_SETTING_RANGE
+    if (values.enableAutomaticSubnetScan > 1 || values.enableCameraAlertLed > 1) {
+        error = "Opcao global booleana invalida";
+        return false;
     }
-
-    if (storedDefaultsRevision < 5 && values.scanConnectTimeoutMs == 300UL) {
-        values.scanConnectTimeoutMs = defaults.scanConnectTimeoutMs;
-        changed = true;
-    }
-
-    return changed;
+    return true;
 }
 
-bool saveRuntimeSettingsToNvs(const RuntimeSettings& values)
+CameraContext* findCamera(uint32_t id)
 {
-    StoredSettingsBlob blob{};
-    blob.magic = SETTINGS_MAGIC;
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        if (ctx->id == id)
+            return ctx;
+    }
+    return nullptr;
+}
+
+bool saveGlobalSettingsToNvs(const GlobalSettings& values)
+{
+    GlobalSettingsBlob blob{};
+    blob.magic = GLOBAL_SETTINGS_MAGIC;
     blob.schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
-    blob.payloadSize = sizeof(RuntimeSettings);
+    blob.payloadSize = sizeof(values);
     blob.values = values;
-    blob.checksum = settingsChecksum(blob.values);
-
-    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, false)) {
+    blob.checksum = settingsChecksum(values);
+    Preferences storage;
+    if (!storage.begin(SETTINGS_NVS_NAMESPACE, false))
         return false;
-    }
-
-    const size_t bytesWritten = preferences.putBytes(SETTINGS_NVS_KEY, &blob, sizeof(blob));
-    const size_t revisionBytesWritten = bytesWritten == sizeof(blob) ? preferences.putUShort(SETTINGS_DEFAULTS_REVISION_KEY, RUNTIME_SETTINGS_DEFAULTS_REVISION) : 0;
-    preferences.end();
-    return bytesWritten == sizeof(blob) && revisionBytesWritten == sizeof(uint16_t);
+    const bool saved = storage.putBytes("global", &blob, sizeof(blob)) == sizeof(blob);
+    storage.end();
+    return saved;
 }
 
-bool clearRuntimeSettingsNvs()
+bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values)
 {
-    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, false)) {
+    const String& url = ctx.camera.onvifUrl;
+    const String& uuid = ctx.camera.endpointUuid;
+    if (url.length() > 1024 || uuid.length() > 256)
         return false;
+    const size_t size = sizeof(CameraRecordHeader) + url.length() + 1 + uuid.length() + 1;
+    std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]());
+    if (!bytes)
+        return false;
+    CameraRecordHeader* header = reinterpret_cast<CameraRecordHeader*>(bytes.get());
+    header->magic = CAMERA_RECORD_MAGIC;
+    header->id = ctx.id;
+    header->schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
+    header->payloadSize = sizeof(values);
+    header->urlBytes = url.length() + 1;
+    header->uuidBytes = uuid.length() + 1;
+    header->values = values;
+    memcpy(bytes.get() + sizeof(*header), url.c_str(), header->urlBytes);
+    memcpy(bytes.get() + sizeof(*header) + header->urlBytes, uuid.c_str(), header->uuidBytes);
+    header->checksum = settingsChecksumBytes(bytes.get(), size);
+    char key[12];
+    snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false))
+        return false;
+    bool saved = storage.putBytes(key, bytes.get(), size) == size;
+    const uint32_t storedLast = storage.getUInt("last_id", 0);
+    if (saved && ctx.id > storedLast)
+        saved = storage.putUInt("last_id", ctx.id) == sizeof(ctx.id);
+    storage.end();
+    return saved;
+}
+
+bool persistCamera(CameraContext& ctx)
+{
+    const bool saved = saveRuntimeSettingsToNvs(ctx, ctx.settings);
+    if (saved)
+        ctx.settingsLoadedFromNvs = true;
+    return saved;
+}
+
+CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
+{
+    if (!target.valid || target.onvifUrl.isEmpty()) {
+        error = "Endpoint ONVIF invalido";
+        return nullptr;
+    }
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        const bool sameIdentity = !target.endpointUuid.isEmpty() && !ctx->camera.endpointUuid.isEmpty() && target.endpointUuid.equalsIgnoreCase(ctx->camera.endpointUuid);
+        const bool sameEndpoint = target.onvifUrl == ctx->camera.onvifUrl;
+        const bool identityConflict = !target.endpointUuid.isEmpty() && !ctx->camera.endpointUuid.isEmpty() && !sameIdentity;
+        if (sameEndpoint && identityConflict) {
+            ctx->camera.valid = false;
+            ctx->camera.onvifUrl = String();
+            invalidateSnapshotTarget(*ctx);
+            invalidateOnvifServiceCatalog(*ctx);
+            resetCameraCheckSequences(*ctx, "Endereco ocupado por outra camera; aguardando redescoberta");
+            ctx->lastHealthCheckAtMs = 0;
+            setState(*ctx, CameraState::Discovering, "Identidade ONVIF mudou neste endereco; acesso suspenso");
+            if (!persistCamera(*ctx)) {
+                error = "Falha ao persistir conflito de identidade ONVIF";
+                return nullptr;
+            }
+            registryRevision++;
+        }
+        if (!sameIdentity && !(sameEndpoint && !identityConflict))
+            continue;
+
+        const bool changed = ctx->camera.onvifUrl != target.onvifUrl || (ctx->camera.endpointUuid.isEmpty() && !target.endpointUuid.isEmpty());
+        ctx->lastDiscoverySeenAtMs = millis();
+        if (!changed)
+            return ctx;
+        const CameraTarget previous = ctx->camera;
+        ctx->camera = target;
+        ctx->camera.rtspPort = ctx->settings.cameraRtspPort;
+        if (!persistCamera(*ctx)) {
+            ctx->camera = previous;
+            error = "Falha ao persistir o endpoint; cadastro anterior preservado";
+            return nullptr;
+        }
+        invalidateSnapshotTarget(*ctx);
+        invalidateOnvifServiceCatalog(*ctx);
+        resetCameraCheckSequences(*ctx, "Endpoint atualizado; aguardando verificacao");
+        ctx->lastSnapshotResolveAttemptAtMs = 0;
+        ctx->lastHealthCheckAtMs = 0;
+        if (previous.valid && previous.ip != target.ip) {
+            ctx->previousCameraIp = previous.ip.toString();
+            ctx->pendingIpChangeEmail = true;
+        }
+        registryRevision++;
+        return ctx;
     }
 
-    const bool cleared = preferences.clear();
-    preferences.end();
-    return cleared;
+    if (!cameraRegistryFullyLoaded) {
+        error = "Cadastro NVS incompleto; novos registros suspensos para evitar duplicacao";
+        return nullptr;
+    }
+    const size_t needed = sizeof(CameraContext) + target.onvifUrl.length() + target.endpointUuid.length() + target.scopes.length() + 2048;
+    if (nextCameraId == 0 || ESP.getFreeHeap() < needed + CAMERA_OPERATION_HEAP_RESERVE || ESP.getMaxAllocHeap() < sizeof(CameraContext) + 4096) {
+        error = "Memoria insuficiente para cadastrar outra camera mantendo o monitoramento";
+        return nullptr;
+    }
+    std::unique_ptr<CameraContext> entry(new (std::nothrow) CameraContext());
+    if (!entry) {
+        error = "Falha ao alocar o estado da camera";
+        return nullptr;
+    }
+    entry->id = nextCameraId;
+    entry->registeredAtMs = millis();
+    entry->lastStateChangeAtMs = entry->registeredAtMs;
+    entry->lastDiscoverySeenAtMs = entry->registeredAtMs;
+    entry->camera = target;
+    entry->camera.rtspPort = entry->settings.cameraRtspPort;
+    copySettingText(entry->settings.cameraName, String("Camera ") + entry->id + " - " + target.ip.toString());
+    if (!persistCamera(*entry)) {
+        error = "NVS sem espaco ou falha na gravacao; camera nao cadastrada";
+        return nullptr;
+    }
+    CameraContext* result = entry.get();
+    std::unique_ptr<CameraContext>* link = &cameras;
+    while (*link)
+        link = &(*link)->next;
+    *link = std::move(entry);
+    nextCameraId++;
+    cameraCount++;
+    registryRevision++;
+    lastRegistryResult = String("Camera cadastrada: ") + result->settings.cameraName;
+    return result;
 }
 
 void loadRuntimeSettings()
 {
-    settings = makeDefaultRuntimeSettings();
-    settingsLoadedFromNvs = false;
-
-    if (!preferences.begin(SETTINGS_NVS_NAMESPACE, true)) {
-        lastSettingsResult = "NVS indisponivel; usando valores de fabrica";
-        Serial.println(lastSettingsResult);
-        return;
-    }
-
-    const size_t storedSize = preferences.getBytesLength(SETTINGS_NVS_KEY);
-    StoredSettingsBlob blob{};
-    PreviousStoredSettingsBlob previousBlob{};
-    size_t currentBytesRead = 0;
-    size_t previousBytesRead = 0;
-
-    if (storedSize == sizeof(blob)) {
-        currentBytesRead = preferences.getBytes(SETTINGS_NVS_KEY, &blob, sizeof(blob));
-    } else if (storedSize == sizeof(previousBlob)) {
-        previousBytesRead = preferences.getBytes(SETTINGS_NVS_KEY, &previousBlob, sizeof(previousBlob));
-    }
-
-    const uint16_t storedDefaultsRevision = preferences.getUShort(SETTINGS_DEFAULTS_REVISION_KEY, 0);
-    preferences.end();
-
-    bool storedBlobValid = currentBytesRead == sizeof(blob) && blob.magic == SETTINGS_MAGIC && blob.schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION && blob.payloadSize == sizeof(RuntimeSettings) && blob.checksum == settingsChecksum(blob.values);
-    const bool previousBlobValid = previousBytesRead == sizeof(previousBlob) && previousBlob.magic == SETTINGS_MAGIC && previousBlob.schemaVersion == PREVIOUS_RUNTIME_SETTINGS_SCHEMA_VERSION && previousBlob.payloadSize == PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE && previousBlob.checksum == settingsChecksumBytes(previousBlob.values, sizeof(previousBlob.values));
-    bool schemaMigrated = false;
-
-    if (!storedBlobValid && previousBlobValid) {
-        blob.magic = SETTINGS_MAGIC;
-        blob.schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
-        blob.payloadSize = sizeof(RuntimeSettings);
-        blob.values = makeDefaultRuntimeSettings();
-        memcpy(&blob.values, previousBlob.values, PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE);
-        blob.checksum = settingsChecksum(blob.values);
-        storedBlobValid = true;
-        schemaMigrated = true;
-    }
-
-    if (!storedBlobValid) {
-        if (storedSize == 0) {
-            lastSettingsResult = "Usando valores de fabrica";
-        } else {
-            const bool removed = clearRuntimeSettingsNvs();
-            lastSettingsResult = removed ? "Configuracao anterior removida; valores de fabrica restaurados" : "Configuracao anterior invalida; limpeza da NVS falhou";
+    GlobalSettingsBlob globalBlob{};
+    Preferences storage;
+    bool globalValid = false;
+    if (storage.begin(SETTINGS_NVS_NAMESPACE, true)) {
+        const size_t size = storage.getBytesLength("global");
+        if (size == sizeof(globalBlob)) {
+            globalValid = storage.getBytes("global", &globalBlob, sizeof(globalBlob)) == sizeof(globalBlob) && globalBlob.magic == GLOBAL_SETTINGS_MAGIC && globalBlob.schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION && globalBlob.payloadSize == sizeof(GlobalSettings) && globalBlob.checksum == settingsChecksum(globalBlob.values);
+            String error;
+            globalValid = globalValid && validateGlobalSettings(globalBlob.values, error);
         }
-        Serial.println(lastSettingsResult);
-        return;
+        storage.end();
+    }
+    if (globalValid) {
+        globalSettings = globalBlob.values;
+        settingsLoadedFromNvs = true;
     }
 
-    const bool defaultsRevisionPending = storedDefaultsRevision < RUNTIME_SETTINGS_DEFAULTS_REVISION;
-    const bool runtimeDefaultsMigrated = defaultsRevisionPending && migrateRuntimeDefaults(blob.values, storedDefaultsRevision);
-    bool previewLimitMigrated = false;
-
-    if (blob.values.feedMinIntervalMs < FEED_MIN_INTERVAL_MIN_MS) {
-        blob.values.feedMinIntervalMs = FEED_MIN_INTERVAL_MIN_MS;
-        previewLimitMigrated = true;
-    }
-
-    if (blob.values.feedTargetCycleMs < FEED_TARGET_CYCLE_MIN_MS) {
-        blob.values.feedTargetCycleMs = FEED_TARGET_CYCLE_MIN_MS;
-        previewLimitMigrated = true;
-    }
-
-    if (blob.values.feedTargetCycleMs < blob.values.feedMinIntervalMs) {
-        blob.values.feedTargetCycleMs = blob.values.feedMinIntervalMs;
-        previewLimitMigrated = true;
-    }
-
-    String validationError;
-
-    if (!validateRuntimeSettings(blob.values, validationError)) {
-        lastSettingsResult = "Configuracao salva invalida; valores de fabrica restaurados";
-        Serial.printf("%s: %s.\n", lastSettingsResult.c_str(), validationError.c_str());
-        return;
-    }
-
-    settings = blob.values;
-    settingsLoadedFromNvs = true;
-
-    if (schemaMigrated || defaultsRevisionPending || previewLimitMigrated) {
-        const bool migratedSaved = saveRuntimeSettingsToNvs(settings);
-
-        if (schemaMigrated) {
-            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; esquema 4 migrado para 5" : "Configuracoes carregadas; migracao para esquema 5 nao persistida";
-        } else if (runtimeDefaultsMigrated) {
-            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; novos padroes aplicados" : "Configuracoes carregadas; novos padroes nao persistidos";
-        } else if (previewLimitMigrated) {
-            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; limite da previa ajustado" : "Configuracoes carregadas; ajuste da previa nao persistido";
-        } else {
-            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; revisao de padroes registrada" : "Configuracoes carregadas; revisao de padroes nao persistida";
+    uint32_t lastId = 0;
+    if (storage.begin(CAMERAS_NVS_NAMESPACE, true)) {
+        lastId = storage.getUInt("last_id", 0);
+        nvs_stats_t stats{};
+        if (nvs_get_stats(nullptr, &stats) != ESP_OK || lastId > stats.total_entries) {
+            lastRegistryResult = "Indice de cameras invalido na NVS";
+            cameraRegistryFullyLoaded = false;
+            lastId = 0;
         }
-    } else {
-        lastSettingsResult = "Configuracoes carregadas da NVS";
+        std::unique_ptr<CameraContext>* link = &cameras;
+        for (uint32_t id = 1; id <= lastId; id++) {
+            char key[12];
+            snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(id));
+            const size_t size = storage.getBytesLength(key);
+            if (size < sizeof(CameraRecordHeader) + 2 || size > sizeof(CameraRecordHeader) + 1282) {
+                lastRegistryResult = String("Cadastro invalido: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
+            }
+            if (ESP.getFreeHeap() < sizeof(CameraContext) + size + CAMERA_OPERATION_HEAP_RESERVE) {
+                lastRegistryResult = "Memoria insuficiente para carregar todos os cadastros; NVS preservada";
+                cameraRegistryFullyLoaded = false;
+                break;
+            }
+            std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
+            if (!bytes || storage.getBytes(key, bytes.get(), size) != size) {
+                lastRegistryResult = String("Falha ao carregar camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                break;
+            }
+            CameraRecordHeader* record = reinterpret_cast<CameraRecordHeader*>(bytes.get());
+            const uint32_t checksum = record->checksum;
+            record->checksum = 0;
+            if (record->magic != CAMERA_RECORD_MAGIC || record->id != id || record->schemaVersion != RUNTIME_SETTINGS_SCHEMA_VERSION || record->payloadSize != sizeof(RuntimeSettings) || record->urlBytes == 0 || record->uuidBytes == 0 || sizeof(*record) + record->urlBytes + record->uuidBytes != size || settingsChecksumBytes(bytes.get(), size) != checksum) {
+                lastRegistryResult = String("Integridade invalida: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
+            }
+            const char* url = reinterpret_cast<const char*>(bytes.get() + sizeof(*record));
+            const char* uuid = url + record->urlBytes;
+            if (url[record->urlBytes - 1] != '\0' || uuid[record->uuidBytes - 1] != '\0') {
+                lastRegistryResult = String("Endereco invalido: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
+            }
+            ParsedUrl parsed;
+            String error;
+            const bool endpointKnown = url[0] != '\0';
+            if ((endpointKnown && (!parseHttpUrl(url, parsed) || parsed.secure)) || !validateRuntimeSettings(record->values, error)) {
+                lastRegistryResult = String("Configuracao invalida: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
+            }
+            std::unique_ptr<CameraContext> entry(new (std::nothrow) CameraContext());
+            if (!entry) {
+                lastRegistryResult = "Memoria insuficiente ao carregar camera";
+                cameraRegistryFullyLoaded = false;
+                break;
+            }
+            entry->id = id;
+            entry->settings = record->values;
+            entry->settingsLoadedFromNvs = true;
+            entry->registeredAtMs = millis();
+            entry->lastStateChangeAtMs = entry->registeredAtMs;
+            entry->camera.valid = endpointKnown;
+            entry->camera.ip = parsed.ip;
+            entry->camera.onvifPort = parsed.port;
+            entry->camera.rtspPort = entry->settings.cameraRtspPort;
+            entry->camera.onvifPath = parsed.path;
+            entry->camera.onvifUrl = url;
+            entry->camera.endpointUuid = uuid;
+            *link = std::move(entry);
+            link = &(*link)->next;
+            cameraCount++;
+        }
+        storage.end();
     }
+    nextCameraId = lastId + 1;
 
-    Serial.println(lastSettingsResult);
-    Serial.printf("Configuracoes NVS: ciclo=%lus; alerta=%u; reboot=%u; auto=%s.\n", static_cast<unsigned long>(HEALTH_CHECK_INTERVAL_MS / 1000UL), VIDEO_FAILURES_BEFORE_ALERT, VIDEO_FAILURES_BEFORE_REBOOT, ENABLE_ONVIF_AUTO_REBOOT ? "ativo" : "desativado");
+    if (!globalValid && cameraRegistryFullyLoaded) {
+        MigrationSettingsBlob migration{};
+        bool migrate = false;
+        if (storage.begin(SETTINGS_NVS_NAMESPACE, true)) {
+            migrate = storage.getBytesLength(SETTINGS_NVS_KEY) == sizeof(migration) && storage.getBytes(SETTINGS_NVS_KEY, &migration, sizeof(migration)) == sizeof(migration) && migration.magic == SETTINGS_MAGIC && migration.schemaVersion == 5 && migration.payloadSize == sizeof(MigrationSettingsV5) && migration.checksum == settingsChecksum(migration.values);
+            storage.end();
+        }
+        std::unique_ptr<CameraContext> entry(new (std::nothrow) CameraContext());
+        if (!entry) {
+            lastRegistryResult = "Memoria insuficiente para migrar o cadastro";
+            return;
+        }
+        entry->id = 1;
+        entry->settings = makeDefaultRuntimeSettings(true);
+        if (migrate) {
+            memcpy(&globalSettings.cameraAlertLedBlinkIntervalMs, &migration.values.cameraAlertLedBlinkIntervalMs, sizeof(globalSettings.cameraAlertLedBlinkIntervalMs));
+            memcpy(&globalSettings.discoveryTimeoutMs, &migration.values.discoveryTimeoutMs, sizeof(globalSettings.discoveryTimeoutMs));
+            memcpy(&globalSettings.emailRetryIntervalMs, &migration.values.emailRetryIntervalMs, sizeof(globalSettings.emailRetryIntervalMs));
+            memcpy(&globalSettings.enableAutomaticSubnetScan, &migration.values.enableAutomaticSubnetScan, sizeof(globalSettings.enableAutomaticSubnetScan));
+            memcpy(&globalSettings.enableCameraAlertLed, &migration.values.enableCameraAlertLed, sizeof(globalSettings.enableCameraAlertLed));
+            memcpy(&globalSettings.localHostname, &migration.values.localHostname, sizeof(globalSettings.localHostname));
+            memcpy(&globalSettings.rediscoveryIntervalMs, &migration.values.rediscoveryIntervalMs, sizeof(globalSettings.rediscoveryIntervalMs));
+            memcpy(&globalSettings.scanConnectTimeoutMs, &migration.values.scanConnectTimeoutMs, sizeof(globalSettings.scanConnectTimeoutMs));
+            memcpy(&globalSettings.statusRefreshIntervalMs, &migration.values.statusRefreshIntervalMs, sizeof(globalSettings.statusRefreshIntervalMs));
+            memcpy(&globalSettings.subnetScanIntervalMs, &migration.values.subnetScanIntervalMs, sizeof(globalSettings.subnetScanIntervalMs));
+            memcpy(&globalSettings.wifiConnectTimeoutMs, &migration.values.wifiConnectTimeoutMs, sizeof(globalSettings.wifiConnectTimeoutMs));
+            memcpy(&entry->settings.cameraName, &migration.values.cameraName, sizeof(entry->settings.cameraName));
+            memcpy(&entry->settings.cameraPassword, &migration.values.cameraPassword, sizeof(entry->settings.cameraPassword));
+            memcpy(&entry->settings.cameraRtspPort, &migration.values.cameraRtspPort, sizeof(entry->settings.cameraRtspPort));
+            memcpy(&entry->settings.cameraUsername, &migration.values.cameraUsername, sizeof(entry->settings.cameraUsername));
+            memcpy(&entry->settings.emailOnIpChange, &migration.values.emailOnIpChange, sizeof(entry->settings.emailOnIpChange));
+            memcpy(&entry->settings.enableEmailAlerts, &migration.values.enableEmailAlerts, sizeof(entry->settings.enableEmailAlerts));
+            memcpy(&entry->settings.enableOnvifAutoReboot, &migration.values.enableOnvifAutoReboot, sizeof(entry->settings.enableOnvifAutoReboot));
+            memcpy(&entry->settings.failuresBeforeOffline, &migration.values.failuresBeforeOffline, sizeof(entry->settings.failuresBeforeOffline));
+            memcpy(&entry->settings.failuresBeforeRediscovery, &migration.values.failuresBeforeRediscovery, sizeof(entry->settings.failuresBeforeRediscovery));
+            memcpy(&entry->settings.feedMinIntervalMs, &migration.values.feedMinIntervalMs, sizeof(entry->settings.feedMinIntervalMs));
+            memcpy(&entry->settings.feedTargetCycleMs, &migration.values.feedTargetCycleMs, sizeof(entry->settings.feedTargetCycleMs));
+            memcpy(&entry->settings.healthCheckIntervalMs, &migration.values.healthCheckIntervalMs, sizeof(entry->settings.healthCheckIntervalMs));
+            memcpy(&entry->settings.maxOnvifRebootAttemptsPerWindow, &migration.values.maxOnvifRebootAttemptsPerWindow, sizeof(entry->settings.maxOnvifRebootAttemptsPerWindow));
+            memcpy(&entry->settings.onvifRebootCooldownMs, &migration.values.onvifRebootCooldownMs, sizeof(entry->settings.onvifRebootCooldownMs));
+            memcpy(&entry->settings.onvifRebootGraceMs, &migration.values.onvifRebootGraceMs, sizeof(entry->settings.onvifRebootGraceMs));
+            memcpy(&entry->settings.onvifRebootWindowMs, &migration.values.onvifRebootWindowMs, sizeof(entry->settings.onvifRebootWindowMs));
+            memcpy(&entry->settings.serviceResponseTimeoutMs, &migration.values.serviceResponseTimeoutMs, sizeof(entry->settings.serviceResponseTimeoutMs));
+            memcpy(&entry->settings.snapshotFailuresBeforeReresolve, &migration.values.snapshotFailuresBeforeReresolve, sizeof(entry->settings.snapshotFailuresBeforeReresolve));
+            memcpy(&entry->settings.snapshotHttpTimeoutMs, &migration.values.snapshotHttpTimeoutMs, sizeof(entry->settings.snapshotHttpTimeoutMs));
+            memcpy(&entry->settings.snapshotProfileMatch, &migration.values.snapshotProfileMatch, sizeof(entry->settings.snapshotProfileMatch));
+            memcpy(&entry->settings.snapshotResolveRetryIntervalMs, &migration.values.snapshotResolveRetryIntervalMs, sizeof(entry->settings.snapshotResolveRetryIntervalMs));
+            memcpy(&entry->settings.startupGraceMs, &migration.values.startupGraceMs, sizeof(entry->settings.startupGraceMs));
+            memcpy(&entry->settings.successesBeforeRecovery, &migration.values.successesBeforeRecovery, sizeof(entry->settings.successesBeforeRecovery));
+            memcpy(&entry->settings.tcpConnectTimeoutMs, &migration.values.tcpConnectTimeoutMs, sizeof(entry->settings.tcpConnectTimeoutMs));
+            memcpy(&entry->settings.videoFailuresBeforeAlert, &migration.values.videoFailuresBeforeAlert, sizeof(entry->settings.videoFailuresBeforeAlert));
+            memcpy(&entry->settings.videoFailuresBeforeReboot, &migration.values.videoFailuresBeforeReboot, sizeof(entry->settings.videoFailuresBeforeReboot));
+        }
+        String error;
+        if (!validateGlobalSettings(globalSettings, error) || !validateRuntimeSettings(entry->settings, error)) {
+            lastRegistryResult = "Configuracao anterior invalida; dados preservados na NVS";
+            return;
+        }
+        const bool targetLoaded = lastId == 0 && (loadCameraTarget(*entry) || loadCameraIpHint(*entry));
+        if (targetLoaded) {
+            entry->registeredAtMs = millis();
+            entry->lastStateChangeAtMs = entry->registeredAtMs;
+            if (!persistCamera(*entry)) {
+                lastRegistryResult = "Falha ao migrar cadastro; configuracao anterior preservada";
+                return;
+            }
+            cameras = std::move(entry);
+            cameraCount = 1;
+            nextCameraId = 2;
+        }
+        if (saveGlobalSettingsToNvs(globalSettings)) {
+            settingsLoadedFromNvs = true;
+            if ((targetLoaded || lastId != 0) && storage.begin(SETTINGS_NVS_NAMESPACE, false)) {
+                storage.remove(SETTINGS_NVS_KEY);
+                storage.remove(SETTINGS_DEFAULTS_REVISION_KEY);
+                storage.end();
+            }
+            lastRegistryResult = migrate ? "Configuracao anterior migrada para cadastro de cameras" : "Cadastro inicial pronto";
+        } else {
+            lastRegistryResult = "Falha ao gravar configuracoes globais";
+        }
+    } else if (cameraRegistryFullyLoaded && cameraCount == lastId) {
+        lastRegistryResult = String(cameraCount) + " cameras carregadas da NVS";
+    }
+    lastSettingsResult = settingsLoadedFromNvs ? "Configuracoes carregadas da NVS" : "Usando valores de fabrica";
 }
 
 void recordRuntimeSettingsContext(const char* source, uint8_t flags)
 {
-    PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, source, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, SCAN_CONNECT_TIMEOUT_MS, flags, PersistentLog::Level::Info, true);
+    PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, source, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, globalSettings.scanConnectTimeoutMs, flags, PersistentLog::Level::Info, true);
 }
 
 String makeSettingsWriteToken()
@@ -582,6 +740,8 @@ const char* adminActionName(AdminAction action)
             return "rediscover";
         case AdminAction::GotoPtzPreset:
             return "goto_ptz_preset";
+        case AdminAction::RebootAllCameras:
+            return "reboot-all-cameras";
         case AdminAction::CameraReboot:
             return "camera_reboot";
         case AdminAction::ResetRebootLimiter:
@@ -676,68 +836,68 @@ const char* healthEvidenceSourceName(HealthEvidenceSource source)
     return "unknown";
 }
 
-void beginOrEscalateIncident(IncidentKind kind)
+void beginOrEscalateIncident(CameraContext& ctx, IncidentKind kind)
 {
     if (kind == IncidentKind::None) {
         return;
     }
 
-    if (activeIncident == IncidentKind::None) {
-        activeIncident = kind;
-        consecutiveSuccesses = 0;
-        incidentStartedAtMs = millis();
-        incidentAlertSent = false;
-        pendingIncidentEmail = false;
-        PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Started, incidentName(kind), camera.ip, camera.onvifPort, 0, 0, static_cast<uint32_t>(kind), PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
+    if (ctx.activeIncident == IncidentKind::None) {
+        ctx.activeIncident = kind;
+        ctx.consecutiveSuccesses = 0;
+        ctx.incidentStartedAtMs = millis();
+        ctx.incidentAlertSent = false;
+        ctx.pendingIncidentEmail = false;
+        PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Started, incidentName(kind), ctx.camera.ip, ctx.camera.onvifPort, 0, 0, static_cast<uint32_t>(kind), PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true, 0, ctx.id);
         return;
     }
 
-    if (activeIncident == IncidentKind::SnapshotUnavailable && kind == IncidentKind::CameraOffline) {
-        activeIncident = kind;
-        consecutiveSuccesses = 0;
-        PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Started, incidentName(kind), camera.ip, camera.onvifPort, 0, millis() - incidentStartedAtMs, static_cast<uint32_t>(kind), PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
+    if (ctx.activeIncident == IncidentKind::SnapshotUnavailable && kind == IncidentKind::CameraOffline) {
+        ctx.activeIncident = kind;
+        ctx.consecutiveSuccesses = 0;
+        PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Started, incidentName(kind), ctx.camera.ip, ctx.camera.onvifPort, 0, millis() - ctx.incidentStartedAtMs, static_cast<uint32_t>(kind), PersistentLog::FlagScheduled, PersistentLog::Level::Error, true, 0, ctx.id);
 
-        if (incidentAlertSent) {
-            incidentAlertSent = false;
-            pendingIncidentEmail = true;
+        if (ctx.incidentAlertSent) {
+            ctx.incidentAlertSent = false;
+            ctx.pendingIncidentEmail = true;
         }
 
         return;
     }
 
-    if (activeIncident == IncidentKind::CameraOffline && kind == IncidentKind::SnapshotUnavailable && !incidentAlertSent) {
-        activeIncident = kind;
-        consecutiveSuccesses = 0;
+    if (ctx.activeIncident == IncidentKind::CameraOffline && kind == IncidentKind::SnapshotUnavailable && !ctx.incidentAlertSent) {
+        ctx.activeIncident = kind;
+        ctx.consecutiveSuccesses = 0;
     }
 }
 
-void queueIncidentAlert()
+void queueIncidentAlert(CameraContext& ctx)
 {
-    if (ENABLE_EMAIL_ALERTS && activeIncident != IncidentKind::None && !incidentAlertSent) {
-        pendingIncidentEmail = true;
+    if (ctx.settings.enableEmailAlerts && ctx.activeIncident != IncidentKind::None && !ctx.incidentAlertSent) {
+        ctx.pendingIncidentEmail = true;
     }
 }
 
-void resolveActiveIncident()
+void resolveActiveIncident(CameraContext& ctx)
 {
-    if (activeIncident == IncidentKind::None) {
+    if (ctx.activeIncident == IncidentKind::None) {
         return;
     }
 
-    const IncidentKind resolvedIncident = activeIncident;
-    const uint32_t incidentDurationMs = incidentStartedAtMs == 0 ? 0 : millis() - incidentStartedAtMs;
+    const IncidentKind resolvedIncident = ctx.activeIncident;
+    const uint32_t incidentDurationMs = ctx.incidentStartedAtMs == 0 ? 0 : millis() - ctx.incidentStartedAtMs;
 
-    if (incidentAlertSent && ENABLE_EMAIL_ALERTS) {
-        recoveryIncident = activeIncident;
-        recoveryIncidentDurationMs = millis() - incidentStartedAtMs;
-        pendingRecoveryEmail = true;
+    if (ctx.incidentAlertSent && ctx.settings.enableEmailAlerts) {
+        ctx.recoveryIncident = ctx.activeIncident;
+        ctx.recoveryIncidentDurationMs = millis() - ctx.incidentStartedAtMs;
+        ctx.pendingRecoveryEmail = true;
     }
 
-    pendingIncidentEmail = false;
-    incidentAlertSent = false;
-    activeIncident = IncidentKind::None;
-    incidentStartedAtMs = 0;
-    PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Success, incidentName(resolvedIncident), camera.ip, camera.onvifPort, 0, incidentDurationMs, static_cast<uint32_t>(resolvedIncident), PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
+    ctx.pendingIncidentEmail = false;
+    ctx.incidentAlertSent = false;
+    ctx.activeIncident = IncidentKind::None;
+    ctx.incidentStartedAtMs = 0;
+    PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Success, incidentName(resolvedIncident), ctx.camera.ip, ctx.camera.onvifPort, 0, incidentDurationMs, static_cast<uint32_t>(resolvedIncident), PersistentLog::FlagScheduled, PersistentLog::Level::Info, true, 0, ctx.id);
 }
 
 void writeCameraAlertLed(bool on)
@@ -757,7 +917,7 @@ void updateCameraAlertLed()
 {
     const unsigned long now = millis();
 
-    if (!ENABLE_CAMERA_ALERT_LED) {
+    if (!globalSettings.enableCameraAlertLed) {
         cameraAlertLedBlinking = false;
         lastCameraAlertLedToggleAtMs = now;
 
@@ -768,7 +928,10 @@ void updateCameraAlertLed()
         return;
     }
 
-    const bool shouldBlink = WiFi.status() != WL_CONNECTED || cameraState == CameraState::Offline || cameraState == CameraState::Recovering || activeIncident != IncidentKind::None;
+    bool shouldBlink = WiFi.status() != WL_CONNECTED;
+    for (const CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        shouldBlink = shouldBlink || ctx->cameraState == CameraState::Offline || ctx->cameraState == CameraState::Recovering || ctx->activeIncident != IncidentKind::None;
+    }
 
     if (!shouldBlink) {
         cameraAlertLedBlinking = false;
@@ -788,7 +951,7 @@ void updateCameraAlertLed()
         return;
     }
 
-    if (now - lastCameraAlertLedToggleAtMs >= CAMERA_ALERT_LED_BLINK_INTERVAL_MS) {
+    if (now - lastCameraAlertLedToggleAtMs >= globalSettings.cameraAlertLedBlinkIntervalMs) {
         lastCameraAlertLedToggleAtMs = now;
         writeCameraAlertLed(!cameraAlertLedOn);
     }
@@ -919,9 +1082,9 @@ String currentTimestamp()
     return String(buffer);
 }
 
-bool cameraCredentialsConfigured()
+bool cameraCredentialsConfigured(CameraContext& ctx)
 {
-    return settings.cameraUsername[0] != '\0';
+    return ctx.settings.cameraUsername[0] != '\0';
 }
 
 void noteSntpSynchronization(struct timeval*)
@@ -960,9 +1123,9 @@ bool sntpReferenceFresh(const SntpReferenceSnapshot& snapshot)
     return snapshot.synchronized && millis() - snapshot.synchronizedAtMs <= ESP_SNTP_REFERENCE_MAX_AGE_MS && clockSynchronized();
 }
 
-String makeWsseSecurityHeader()
+String makeWsseSecurityHeader(CameraContext& ctx)
 {
-    if (!cameraCredentialsConfigured() || !clockSynchronized()) {
+    if (!cameraCredentialsConfigured(ctx) || !clockSynchronized()) {
         return String();
     }
 
@@ -977,7 +1140,7 @@ String makeWsseSecurityHeader()
     bool digestOk = mbedtls_sha1_starts_ret(&context) == 0;
     digestOk = digestOk && mbedtls_sha1_update_ret(&context, nonce, sizeof(nonce)) == 0;
     digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(created.c_str()), created.length()) == 0;
-    digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(settings.cameraPassword), strlen(settings.cameraPassword)) == 0;
+    digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(ctx.settings.cameraPassword), strlen(ctx.settings.cameraPassword)) == 0;
     digestOk = digestOk && mbedtls_sha1_finish_ret(&context, digest) == 0;
     mbedtls_sha1_free(&context);
 
@@ -1005,7 +1168,7 @@ String makeWsseSecurityHeader()
     header += "xmlns:wsu=\"http://docs.oasis-open.org/wss/2004/01/";
     header += "oasis-200401-wss-wssecurity-utility-1.0.xsd\">";
     header += "<wsse:UsernameToken><wsse:Username>";
-    header += htmlEscape(settings.cameraUsername);
+    header += htmlEscape(ctx.settings.cameraUsername);
     header += "</wsse:Username><wsse:Password Type=\"http://docs.oasis-open.org/";
     header += "wss/2004/01/oasis-200401-wss-username-token-profile-1.0#";
     header += "PasswordDigest\">";
@@ -1020,39 +1183,39 @@ String makeWsseSecurityHeader()
     return header;
 }
 
-bool cameraRebootGraceActive()
+bool cameraRebootGraceActive(CameraContext& ctx)
 {
-    return cameraRebootGraceStartedAtMs != 0 && millis() - cameraRebootGraceStartedAtMs < ONVIF_REBOOT_GRACE_MS;
+    return ctx.cameraRebootGraceStartedAtMs != 0 && millis() - ctx.cameraRebootGraceStartedAtMs < ctx.settings.onvifRebootGraceMs;
 }
 
-unsigned long cameraRebootGraceRemainingMs()
+unsigned long cameraRebootGraceRemainingMs(CameraContext& ctx)
 {
-    if (!cameraRebootGraceActive()) {
+    if (!cameraRebootGraceActive(ctx)) {
         return 0;
     }
 
-    return ONVIF_REBOOT_GRACE_MS - (millis() - cameraRebootGraceStartedAtMs);
+    return ctx.settings.onvifRebootGraceMs - (millis() - ctx.cameraRebootGraceStartedAtMs);
 }
 
-void refreshCameraRebootWindow()
+void refreshCameraRebootWindow(CameraContext& ctx)
 {
     const unsigned long now = millis();
     uint8_t activeCount = 0;
 
-    for (uint8_t index = 0; index < cameraRebootAttemptsInWindow; index++) {
-        const unsigned long acceptedAtMs = cameraRebootAcceptedAtMs[index];
+    for (uint8_t index = 0; index < ctx.cameraRebootAttemptsInWindow; index++) {
+        const unsigned long acceptedAtMs = ctx.cameraRebootAcceptedAtMs[index];
 
-        if (acceptedAtMs != 0 && now - acceptedAtMs < ONVIF_REBOOT_WINDOW_MS) {
-            cameraRebootAcceptedAtMs[activeCount++] = acceptedAtMs;
+        if (acceptedAtMs != 0 && now - acceptedAtMs < ctx.settings.onvifRebootWindowMs) {
+            ctx.cameraRebootAcceptedAtMs[activeCount++] = acceptedAtMs;
         }
     }
 
     for (uint8_t index = activeCount; index < MAX_ONVIF_REBOOT_ATTEMPTS_MAX; index++) {
-        cameraRebootAcceptedAtMs[index] = 0;
+        ctx.cameraRebootAcceptedAtMs[index] = 0;
     }
 
-    cameraRebootAttemptsInWindow = activeCount;
-    cameraRebootWindowStartedAtMs = activeCount > 0 ? cameraRebootAcceptedAtMs[0] : 0;
+    ctx.cameraRebootAttemptsInWindow = activeCount;
+    ctx.cameraRebootWindowStartedAtMs = activeCount > 0 ? ctx.cameraRebootAcceptedAtMs[0] : 0;
 }
 
 String durationText(unsigned long durationMs)
@@ -1068,66 +1231,51 @@ String durationText(unsigned long durationMs)
     return String(buffer);
 }
 
-void applyRuntimeSettings(const RuntimeSettings& previous)
+void applyRuntimeSettings(CameraContext& ctx, const RuntimeSettings& previous)
 {
-    const bool credentialsChanged = strcmp(previous.cameraUsername, settings.cameraUsername) != 0 || strcmp(previous.cameraPassword, settings.cameraPassword) != 0;
+    const bool credentialsChanged = strcmp(previous.cameraUsername, ctx.settings.cameraUsername) != 0 || strcmp(previous.cameraPassword, ctx.settings.cameraPassword) != 0;
+    if (credentialsChanged || strcmp(previous.snapshotProfileMatch, ctx.settings.snapshotProfileMatch) != 0) {
+        invalidateSnapshotTarget(ctx);
+        if (credentialsChanged)
+            invalidateOnvifServiceCatalog(ctx);
+        ctx.lastSnapshotResolveAttemptAtMs = 0;
+        ctx.lastSnapshotResolveStatusCode = 0;
+        ctx.lastSnapshotResolveTransportFailure = false;
+        ctx.lastSnapshotResult = "Configuracao alterada; aguardando novo teste JPEG";
+        resetCameraCheckSequences(ctx, ctx.lastSnapshotResult.c_str());
+        ctx.lastHealthCheckAtMs = 0;
+    }
+    ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
+    if (!ctx.settings.enableEmailAlerts) {
+        ctx.pendingIncidentEmail = false;
+        ctx.pendingRecoveryEmail = false;
+        ctx.pendingIpChangeEmail = false;
+    }
+    if (previous.healthCheckIntervalMs != ctx.settings.healthCheckIntervalMs)
+        ctx.lastHealthCheckAtMs = 0;
+    refreshCameraRebootWindow(ctx);
+    registryRevision++;
+}
 
-    if (strcmp(previous.localHostname, settings.localHostname) != 0 && connectedServicesInitialized && WiFi.status() == WL_CONNECTED) {
+void applyGlobalSettings(const GlobalSettings& previous)
+{
+    if (strcmp(previous.localHostname, globalSettings.localHostname) != 0 && connectedServicesInitialized && WiFi.status() == WL_CONNECTED) {
         MDNS.end();
-        mdnsAvailable = false;
         startMdns();
     }
-
-    if (credentialsChanged || strcmp(previous.snapshotProfileMatch, settings.snapshotProfileMatch) != 0) {
-        invalidateSnapshotTarget();
-        if (credentialsChanged) {
-            invalidateOnvifServiceCatalog();
-        }
-        lastSnapshotResolveAttemptAtMs = 0;
-        lastSnapshotResolveStatusCode = 0;
-        lastSnapshotResolveTransportFailure = false;
-        lastSnapshotResult = credentialsChanged ? "Credenciais alteradas; aguardando novo teste JPEG" : "Perfil alterado; aguardando novo teste JPEG";
-        resetCameraCheckSequences(lastSnapshotResult.c_str());
-    }
-
-    if (previous.cameraRtspPort != settings.cameraRtspPort) {
-        camera.rtspPort = settings.cameraRtspPort;
-
-        if (camera.valid) {
-            saveCameraTarget(0, PersistentLog::FlagManual);
-        }
-    }
-
-    if (!ENABLE_CAMERA_ALERT_LED) {
+    if (!globalSettings.enableCameraAlertLed) {
         cameraAlertLedBlinking = false;
         writeCameraAlertLed(false);
     }
-
-    if (!ENABLE_EMAIL_ALERTS) {
-        pendingIncidentEmail = false;
-        pendingRecoveryEmail = false;
-    }
-
-    if (previous.healthCheckIntervalMs != settings.healthCheckIntervalMs) {
-        lastHealthCheckAtMs = millis();
-    }
-
-    if (credentialsChanged) {
-        lastHealthCheckAtMs = millis() - HEALTH_CHECK_INTERVAL_MS;
-    }
-
-    if (previous.onvifRebootWindowMs != settings.onvifRebootWindowMs || previous.onvifRebootCooldownMs != settings.onvifRebootCooldownMs || previous.maxOnvifRebootAttemptsPerWindow != settings.maxOnvifRebootAttemptsPerWindow) {
-        refreshCameraRebootWindow();
-    }
 }
 
-void setState(CameraState newState, const String& event)
+void setState(CameraContext& ctx, CameraState newState, const String& event)
 {
-    const bool stateChanged = cameraState != newState;
+    const bool stateChanged = ctx.cameraState != newState;
 
     if (stateChanged) {
-        cameraState = newState;
-        lastStateChangeAtMs = millis();
+        ctx.cameraState = newState;
+        ctx.lastStateChangeAtMs = millis();
 
         PersistentLog::Level level = PersistentLog::Level::Info;
 
@@ -1137,11 +1285,11 @@ void setState(CameraState newState, const String& event)
             level = PersistentLog::Level::Error;
         }
 
-        PersistentLog::record(PersistentLog::Event::CameraState, PersistentLog::Outcome::Info, stateName(newState), camera.ip, camera.onvifPort, 0, 0, static_cast<uint32_t>(newState), PersistentLog::FlagScheduled, level, true);
+        PersistentLog::record(PersistentLog::Event::CameraState, PersistentLog::Outcome::Info, stateName(newState), ctx.camera.ip, ctx.camera.onvifPort, 0, 0, static_cast<uint32_t>(newState), PersistentLog::FlagScheduled, level, true, 0, ctx.id);
     }
 
-    lastEvent = currentTimestamp() + " - " + event;
-    Serial.printf("ESTADO: %s | %s\n", stateName(cameraState), event.c_str());
+    ctx.lastEvent = currentTimestamp() + " - " + event;
+    Serial.printf("ESTADO: %s | %s\n", stateName(ctx.cameraState), event.c_str());
 }
 
 bool resendConfigured()
@@ -1248,23 +1396,23 @@ bool readHttpResponseBodyBounded(HTTPClient& request, String& output, size_t lim
     return bytesWritten >= 0 && !limitExceeded && (declaredSize < 0 || bytesWritten == declaredSize);
 }
 
-bool sendResendEmail(const String& subject, const String& html)
+bool sendResendEmail(CameraContext& ctx, const String& subject, const String& html)
 {
-    lastEmailAttemptAtMs = millis();
+    ctx.lastEmailAttemptAtMs = millis();
     const unsigned long startedAtMs = millis();
 
     if (!resendConfigured()) {
-        lastEmailResult = "Resend nao configurado em include/secrets.h";
-        Serial.println(lastEmailResult);
-        emailErrors++;
-        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Skipped, "resend_not_configured", IPAddress(), 443, 0, millis() - startedAtMs, 0, PersistentLog::FlagOutbound);
+        ctx.lastEmailResult = "Resend nao configurado em include/secrets.h";
+        Serial.println(ctx.lastEmailResult);
+        ctx.emailErrors++;
+        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Skipped, "resend_not_configured", IPAddress(), 443, 0, millis() - startedAtMs, 0, PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
         return false;
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        lastEmailResult = "Wi-Fi desconectado; envio adiado";
-        emailErrors++;
-        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Skipped, "wifi_disconnected", IPAddress(), 443, 0, millis() - startedAtMs, 0, PersistentLog::FlagOutbound);
+        ctx.lastEmailResult = "Wi-Fi desconectado; envio adiado";
+        ctx.emailErrors++;
+        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Skipped, "wifi_disconnected", IPAddress(), 443, 0, millis() - startedAtMs, 0, PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
         return false;
     }
 
@@ -1278,9 +1426,9 @@ bool sendResendEmail(const String& subject, const String& html)
     request.setReuse(false);
 
     if (!request.begin(secureClient, RESEND_API_URL)) {
-        lastEmailResult = "Falha ao inicializar cliente HTTPS";
-        emailErrors++;
-        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Failure, "https_begin_failed", IPAddress(), 443, -1, millis() - startedAtMs, 0, PersistentLog::FlagOutbound);
+        ctx.lastEmailResult = "Falha ao inicializar cliente HTTPS";
+        ctx.emailErrors++;
+        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Failure, "https_begin_failed", IPAddress(), 443, -1, millis() - startedAtMs, 0, PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
         return false;
     }
 
@@ -1313,19 +1461,19 @@ bool sendResendEmail(const String& subject, const String& html)
     }
 
     if (statusCode >= 200 && statusCode < 300) {
-        emailsSent++;
-        lastEmailResult = currentTimestamp() + " - enviado; HTTP " + String(statusCode) + "; " + responseBody;
+        ctx.emailsSent++;
+        ctx.lastEmailResult = currentTimestamp() + " - enviado; HTTP " + String(statusCode) + "; " + responseBody;
 
-        Serial.println(lastEmailResult);
-        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Success, "resend_email", IPAddress(), 443, statusCode, millis() - startedAtMs, static_cast<uint32_t>(payload.length()), PersistentLog::FlagOutbound);
+        Serial.println(ctx.lastEmailResult);
+        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Success, "resend_email", IPAddress(), 443, statusCode, millis() - startedAtMs, static_cast<uint32_t>(payload.length()), PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
         return true;
     }
 
-    emailErrors++;
-    lastEmailResult = currentTimestamp() + " - erro; HTTP " + String(statusCode) + "; " + responseBody;
+    ctx.emailErrors++;
+    ctx.lastEmailResult = currentTimestamp() + " - erro; HTTP " + String(statusCode) + "; " + responseBody;
 
-    Serial.println(lastEmailResult);
-    PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Failure, "resend_email", IPAddress(), 443, statusCode, millis() - startedAtMs, static_cast<uint32_t>(payload.length()), PersistentLog::FlagOutbound);
+    Serial.println(ctx.lastEmailResult);
+    PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Failure, "resend_email", IPAddress(), 443, statusCode, millis() - startedAtMs, static_cast<uint32_t>(payload.length()), PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
     return false;
 }
 
@@ -1404,7 +1552,7 @@ void appendDetailRow(String& html, const char* label, const String& value, uint8
     html += "</td></tr>";
 }
 
-void appendDetailsTable(String& html)
+void appendDetailsTable(CameraContext& ctx, String& html)
 {
     html += "<tr><td style=\"padding:24px 28px 0\">" "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" " "cellspacing=\"0\" border=\"0\" style=\"border-collapse:separate;" "border-spacing:0;border:1px solid #e3e9f0;border-radius:10px;" "overflow:hidden\">";
 
@@ -1415,23 +1563,23 @@ void appendDetailsTable(String& html)
         index++;
     };
 
-    String snapshotDescription = lastSnapshotProbe.detail;
+    String snapshotDescription = ctx.lastSnapshotProbe.detail;
 
-    if (lastSnapshotProbe.jpegValid) {
-        snapshotDescription = String("JPEG válido · ") + String(lastSnapshotProbe.bytesRead) + " bytes · " + String(lastSnapshotProbe.latencyMs) + " ms";
+    if (ctx.lastSnapshotProbe.jpegValid) {
+        snapshotDescription = String("JPEG válido · ") + String(ctx.lastSnapshotProbe.bytesRead) + " bytes · " + String(ctx.lastSnapshotProbe.latencyMs) + " ms";
     }
 
-    row("Câmera", CAMERA_NAME);
-    row("Estado", stateLabel(cameraState));
-    row("Endereço IP", camera.valid ? camera.ip.toString() : "não localizado");
-    row("Endpoint ONVIF", camera.onvifUrl.isEmpty() ? String("desconhecido") : camera.onvifUrl);
+    row("Câmera", ctx.settings.cameraName);
+    row("Estado", stateLabel(ctx.cameraState));
+    row("Endereço IP", ctx.camera.valid ? ctx.camera.ip.toString() : "não localizado");
+    row("Endpoint ONVIF", ctx.camera.onvifUrl.isEmpty() ? String("desconhecido") : ctx.camera.onvifUrl);
     row("Teste de imagem", snapshotDescription);
-    row("Teste ONVIF", describeProbe(lastOnvifProbe, "HTTP"));
-    row("Teste RTSP", lastRtspProbeAttempted ? describeProbe(lastRtspProbe, "RTSP") : lastOnvifProbe.protocolResponded ? String("dispensado; ONVIF respondeu") : String("não executado; aguardando câmera e ONVIF"));
-    row("Falhas de imagem consecutivas", String(consecutiveFailures));
-    row("Falhas de controle consecutivas", String(consecutiveControlFailures));
-    row("Recuperação ONVIF", lastCameraRebootResult);
-    row("Verificações", String(totalHealthChecks) + " no total · " + String(failedHealthChecks) + " com falha");
+    row("Teste ONVIF", describeProbe(ctx.lastOnvifProbe, "HTTP"));
+    row("Teste RTSP", ctx.lastRtspProbeAttempted ? describeProbe(ctx.lastRtspProbe, "RTSP") : ctx.lastOnvifProbe.protocolResponded ? String("dispensado; ONVIF respondeu") : String("não executado; aguardando câmera e ONVIF"));
+    row("Falhas de imagem consecutivas", String(ctx.consecutiveFailures));
+    row("Falhas de controle consecutivas", String(ctx.consecutiveControlFailures));
+    row("Recuperação ONVIF", ctx.lastCameraRebootResult);
+    row("Verificações", String(ctx.totalHealthChecks) + " no total · " + String(ctx.failedHealthChecks) + " com falha");
     row("ESP32", WiFi.localIP().toString() + " · " + WiFi.SSID() + " · " + String(WiFi.RSSI()) + " dBm");
     row("Ligado há", durationText(millis()));
     row("Horário (UTC)", currentTimestamp());
@@ -1450,7 +1598,7 @@ void appendCallout(String& html, const EmailTheme& theme, const String& text)
     html += "</td></tr></table></td></tr>";
 }
 
-String buildEmailHtml(const EmailTheme& theme, const char* badge, const char* title, const char* intro, const String& callout)
+String buildEmailHtml(CameraContext& ctx, const EmailTheme& theme, const char* badge, const char* title, const char* intro, const String& callout)
 {
     String html;
     html.reserve(10240);
@@ -1479,7 +1627,7 @@ String buildEmailHtml(const EmailTheme& theme, const char* badge, const char* ti
         appendCallout(html, theme, callout);
     }
 
-    appendDetailsTable(html);
+    appendDetailsTable(ctx, html);
 
     html += "<tr><td style=\"padding:24px 28px 0\">" "<a href=\"http://";
     html += WiFi.localIP().toString();
@@ -1495,18 +1643,18 @@ String buildEmailHtml(const EmailTheme& theme, const char* badge, const char* ti
     return html;
 }
 
-bool sendIncidentAlert()
+bool sendIncidentAlert(CameraContext& ctx)
 {
-    if (activeIncident == IncidentKind::None) {
-        pendingIncidentEmail = false;
+    if (ctx.activeIncident == IncidentKind::None) {
+        ctx.pendingIncidentEmail = false;
         return true;
     }
 
-    const bool snapshotOnly = activeIncident == IncidentKind::SnapshotUnavailable;
-    const uint8_t snapshotFailureCount = lastSnapshotProbe.conclusive ? consecutiveFailures : consecutiveInconclusiveChecks;
+    const bool snapshotOnly = ctx.activeIncident == IncidentKind::SnapshotUnavailable;
+    const uint8_t snapshotFailureCount = ctx.lastSnapshotProbe.conclusive ? ctx.consecutiveFailures : ctx.consecutiveInconclusiveChecks;
 
     String subject = snapshotOnly ? String("[Snapshot indisponivel] ") : String("[Camera offline] ");
-    subject += CAMERA_NAME;
+    subject += ctx.settings.cameraName;
 
     String callout;
     callout.reserve(640);
@@ -1515,77 +1663,77 @@ bool sendIncidentAlert()
         callout = "A câmera ainda responde aos serviços de controle, mas falhou " "em <strong>";
         callout += snapshotFailureCount;
         callout += "</strong> verificações consecutivas do snapshot. Último teste: ";
-        callout += htmlEscape(lastSnapshotProbe.detail);
+        callout += htmlEscape(ctx.lastSnapshotProbe.detail);
         callout += ".";
     } else {
         callout = "O ESP32 não conseguiu obter imagem nem confirmar resposta " "ONVIF/RTSP. Falhas consecutivas: imagem <strong>";
-        callout += consecutiveFailures;
+        callout += ctx.consecutiveFailures;
         callout += "</strong>, controle <strong>";
-        callout += consecutiveControlFailures;
+        callout += ctx.consecutiveControlFailures;
         callout += "</strong>.";
     }
 
-    if (lastCameraRebootAttemptAtMs != 0) {
+    if (ctx.lastCameraRebootAttemptAtMs != 0) {
         callout += "<br><br>Recuperação automática: ";
-        callout += htmlEscape(lastCameraRebootResult);
+        callout += htmlEscape(ctx.lastCameraRebootResult);
         callout += ".";
     }
 
-    const String html = buildEmailHtml(EMAIL_THEME_ALERT, snapshotOnly ? "SEM SNAPSHOT" : "OFFLINE", snapshotOnly ? "A câmera parou de entregar snapshots JPEG" : "A câmera parou de responder", snapshotOnly ? "O serviço de controle continua acessível, porém o ESP32 não " "recebeu um JPEG completo e válido nas últimas verificações." : "A indisponibilidade foi confirmada por testes independentes de " "imagem, ONVIF e RTSP.", callout);
+    const String html = buildEmailHtml(ctx, EMAIL_THEME_ALERT, snapshotOnly ? "SEM SNAPSHOT" : "OFFLINE", snapshotOnly ? "A câmera parou de entregar snapshots JPEG" : "A câmera parou de responder", snapshotOnly ? "O serviço de controle continua acessível, porém o ESP32 não " "recebeu um JPEG completo e válido nas últimas verificações." : "A indisponibilidade foi confirmada por testes independentes de " "imagem, ONVIF e RTSP.", callout);
 
-    const bool sent = sendResendEmail(subject, html);
+    const bool sent = sendResendEmail(ctx, subject, html);
 
     if (sent) {
-        incidentAlertSent = true;
-        pendingIncidentEmail = false;
+        ctx.incidentAlertSent = true;
+        ctx.pendingIncidentEmail = false;
     }
 
     return sent;
 }
 
-bool sendRecoveryAlert()
+bool sendRecoveryAlert(CameraContext& ctx)
 {
-    if (recoveryIncident == IncidentKind::None) {
-        pendingRecoveryEmail = false;
+    if (ctx.recoveryIncident == IncidentKind::None) {
+        ctx.pendingRecoveryEmail = false;
         return true;
     }
 
-    const bool recoveredSnapshot = recoveryIncident == IncidentKind::SnapshotUnavailable;
+    const bool recoveredSnapshot = ctx.recoveryIncident == IncidentKind::SnapshotUnavailable;
 
     String subject = recoveredSnapshot ? String("[Snapshot recuperado] ") : String("[Camera recuperada] ");
-    subject += CAMERA_NAME;
+    subject += ctx.settings.cameraName;
 
     String callout = "Duração aproximada do incidente: <strong>";
-    callout += durationText(recoveryIncidentDurationMs);
+    callout += durationText(ctx.recoveryIncidentDurationMs);
     callout += (recoveredSnapshot ? "</strong>. O teste atual recebeu um JPEG completo e válido." : "</strong>. As verificações atuais confirmaram que a câmera voltou a responder.");
 
-    if (lastCameraRebootAttemptAtMs != 0) {
+    if (ctx.lastCameraRebootAttemptAtMs != 0) {
         callout += "<br><br>Última recuperação ONVIF: ";
-        callout += htmlEscape(lastCameraRebootResult);
+        callout += htmlEscape(ctx.lastCameraRebootResult);
         callout += ".";
     }
 
-    const String html = buildEmailHtml(EMAIL_THEME_OK, "RECUPERADA", recoveredSnapshot ? "O snapshot JPEG voltou a funcionar" : "A câmera voltou a responder", "Duas verificações consecutivas confirmaram a recuperação. O " "monitoramento normal foi retomado.", callout);
+    const String html = buildEmailHtml(ctx, EMAIL_THEME_OK, "RECUPERADA", recoveredSnapshot ? "O snapshot JPEG voltou a funcionar" : "A câmera voltou a responder", "Duas verificações consecutivas confirmaram a recuperação. O " "monitoramento normal foi retomado.", callout);
 
-    const bool sent = sendResendEmail(subject, html);
+    const bool sent = sendResendEmail(ctx, subject, html);
 
     if (sent) {
-        pendingRecoveryEmail = false;
-        recoveryIncident = IncidentKind::None;
-        recoveryIncidentDurationMs = 0;
+        ctx.pendingRecoveryEmail = false;
+        ctx.recoveryIncident = IncidentKind::None;
+        ctx.recoveryIncidentDurationMs = 0;
     }
 
     return sent;
 }
 
-bool sendIpChangeAlert(const String& oldIp, const String& newIp)
+bool sendIpChangeAlert(CameraContext& ctx, const String& oldIp, const String& newIp)
 {
-    if (!ENABLE_EMAIL_ALERTS || !EMAIL_ON_IP_CHANGE || oldIp.isEmpty() || oldIp == newIp) {
+    if (!ctx.settings.enableEmailAlerts || !ctx.settings.emailOnIpChange || oldIp.isEmpty() || oldIp == newIp) {
         return true;
     }
 
     String subject = "[Camera mudou de IP] ";
-    subject += CAMERA_NAME;
+    subject += ctx.settings.cameraName;
 
     String callout = "<strong>";
     callout += htmlEscape(oldIp);
@@ -1593,9 +1741,9 @@ bool sendIpChangeAlert(const String& oldIp, const String& newIp)
     callout += htmlEscape(newIp);
     callout += "</strong>";
 
-    const String html = buildEmailHtml(EMAIL_THEME_INFO, "NOVO IP", "A câmera mudou de endereço", "O ESP32 localizou a câmera em um novo IP e já atualizou o endpoint " "monitorado. Atualize favoritos e gravadores que apontem para o " "endereço antigo.", callout);
+    const String html = buildEmailHtml(ctx, EMAIL_THEME_INFO, "NOVO IP", "A câmera mudou de endereço", "O ESP32 localizou a câmera em um novo IP e já atualizou o endpoint " "monitorado. Atualize favoritos e gravadores que apontem para o " "endereço antigo.", callout);
 
-    return sendResendEmail(subject, html);
+    return sendResendEmail(ctx, subject, html);
 }
 
 uint16_t allocateLogContextId()

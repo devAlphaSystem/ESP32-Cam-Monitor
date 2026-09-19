@@ -76,7 +76,7 @@ bool readStoredRecord(uint16_t slot, PersistentLogFormat::StoredRecord& record)
 
 bool recordHasKnownSchema(const PersistentLogFormat::StoredRecord& record)
 {
-    return record.schemaVersion == PersistentLogFormat::LEGACY_RECORD_SCHEMA_VERSION || record.schemaVersion == PersistentLogFormat::RECORD_SCHEMA_VERSION;
+    return record.schemaVersion == PersistentLogFormat::LEGACY_RECORD_SCHEMA_VERSION || record.schemaVersion == PersistentLogFormat::CONTEXT_RECORD_SCHEMA_VERSION || record.schemaVersion == PersistentLogFormat::RECORD_SCHEMA_VERSION;
 }
 
 void scanRecords()
@@ -129,11 +129,14 @@ void copyDetail(const PersistentLogFormat::StoredRecord& record, Entry& entry)
     const uint8_t* source = record.payload;
     size_t sourceSize = PersistentLog::DETAIL_CAPACITY;
 
-    if (record.schemaVersion == PersistentLogFormat::RECORD_SCHEMA_VERSION) {
+    if (record.schemaVersion != PersistentLogFormat::LEGACY_RECORD_SCHEMA_VERSION) {
         entry.bootId = PersistentLogFormat::readUint16(record.payload);
         entry.contextId = PersistentLogFormat::readUint16(record.payload + 2);
-        source += PersistentLogFormat::STORED_CONTEXT_BYTES;
-        sourceSize = PersistentLogFormat::STORED_DETAIL_CAPACITY;
+        const size_t contextBytes = record.schemaVersion == PersistentLogFormat::CONTEXT_RECORD_SCHEMA_VERSION ? 4 : PersistentLogFormat::STORED_CONTEXT_BYTES;
+        if (record.schemaVersion == PersistentLogFormat::RECORD_SCHEMA_VERSION)
+            entry.cameraId = PersistentLogFormat::readUint32(record.payload + 4);
+        source += contextBytes;
+        sourceSize -= contextBytes;
     }
 
     const void* terminator = memchr(source, '\0', sourceSize);
