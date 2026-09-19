@@ -2,7 +2,7 @@
 
 Firmware para ESP32 que monitora uma câmera IP por ONVIF, verifica se ela continua entregando snapshots JPEG válidos e oferece um painel web local para diagnóstico, prévia, configurações, logs e ações de recuperação.
 
-A versão atual é a `0.15`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor as credenciais da câmera.
+A versão atual é a `0.16`. O navegador não acessa a câmera diretamente: o ESP32 descobre os serviços ONVIF, autentica as requisições, valida o JPEG e encaminha a imagem ao painel sem expor a senha da câmera.
 
 ## Principais recursos
 
@@ -10,6 +10,7 @@ A versão atual é a `0.15`. O navegador não acessa a câmera diretamente: o ES
 - fallback opcional por varredura limitada da sub-rede;
 - seleção automática de perfil ONVIF e obtenção de `GetSnapshotUri`;
 - autenticação Basic, Digest e WS-Security UsernameToken;
+- usuário e senha da câmera configuráveis pelo painel, com persistência na NVS;
 - validação do tamanho e dos marcadores `FF D8`/`FF D9` do JPEG;
 - prévia JPEG intermediada pelo ESP32, com até 2 FPS configuráveis;
 - health-check periódico com estados online, instável, recuperando e offline;
@@ -94,8 +95,8 @@ Campos:
 | -------------------------------- | ------------------ | ----------------------------------------------------------------- |
 | `WIFI_SSID`                      | sim                | nome da rede Wi-Fi de 2,4 GHz                                     |
 | `WIFI_PASSWORD`                  | sim                | senha da rede                                                     |
-| `CAMERA_ONVIF_USERNAME_VALUE`    | conforme a câmera  | usuário ONVIF e do snapshot                                       |
-| `CAMERA_ONVIF_PASSWORD_VALUE`    | conforme a câmera  | senha ONVIF e do snapshot                                         |
+| `CAMERA_ONVIF_USERNAME_VALUE`    | não                | usuário inicial, usado antes de salvar credenciais no painel      |
+| `CAMERA_ONVIF_PASSWORD_VALUE`    | não                | senha inicial, usada antes de salvar credenciais no painel        |
 | `DASHBOARD_ADMIN_PASSWORD_VALUE` | recomendado        | protege gravações e ações administrativas; vazio desativa a senha |
 | `RESEND_API_KEY`                 | não                | chave da API; deixe vazia para não enviar e-mails                 |
 | `RESEND_FROM`                    | apenas para e-mail | remetente aceito pela conta Resend                                |
@@ -147,11 +148,15 @@ Existem três grupos de configuração, com responsabilidades diferentes.
 
 ### Segredos compilados
 
-Wi-Fi, credenciais ONVIF, senha administrativa e dados do Resend ficam exclusivamente em `include/secrets.h`. Eles não são enviados ao navegador nem podem ser alterados pelo painel.
+Wi-Fi, senha administrativa e dados do Resend ficam exclusivamente em `include/secrets.h` e não podem ser alterados pelo painel. As definições ONVIF desse arquivo são apenas valores iniciais para instalações sem configuração salva e para a migração do esquema 4. Depois de salvar, todos os acessos à câmera usam as credenciais da NVS, inclusive quando removidas explicitamente.
 
 ### Ajustes persistentes pelo painel
 
-Abra **Configurações** no painel. Ao salvar, os valores são validados e gravados no namespace `camcfg` da NVS, usando o schema `4`. A maioria é aplicada imediatamente; o timeout inicial do Wi-Fi passa a valer no próximo boot.
+Abra **Configurações** no painel. Ao salvar, os valores são validados e gravados no namespace `camcfg` da NVS, usando o schema `5`. A atualização migra os valores do esquema 4 sem perder os ajustes existentes. A maioria é aplicada imediatamente; o timeout inicial do Wi-Fi passa a valer no próximo boot.
+
+Em **Autenticação da câmera**, informe o usuário e escolha entre manter a senha atual, definir/substituir a senha ou remover usuário e senha. A senha salva nunca é devolvida pela API; o painel recebe apenas a indicação de que há uma senha configurada. O campo de nova senha pode ficar vazio ao substituir, para câmeras que usam usuário sem senha. Para acesso sem autenticação, remova ambas as credenciais. Espaços são preservados, os limites são 64 bytes para o usuário e 128 bytes para a senha em UTF-8, e caracteres de controle são rejeitados; o usuário também não pode conter dois-pontos.
+
+A gravação usa a autorização administrativa já existente. Alterações nas credenciais renovam a sessão JPEG e o catálogo ONVIF, descartam evidências da sessão anterior e antecipam a próxima verificação. Isso altera apenas o acesso usado pelo watchdog, não a conta cadastrada na câmera.
 
 | Grupo         | Principais ajustes                                                    | Padrões                                                 |
 | ------------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -174,7 +179,7 @@ O backend também aplica estas relações:
 
 O painel permite reduzir a prévia a um ciclo de `0,5 s`, com intervalo mínimo de `0,25 s`, resultando em no máximo 2 FPS. O padrão de `5 s` reduz tráfego e contenção com o health-check.
 
-Use **Restaurar padrões** para limpar apenas os ajustes operacionais e voltar aos valores de `include/app_config.h`. Segredos não são alterados. O endpoint de câmera descoberto é armazenado separadamente no namespace `camwatch` para reaproveitamento após reinicializações.
+Use **Restaurar padrões** para gravar novamente os ajustes operacionais de `include/app_config.h`, mantendo o usuário e a senha da câmera. A remoção dessas credenciais exige a opção explícita na seção de autenticação. O endpoint de câmera descoberto é armazenado separadamente no namespace `camwatch` para reaproveitamento após reinicializações.
 
 ### Ajustes avançados de fábrica
 
@@ -312,7 +317,7 @@ ESP32/
 
 ## Validação recomendada após a instalação
 
-1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.15.0`;
+1. confirme no monitor serial o Wi-Fi, o IP e a versão `0.16.0`;
 2. abra o painel pelo IP e, se disponível, pelo endereço `.local`;
 3. confirme a descoberta ONVIF e vários snapshots consecutivos;
 4. salve uma configuração, reinicie e confira a persistência na NVS;

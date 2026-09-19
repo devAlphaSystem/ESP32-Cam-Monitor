@@ -579,6 +579,7 @@ body.fs-locked{overflow:hidden}
     <div class="settings-tabbar">
       <nav class="settings-tablist" role="tablist" aria-label="Categorias das configurações">
         <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="true" tabindex="0">Identificação</button>
+        <button class="settings-tab" id="settingsAuthenticationTab" type="button" role="tab" data-settings-section="authentication" aria-controls="settingsAuthenticationPanel" aria-selected="false" tabindex="-1">Autenticação da câmera</button>
         <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoramento</button>
         <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recuperação</button>
         <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Rede e notificações</button>
@@ -598,6 +599,16 @@ body.fs-locked{overflow:hidden}
           <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
           <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Padrão estável: 5 s; mínimo permitido: 0,5 s, limitando a prévia a 2 FPS.</small></div>
           <div class="field"><label for="cfgStatusRefresh">Atualização do painel <span>segundos</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Padrão: 3 s.</small></div>
+        </div>
+      </section>
+
+      <section class="settings-card settings-panel" id="settingsAuthenticationPanel" role="tabpanel" aria-labelledby="settingsAuthenticationTab" data-settings-section-panel="authentication" hidden>
+        <div class="settings-card-h"><div><h2>Autenticação da câmera</h2><p>Credenciais usadas pelo watchdog para acessar a imagem e os serviços da câmera. Não altera a conta na câmera.</p></div></div>
+        <div class="form-grid">
+          <div class="field"><label for="cfgCameraUsername">Usuário da câmera</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>Deixe vazio quando a câmera permitir acesso sem autenticação.</small></div>
+          <div class="field"><label for="cfgCameraPasswordAction">Senha da câmera</label><select id="cfgCameraPasswordAction"><option value="keep">Manter a senha atual</option><option value="replace">Definir ou substituir a senha</option><option value="clear">Remover usuário e senha</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Aguardando consulta.</small></div>
+          <div class="field"><label for="cfgCameraPassword">Nova senha</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>Ao substituir, pode deixar vazio se a câmera usar usuário sem senha. Espaços fazem parte da senha.</small></div>
+          <div class="estimate-box">A senha salva não é exibida nem devolvida ao navegador. Ao salvar alterações nas credenciais, a conexão é renovada e uma nova verificação é iniciada. Restaurar padrões mantém estas credenciais.</div>
         </div>
       </section>
 
@@ -1470,6 +1481,20 @@ document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab =>
 });
 
 function validateSettingsForm() {
+  [['cfgCameraUsername', 64], ['cfgCameraPassword', 128]].forEach(([id, limit]) => {
+    const input = $(id);
+    let error = '';
+    if (!input.disabled) {
+      if (new TextEncoder().encode(input.value).length > limit) {
+        error = 'O limite é de ' + limit + ' bytes; caracteres acentuados podem ocupar mais de um byte.';
+      } else if (/[\u0000-\u001F\u007F]/.test(input.value)) {
+        error = 'Não use caracteres de controle.';
+      } else if (id === 'cfgCameraUsername' && input.value.includes(':')) {
+        error = 'O usuário não pode conter dois-pontos.';
+      }
+    }
+    input.setCustomValidity(error);
+  });
   const invalid = $('settingsForm').querySelector(':invalid');
   if (!invalid) return true;
   const panel = invalid.closest('[data-settings-section-panel]');
@@ -1480,6 +1505,7 @@ function validateSettingsForm() {
 
 const SETTINGS_FIELDS = {
   cameraName: { id: 'cfgCameraName', kind: 'text' },
+  cameraUsername: { id: 'cfgCameraUsername', kind: 'text', trim: false },
   localHostname: { id: 'cfgLocalHostname', kind: 'text' },
   snapshotProfileMatch: { id: 'cfgSnapshotProfileMatch', kind: 'text' },
   cameraRtspPort: { id: 'cfgCameraRtspPort' },
@@ -1580,6 +1606,17 @@ function updateSettingsEstimates() {
   $('settingsAlertEstimate').textContent = alertSeconds ? duration(alertSeconds) : '—';
 }
 
+function updateCameraCredentialFields() {
+  const action = $('cfgCameraPasswordAction').value;
+  $('cfgCameraUsername').disabled = action === 'clear';
+  $('cfgCameraUsername').setCustomValidity('');
+  $('cfgCameraPassword').disabled = action !== 'replace';
+  $('cfgCameraPassword').setCustomValidity('');
+  if (action !== 'replace') $('cfgCameraPassword').value = '';
+}
+
+$('cfgCameraPasswordAction').addEventListener('change', updateCameraCredentialFields);
+
 function populateSettings(payload) {
   const values = payload.values || {};
   Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
@@ -1596,6 +1633,12 @@ function populateSettings(payload) {
 
   settingsWriteToken = payload.security ? payload.security.writeToken || '' : '';
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
+  $('cfgCameraPasswordAction').value = 'keep';
+  $('cfgCameraPassword').value = '';
+  $('cfgCameraPasswordStatus').textContent = payload.security && payload.security.cameraPasswordConfigured
+    ? 'Senha configurada. Salvar outros ajustes mantém a senha atual.'
+    : 'Nenhuma senha configurada.';
+  updateCameraCredentialFields();
   $('settingsSource').textContent = payload.source === 'nvs'
     ? 'configurações salvas na NVS'
     : 'valores padrão de fábrica';
@@ -1667,12 +1710,16 @@ function collectMutationParams(includeSettings, password) {
       if (descriptor.kind === 'bool') {
         params.set(key, input.checked ? '1' : '0');
       } else if (descriptor.kind === 'text') {
-        params.set(key, input.value.trim());
+        params.set(key, descriptor.trim === false ? input.value : input.value.trim());
       } else {
         const numeric = Number(input.value);
         params.set(key, String(Math.round(numeric * (descriptor.scale || 1))));
       }
     });
+    const passwordAction = $('cfgCameraPasswordAction').value;
+    params.set('cameraPasswordAction', passwordAction);
+    params.set('cameraPassword', passwordAction === 'replace' ? $('cfgCameraPassword').value : '');
+    if (passwordAction === 'clear') params.set('cameraUsername', '');
   }
   return params;
 }
@@ -1724,7 +1771,7 @@ async function saveSettings(password) {
 
 $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
-  openConfirmModal('Restaurar todos os valores ajustáveis para os padrões de fábrica.', password => resetSettings(password));
+  openConfirmModal('Restaurar os ajustes operacionais para os padrões de fábrica, mantendo o usuário e a senha da câmera.', password => resetSettings(password));
 });
 
 async function resetSettings(password) {

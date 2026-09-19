@@ -253,7 +253,7 @@ String makeDigestAuthorization(const char* method, const String& url, const Dige
     snprintf(nonceCountBuffer, sizeof(nonceCountBuffer), "%08lx", static_cast<unsigned long>(nonceCountValue));
     const String nonceCount = nonceCountBuffer;
 
-    String ha1 = md5Hex(String(CAMERA_ONVIF_USERNAME_VALUE) + ':' + challenge.realm + ':' + CAMERA_ONVIF_PASSWORD_VALUE);
+    String ha1 = md5Hex(String(settings.cameraUsername) + ':' + challenge.realm + ':' + settings.cameraPassword);
 
     String normalizedAlgorithm = challenge.algorithm;
     normalizedAlgorithm.toLowerCase();
@@ -280,7 +280,7 @@ String makeDigestAuthorization(const char* method, const String& url, const Dige
     String authorization;
     authorization.reserve(512);
     authorization += "username=\"";
-    authorization += httpQuotedEscape(CAMERA_ONVIF_USERNAME_VALUE);
+    authorization += httpQuotedEscape(settings.cameraUsername);
     authorization += "\", realm=\"";
     authorization += httpQuotedEscape(challenge.realm);
     authorization += "\", nonce=\"";
@@ -323,9 +323,11 @@ void applyCameraAuthorization(HTTPClient& request, const String& digestAuthoriza
         return;
     }
 
+    request.setAuthorizationType("Basic");
     if (cameraCredentialsConfigured()) {
-        request.setAuthorizationType("Basic");
-        request.setAuthorization(CAMERA_ONVIF_USERNAME_VALUE, CAMERA_ONVIF_PASSWORD_VALUE);
+        request.setAuthorization(settings.cameraUsername, settings.cameraPassword);
+    } else {
+        request.setAuthorization("");
     }
 }
 
@@ -2376,6 +2378,49 @@ bool resolveSnapshotTarget(uint16_t contextId)
         return false;
     }
 
+    const int queryStart = parsedSnapshot.path.indexOf('?');
+
+    if (queryStart >= 0) {
+        String authenticatedPath = parsedSnapshot.path.substring(0, queryStart + 1);
+        int parameterStart = queryStart + 1;
+
+        while (parameterStart < static_cast<int>(parsedSnapshot.path.length())) {
+            const int separator = parsedSnapshot.path.indexOf('&', parameterStart);
+            const int parameterEnd = separator >= 0 ? separator : static_cast<int>(parsedSnapshot.path.length());
+            const String parameter = parsedSnapshot.path.substring(parameterStart, parameterEnd);
+            const int equals = parameter.indexOf('=');
+            const String name = equals >= 0 ? parameter.substring(0, equals) : parameter;
+            const char* credential = name == "user" ? settings.cameraUsername : name == "password" ? settings.cameraPassword : nullptr;
+
+            if (credential != nullptr) {
+                authenticatedPath += name + '=';
+
+                for (const unsigned char* value = reinterpret_cast<const unsigned char*>(credential); *value != 0; value++) {
+                    const bool unreserved = (*value >= 'a' && *value <= 'z') || (*value >= 'A' && *value <= 'Z') || (*value >= '0' && *value <= '9') || *value == '-' || *value == '.' || *value == '_' || *value == '~';
+
+                    if (unreserved) {
+                        authenticatedPath += static_cast<char>(*value);
+                    } else {
+                        char encoded[4];
+                        snprintf(encoded, sizeof(encoded), "%%%02X", static_cast<unsigned>(*value));
+                        authenticatedPath += encoded;
+                    }
+                }
+            } else {
+                authenticatedPath += parameter;
+            }
+
+            if (separator < 0) {
+                break;
+            }
+
+            authenticatedPath += '&';
+            parameterStart = separator + 1;
+        }
+
+        parsedSnapshot.path = authenticatedPath;
+    }
+
     snapshotTarget.valid = true;
     snapshotTarget.url = makeOnvifUrl(camera.ip, parsedSnapshot.port, parsedSnapshot.path);
     snapshotTarget.profileToken = profileToken;
@@ -3032,7 +3077,7 @@ bool requestCameraRebootOnvif(bool manualRequest, uint16_t contextId)
         }
 
         if (statusCode == 401 && !cameraCredentialsConfigured()) {
-            lastCameraRebootResult += "; configure CAMERA_ONVIF_USERNAME_VALUE e CAMERA_ONVIF_PASSWORD_VALUE";
+            lastCameraRebootResult += "; configure a autenticacao da camera no painel";
         }
 
         Serial.println(lastCameraRebootResult);

@@ -48,9 +48,11 @@ struct RuntimeSettings {
     uint32_t feedTargetCycleMs;
     uint32_t statusRefreshIntervalMs;
     char localHostname[LOCAL_HOSTNAME_MAX_LENGTH + 1];
+    char cameraUsername[CAMERA_USERNAME_MAX_LENGTH + 1];
+    char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
 };
 
-static_assert(sizeof(RuntimeSettings) <= 256, "RuntimeSettings excedeu o limite planejado");
+static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings excedeu o limite planejado");
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)

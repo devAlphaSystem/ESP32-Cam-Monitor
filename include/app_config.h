@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 4;
+constexpr uint16_t RUNTIME_SETTINGS_SCHEMA_VERSION = 5;
 constexpr uint16_t RUNTIME_SETTINGS_DEFAULTS_REVISION = 5;
 
 constexpr char LOCAL_HOSTNAME[] = "camera-watchdog";
@@ -12,6 +12,8 @@ constexpr size_t LOCAL_HOSTNAME_MAX_LENGTH = 31;
 constexpr char CAMERA_NAME[] = "Camera de seguranca";
 constexpr size_t CAMERA_NAME_MIN_LENGTH = 1;
 constexpr size_t CAMERA_NAME_MAX_LENGTH = 48;
+constexpr size_t CAMERA_USERNAME_MAX_LENGTH = 64;
+constexpr size_t CAMERA_PASSWORD_MAX_LENGTH = 128;
 
 constexpr char CAMERA_MATCH[] = "";
 constexpr char CAMERA_IP_HINT[] = "";

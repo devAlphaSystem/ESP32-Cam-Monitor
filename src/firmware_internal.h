@@ -32,14 +32,6 @@
 #include "runtime_settings.h"
 #include "secrets.h"
 
-#ifndef CAMERA_ONVIF_USERNAME_VALUE
-#define CAMERA_ONVIF_USERNAME_VALUE ""
-#endif
-
-#ifndef CAMERA_ONVIF_PASSWORD_VALUE
-#define CAMERA_ONVIF_PASSWORD_VALUE ""
-#endif
-
 #ifndef DASHBOARD_ADMIN_PASSWORD_VALUE
 #define DASHBOARD_ADMIN_PASSWORD_VALUE ""
 #endif
@@ -535,6 +527,7 @@ unsigned long cameraRebootGraceRemainingMs();
 void refreshCameraRebootWindow();
 String durationText(unsigned long durationMs);
 void applyRuntimeSettings(const RuntimeSettings& previous);
+void resetCameraCheckSequences(const char* snapshotDetail);
 void setState(CameraState newState, const String& event);
 bool resendConfigured();
 bool readHttpResponseBodyBounded(HTTPClient& request, String& output, size_t limit, bool& limitExceeded, bool* streamFailure = nullptr);

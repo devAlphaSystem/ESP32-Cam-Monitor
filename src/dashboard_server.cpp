@@ -940,10 +940,19 @@ bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
 
 bool authorizeSettingsMutation(String& error)
 {
-    return authorizeDashboardMutation(error, true);
+    if (!authorizeDashboardMutation(error, true)) {
+        return false;
+    }
+
+    if (currentAdminAction() != AdminAction::None) {
+        error = "Aguarde a acao administrativa terminar antes de alterar as configuracoes";
+        return false;
+    }
+
+    return true;
 }
 
-bool readStringSettingArgument(const char* name, size_t minimumLength, size_t maximumLength, String& value, String& error)
+bool readStringSettingArgument(const char* name, size_t minimumLength, size_t maximumLength, String& value, String& error, bool trim = true)
 {
     if (!httpServer.hasArg(name)) {
         error = String("Campo ausente: ") + name;
@@ -951,7 +960,9 @@ bool readStringSettingArgument(const char* name, size_t minimumLength, size_t ma
     }
 
     value = httpServer.arg(name);
-    value.trim();
+    if (trim) {
+        value.trim();
+    }
 
     if (value.length() < minimumLength || value.length() > maximumLength) {
         error = String("Campo fora do tamanho permitido: ") + name;
@@ -1056,6 +1067,40 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
     }
     copySettingText(candidate.snapshotProfileMatch, textValue);
 
+    if (!readStringSettingArgument("cameraUsername", 0, CAMERA_USERNAME_MAX_LENGTH, textValue, error, false)) {
+        return false;
+    }
+    copySettingText(candidate.cameraUsername, textValue);
+
+    String passwordAction;
+    if (!readStringSettingArgument("cameraPasswordAction", 4, 7, passwordAction, error, false)) {
+        return false;
+    }
+
+    if (!readStringSettingArgument("cameraPassword", 0, CAMERA_PASSWORD_MAX_LENGTH, textValue, error, false)) {
+        return false;
+    }
+
+    if (passwordAction == "replace") {
+        copySettingText(candidate.cameraPassword, textValue);
+    } else if (passwordAction == "keep" || passwordAction == "clear") {
+        if (!textValue.isEmpty()) {
+            error = "Selecione substituir a senha para enviar uma nova senha";
+            return false;
+        }
+
+        if (passwordAction == "clear") {
+            if (candidate.cameraUsername[0] != '\0') {
+                error = "A remocao das credenciais exige usuario vazio";
+                return false;
+            }
+            copySettingText(candidate.cameraPassword, "");
+        }
+    } else {
+        error = "Acao de senha da camera invalida";
+        return false;
+    }
+
 #define READ_U32(field, argument, minimum, maximum) \
     if (!readUnsignedSettingArgument( \
         argument, minimum, maximum, numericValue, error \
@@ -1143,7 +1188,9 @@ String buildSettingsJson()
     json += adminPasswordConfigured() ? "true" : "false";
     json += ",\"writeToken\":\"";
     json += settingsWriteToken;
-    json += "\"},\"estimates\":{";
+    json += "\",\"cameraPasswordConfigured\":";
+    json += settings.cameraPassword[0] != '\0' ? "true" : "false";
+    json += "},\"estimates\":{";
     json += "\"imageAlertSeconds\":";
     json += (static_cast<uint64_t>(HEALTH_CHECK_INTERVAL_MS) * VIDEO_FAILURES_BEFORE_ALERT) / 1000ULL;
     json += ",\"imageRebootSeconds\":";
@@ -1155,6 +1202,8 @@ String buildSettingsJson()
     json += jsonEscape(CAMERA_NAME);
     json += "\",\"localHostname\":\"";
     json += jsonEscape(LOCAL_HOSTNAME);
+    json += "\",\"cameraUsername\":\"";
+    json += jsonEscape(settings.cameraUsername);
     json += "\",\"snapshotProfileMatch\":\"";
     json += jsonEscape(CAMERA_SNAPSHOT_PROFILE_MATCH);
     json += "\",\"cameraRtspPort\":";
@@ -1268,17 +1317,21 @@ void handleResetSettings()
         return;
     }
 
-    if (!clearRuntimeSettingsNvs()) {
-        sendApiError(500, "nvs_clear_failed", "Falha ao limpar a NVS");
+    RuntimeSettings defaults = makeDefaultRuntimeSettings();
+    copySettingText(defaults.cameraUsername, settings.cameraUsername);
+    copySettingText(defaults.cameraPassword, settings.cameraPassword);
+
+    if (!saveRuntimeSettingsToNvs(defaults)) {
+        sendApiError(500, "nvs_write_failed", "Falha ao gravar os padroes na NVS");
         return;
     }
 
     const RuntimeSettings previous = settings;
-    settings = makeDefaultRuntimeSettings();
-    settingsLoadedFromNvs = false;
+    settings = defaults;
+    settingsLoadedFromNvs = true;
     settingsRevision++;
     settingsWriteCount++;
-    lastSettingsResult = currentTimestamp() + " - valores de fabrica restaurados";
+    lastSettingsResult = currentTimestamp() + " - padroes restaurados; credenciais da camera mantidas";
     applyRuntimeSettings(previous);
     PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, "factory_defaults", IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
     recordRuntimeSettingsContext("factory", PersistentLog::FlagManual);

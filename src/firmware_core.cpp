@@ -2,14 +2,14 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.15.0";
+const char FIRMWARE_VERSION[] = "0.16.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
 constexpr char SETTINGS_NVS_KEY[] = "runtime";
 constexpr char SETTINGS_DEFAULTS_REVISION_KEY[] = "defaults_rev";
 constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
-constexpr uint16_t PREVIOUS_RUNTIME_SETTINGS_SCHEMA_VERSION = 3;
+constexpr uint16_t PREVIOUS_RUNTIME_SETTINGS_SCHEMA_VERSION = 4;
 constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS = 24UL * 60UL * 60UL * 1000UL;
 
 struct StoredSettingsBlob {
@@ -20,7 +20,7 @@ struct StoredSettingsBlob {
     uint32_t checksum;
 };
 
-constexpr size_t PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE = offsetof(RuntimeSettings, localHostname);
+constexpr size_t PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE = offsetof(RuntimeSettings, cameraUsername);
 
 struct PreviousStoredSettingsBlob {
     uint32_t magic;
@@ -30,7 +30,7 @@ struct PreviousStoredSettingsBlob {
     uint32_t checksum;
 };
 
-static_assert(PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE + LOCAL_HOSTNAME_MAX_LENGTH + 1 == sizeof(RuntimeSettings), "localHostname deve permanecer ao final de RuntimeSettings");
+static_assert(PREVIOUS_RUNTIME_SETTINGS_PAYLOAD_SIZE == offsetof(RuntimeSettings, localHostname) + LOCAL_HOSTNAME_MAX_LENGTH + 1, "Credenciais devem permanecer apos os campos do esquema 4");
 
 RuntimeSettings settings = makeDefaultRuntimeSettings();
 
@@ -262,6 +262,21 @@ bool settingInRange(T value, T minimum, T maximum)
 
 bool validateRuntimeSettings(const RuntimeSettings& values, String& error)
 {
+    if (!settingTextValid(values.cameraUsername, sizeof(values.cameraUsername), 0, CAMERA_USERNAME_MAX_LENGTH) || strchr(values.cameraUsername, ':') != nullptr) {
+        error = "Usuario da camera invalido; limite de 64 bytes, sem dois-pontos ou caracteres de controle";
+        return false;
+    }
+
+    if (!settingTextValid(values.cameraPassword, sizeof(values.cameraPassword), 0, CAMERA_PASSWORD_MAX_LENGTH)) {
+        error = "Senha da camera invalida; limite de 128 bytes, sem caracteres de controle";
+        return false;
+    }
+
+    if (values.cameraUsername[0] == '\0' && values.cameraPassword[0] != '\0') {
+        error = "Informe o usuario da camera ou remova as credenciais para acessar sem autenticacao";
+        return false;
+    }
+
     if (!settingTextValid(values.cameraName, sizeof(values.cameraName), CAMERA_NAME_MIN_LENGTH, CAMERA_NAME_MAX_LENGTH)) {
         error = "Nome da camera invalido";
         return false;
@@ -509,7 +524,7 @@ void loadRuntimeSettings()
         const bool migratedSaved = saveRuntimeSettingsToNvs(settings);
 
         if (schemaMigrated) {
-            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; esquema 3 migrado para 4" : "Configuracoes carregadas; migracao para esquema 4 nao persistida";
+            lastSettingsResult = migratedSaved ? "Configuracoes carregadas; esquema 4 migrado para 5" : "Configuracoes carregadas; migracao para esquema 5 nao persistida";
         } else if (runtimeDefaultsMigrated) {
             lastSettingsResult = migratedSaved ? "Configuracoes carregadas; novos padroes aplicados" : "Configuracoes carregadas; novos padroes nao persistidos";
         } else if (previewLimitMigrated) {
@@ -906,7 +921,7 @@ String currentTimestamp()
 
 bool cameraCredentialsConfigured()
 {
-    return strlen(CAMERA_ONVIF_USERNAME_VALUE) > 0;
+    return settings.cameraUsername[0] != '\0';
 }
 
 void noteSntpSynchronization(struct timeval*)
@@ -962,7 +977,7 @@ String makeWsseSecurityHeader()
     bool digestOk = mbedtls_sha1_starts_ret(&context) == 0;
     digestOk = digestOk && mbedtls_sha1_update_ret(&context, nonce, sizeof(nonce)) == 0;
     digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(created.c_str()), created.length()) == 0;
-    digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(CAMERA_ONVIF_PASSWORD_VALUE), strlen(CAMERA_ONVIF_PASSWORD_VALUE)) == 0;
+    digestOk = digestOk && mbedtls_sha1_update_ret(&context, reinterpret_cast<const unsigned char*>(settings.cameraPassword), strlen(settings.cameraPassword)) == 0;
     digestOk = digestOk && mbedtls_sha1_finish_ret(&context, digest) == 0;
     mbedtls_sha1_free(&context);
 
@@ -990,7 +1005,7 @@ String makeWsseSecurityHeader()
     header += "xmlns:wsu=\"http://docs.oasis-open.org/wss/2004/01/";
     header += "oasis-200401-wss-wssecurity-utility-1.0.xsd\">";
     header += "<wsse:UsernameToken><wsse:Username>";
-    header += htmlEscape(CAMERA_ONVIF_USERNAME_VALUE);
+    header += htmlEscape(settings.cameraUsername);
     header += "</wsse:Username><wsse:Password Type=\"http://docs.oasis-open.org/";
     header += "wss/2004/01/oasis-200401-wss-username-token-profile-1.0#";
     header += "PasswordDigest\">";
@@ -1055,24 +1070,24 @@ String durationText(unsigned long durationMs)
 
 void applyRuntimeSettings(const RuntimeSettings& previous)
 {
+    const bool credentialsChanged = strcmp(previous.cameraUsername, settings.cameraUsername) != 0 || strcmp(previous.cameraPassword, settings.cameraPassword) != 0;
+
     if (strcmp(previous.localHostname, settings.localHostname) != 0 && connectedServicesInitialized && WiFi.status() == WL_CONNECTED) {
         MDNS.end();
         mdnsAvailable = false;
         startMdns();
     }
 
-    if (strcmp(previous.snapshotProfileMatch, settings.snapshotProfileMatch) != 0) {
+    if (credentialsChanged || strcmp(previous.snapshotProfileMatch, settings.snapshotProfileMatch) != 0) {
         invalidateSnapshotTarget();
-        resetSnapshotProfileFailover();
+        if (credentialsChanged) {
+            invalidateOnvifServiceCatalog();
+        }
         lastSnapshotResolveAttemptAtMs = 0;
         lastSnapshotResolveStatusCode = 0;
-        snapshotTargetFailureStreak = 0;
-        consecutiveFailures = 0;
-        consecutiveSuccesses = 0;
-        consecutiveInconclusiveChecks = 0;
-        consecutiveMediaServiceFailures = 0;
-        lastSnapshotProbe = SnapshotProbe{};
-        lastSnapshotResult = "Perfil alterado; aguardando novo teste JPEG";
+        lastSnapshotResolveTransportFailure = false;
+        lastSnapshotResult = credentialsChanged ? "Credenciais alteradas; aguardando novo teste JPEG" : "Perfil alterado; aguardando novo teste JPEG";
+        resetCameraCheckSequences(lastSnapshotResult.c_str());
     }
 
     if (previous.cameraRtspPort != settings.cameraRtspPort) {
@@ -1095,6 +1110,10 @@ void applyRuntimeSettings(const RuntimeSettings& previous)
 
     if (previous.healthCheckIntervalMs != settings.healthCheckIntervalMs) {
         lastHealthCheckAtMs = millis();
+    }
+
+    if (credentialsChanged) {
+        lastHealthCheckAtMs = millis() - HEALTH_CHECK_INTERVAL_MS;
     }
 
     if (previous.onvifRebootWindowMs != settings.onvifRebootWindowMs || previous.onvifRebootCooldownMs != settings.onvifRebootCooldownMs || previous.maxOnvifRebootAttemptsPerWindow != settings.maxOnvifRebootAttemptsPerWindow) {
