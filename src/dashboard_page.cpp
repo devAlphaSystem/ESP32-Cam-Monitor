@@ -229,6 +229,17 @@ body.fs-locked{overflow:hidden}
 .modal-box h3{font-size:18px}
 .modal-desc{margin:10px 0 20px;color:var(--muted);font-size:13px;line-height:1.7}
 .modal-actions{justify-content:flex-end;margin-top:22px}
+.merge-modal-box{max-width:620px}
+.merge-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.merge-review{margin-top:20px;border:1px solid var(--line);border-radius:3px;background:var(--surface-alt)}
+.merge-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.merge-record{min-width:0;padding:14px 16px}
+.merge-record+.merge-record{border-left:1px solid var(--line)}
+.merge-record span{display:block;color:var(--dim);font-size:12px}
+.merge-record b{display:block;margin-top:5px;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.merge-record small{display:block;margin-top:7px;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.merge-note{padding:12px 16px;border-top:1px solid var(--line);color:var(--warn);font-size:12px;line-height:1.6}
+.merge-review-empty{padding:16px;color:var(--dim);font-size:13px}
 .ptz-modal-box{max-width:600px;display:flex;flex-direction:column;overflow:hidden}
 .ptz-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex:none}
 .ptz-filter{flex:none;margin-bottom:16px}
@@ -290,6 +301,7 @@ body.fs-locked{overflow:hidden}
   .logs-toolbar{grid-template-columns:1fr 1fr;padding:14px;gap:12px}
   .logs-toolbar .field:last-child{grid-column:1/-1}.logs-table-wrap{max-height:65vh}
   .modal-overlay{padding:12px}.modal-box{max-height:calc(100dvh - 24px);padding:20px}
+  .merge-fields,.merge-records{grid-template-columns:1fr}.merge-record+.merge-record{border-left:0;border-top:1px solid var(--line)}
   .ptz-list-item{padding:12px}
   footer{font-size:11px}
 }
@@ -592,6 +604,7 @@ body.fs-locked{overflow:hidden}
     <div class="action-grid">
       <div class="action-item"><b>Verificar agora</b><span>Verifica ONVIF, RTSP e JPEG da câmera selecionada.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
       <div class="action-item"><b>Redescobrir câmeras</b><span>Atualiza as cadastradas e cadastra automaticamente as novas encontradas.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
+      <div class="action-item" id="mergeAction" hidden><b>Associar cadastros</b><span>Una registros confirmados da mesma câmera, escolhendo qual ID e quais configurações permanecem.</span><button class="btn" type="button" id="mergeOpen">Revisar cadastros</button></div>
       <div class="action-item"><b>Reiniciar câmera</b><span>Reinicia a câmera selecionada, respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
       <div class="action-item"><b>Reiniciar todas as câmeras</b><span>Envia SystemReboot a todas, em sequência, respeitando os limites de cada câmera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Reiniciar todas</button></div>
       <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas da câmera selecionada.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
@@ -740,6 +753,23 @@ body.fs-locked{overflow:hidden}
   </div>
 </div>
 
+<div class="modal-overlay" id="mergeModal" hidden>
+  <div class="modal-box merge-modal-box" role="dialog" aria-modal="true" aria-labelledby="mergeTitle" aria-describedby="mergeDescription">
+    <h3 id="mergeTitle">Associar cadastros da mesma câmera</h3>
+    <p class="modal-desc" id="mergeDescription">Compare os registros e mantenha como principal aquele cujo ID, nome e configurações devem prevalecer.</p>
+    <div class="merge-fields">
+      <div class="field"><label for="mergePrimary">Cadastro principal</label><select id="mergePrimary"></select></div>
+      <div class="field"><label for="mergeSecondary">Cadastro a associar</label><select id="mergeSecondary"></select></div>
+    </div>
+    <div class="merge-review" id="mergeSummary" aria-live="polite"><div class="merge-review-empty">Selecione dois cadastros para comparar.</div></div>
+    <div class="form-result bad" id="mergeStatus" role="status" aria-live="polite" hidden></div>
+    <div class="button-row modal-actions">
+      <button class="btn" type="button" id="mergeCancel">Cancelar</button>
+      <button class="btn primary" type="button" id="mergeSubmit" disabled>Continuar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="adminConfirmModal" hidden>
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="adminConfirmTitle">
     <h3 id="adminConfirmTitle">Confirmar ação administrativa</h3>
@@ -855,6 +885,7 @@ function renderOverview(payload) {
   $('overviewPending').textContent = (counts.recovering || 0) + (counts.starting || 0) + (counts.discovering || 0);
   $('overviewSummary').textContent = (counts.online || 0) + ' online · ' + (counts.degraded || 0) + ' instáveis · ' + (counts.offline || 0) + ' offline · ' + (counts.recovering || 0) + ' recuperando';
   $('registryResult').textContent = payload.lastResult || '';
+  updateMergeControls();
   $('overviewEmpty').hidden = cameraRegistry.length > 0;
   const rows = document.createDocumentFragment();
   cameraRegistry.forEach(camera => {
@@ -880,12 +911,125 @@ function renderOverview(payload) {
   $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + payload.firmwareVersion + ' · ligado há ' + duration(payload.uptimeSeconds);
 }
 
+let mergeOptionsKey = '';
+
+function updateMergeControls() {
+  const mergeAvailable = cameraRegistry.length > 1;
+  $('mergeAction').hidden = !mergeAvailable;
+  if (!mergeAvailable) $('mergeModal').hidden = true;
+  const primarySelect = $('mergePrimary');
+  const secondarySelect = $('mergeSecondary');
+  const optionsKey = JSON.stringify(cameraRegistry.map(camera => [camera.id, camera.name, camera.ip]));
+  if (optionsKey !== mergeOptionsKey) {
+    const primaryBefore = Number(primarySelect.value);
+    const secondaryBefore = Number(secondarySelect.value);
+    for (const select of [primarySelect, secondarySelect]) {
+      select.replaceChildren(...cameraRegistry.map(camera => {
+        const option = document.createElement('option');
+        option.value = String(camera.id);
+        option.textContent = '#' + camera.id + ' · ' + camera.name;
+        return option;
+      }));
+    }
+    if (cameraRegistry.some(camera => camera.id === primaryBefore)) primarySelect.value = String(primaryBefore);
+    if (cameraRegistry.some(camera => camera.id === secondaryBefore)) secondarySelect.value = String(secondaryBefore);
+    else if (mergeAvailable) secondarySelect.value = String(cameraRegistry.find(camera => camera.id !== Number(primarySelect.value)).id);
+    mergeOptionsKey = optionsKey;
+  }
+  const primary = cameraRegistry.find(camera => camera.id === Number(primarySelect.value));
+  const secondary = cameraRegistry.find(camera => camera.id === Number(secondarySelect.value));
+  const valid = Boolean(primary && secondary && primary.id !== secondary.id);
+  $('mergeSubmit').disabled = !valid || settingsBusy;
+  const summary = $('mergeSummary');
+  if (!valid) {
+    const empty = document.createElement('div');
+    empty.className = 'merge-review-empty';
+    empty.textContent = 'Selecione dois cadastros diferentes.';
+    summary.replaceChildren(empty);
+    return;
+  }
+  const records = document.createElement('div');
+  records.className = 'merge-records';
+  for (const [label, camera] of [['Principal', primary], ['A associar', secondary]]) {
+    const record = document.createElement('div');
+    record.className = 'merge-record';
+    const caption = document.createElement('span');
+    caption.textContent = label + ' · #' + camera.id;
+    const name = document.createElement('b');
+    name.textContent = camera.name;
+    const endpoint = document.createElement('small');
+    endpoint.textContent = camera.preferredUrl;
+    const settings = document.createElement('small');
+    settings.textContent = 'Prévia ' + Math.round(1000 / camera.feedTargetCycleMs * 10) / 10 + ' FPS · credenciais ' + (camera.credentialsConfigured ? 'configuradas' : 'vazias');
+    record.append(caption, name, endpoint, settings);
+    records.append(record);
+  }
+  const note = document.createElement('p');
+  note.className = 'merge-note';
+  note.textContent = 'Nome, credenciais e ajustes do principal prevalecerão. O registro associado permanece na NVS para auditoria.';
+  summary.replaceChildren(records, note);
+}
+
+$('mergePrimary').addEventListener('change', updateMergeControls);
+$('mergeSecondary').addEventListener('change', updateMergeControls);
+$('mergeOpen').addEventListener('click', () => {
+  if (cameraRegistry.length < 2) return;
+  updateMergeControls();
+  $('mergeStatus').hidden = true;
+  $('mergeModal').hidden = false;
+  $('mergePrimary').focus();
+});
+$('mergeCancel').addEventListener('click', () => { $('mergeModal').hidden = true; $('mergeOpen').focus(); });
+$('mergeModal').addEventListener('click', event => {
+  if (event.target === $('mergeModal')) $('mergeModal').hidden = true;
+});
+$('mergeSubmit').addEventListener('click', () => {
+  const primaryId = Number($('mergePrimary').value);
+  const secondaryId = Number($('mergeSecondary').value);
+  if (!primaryId || !secondaryId || primaryId === secondaryId) return;
+  const primary = cameraRegistry.find(camera => camera.id === primaryId);
+  const secondary = cameraRegistry.find(camera => camera.id === secondaryId);
+  openConfirmModal('Associar #' + secondaryId + ' (' + secondary.name + ') a #' + primaryId + ' (' + primary.name + '). Os ajustes e credenciais do principal prevalecerão; confirme os conflitos antes de continuar.', async password => {
+    try {
+      await loadSettings(true);
+      const params = collectMutationParams(false, password);
+      params.set('primaryId', String(primaryId));
+      params.set('secondaryId', String(secondaryId));
+      params.set('confirmSettings', '1');
+      await postForm('/api/cameras/merge', params);
+      if (selectedCameraId === secondaryId) {
+        cancelFeedLoad(true);
+        $('cameraFeed').removeAttribute('src');
+        selectedCameraId = primaryId;
+        statusRequestGeneration++;
+        if (statusAbortController) statusAbortController.abort();
+        statusLoading = false;
+        settingsRequestGeneration++;
+        settingsLoaded = false;
+        settingsLoadedKey = '';
+      }
+      $('mergeStatus').textContent = 'Cadastros associados. O ID #' + secondaryId + ' agora é somente histórico.';
+      $('mergeStatus').className = 'form-result ok';
+      $('mergeStatus').hidden = false;
+      $('mergeModal').hidden = true;
+      setAdminActionStatus($('mergeStatus').textContent, 'ok');
+      refresh(true);
+    } catch (error) {
+      $('mergeStatus').textContent = error.message;
+      $('mergeStatus').className = 'form-result bad';
+      $('mergeStatus').hidden = false;
+    }
+  });
+});
+
 async function loadCameraRegistry(signal) {
   const response = await fetch('/api/cameras', { cache: 'no-store', signal });
   if (!response.ok) throw new Error('HTTP ' + response.status);
   const payload = await response.json();
   cameraRegistry = payload.cameras || [];
   if (!cameraRegistry.some(camera => camera.id === selectedCameraId)) {
+    cancelFeedLoad(true);
+    $('cameraFeed').removeAttribute('src');
     selectedCameraId = cameraRegistry.length ? cameraRegistry[0].id : 0;
     settingsLoaded = false;
     settingsLoadedKey = '';
@@ -2101,7 +2245,7 @@ function renderPtzPresetList() {
     const empty = document.createElement('div');
     empty.className = 'ptz-empty';
     empty.textContent = !ptzCatalog.available
-      ? 'A câmera não anunciou o serviço PTZ no catálogo ONVIF.'
+      ? (ptzCatalog.unavailableReason || 'Descoberta PTZ inconclusiva.')
       : !ptzCatalog.presetsLoaded
         ? localizeTimestampText(ptzCatalog.lastResult || 'Consultando os presets da câmera…')
         : 'A câmera não publicou posições para este perfil.';
@@ -2190,6 +2334,8 @@ document.addEventListener('keydown', event => {
     closeConfirmModal(true);
   } else if (!$('ptzPresetModal').hidden) {
     closePtzPresetModal(true);
+  } else if (!$('mergeModal').hidden) {
+    $('mergeModal').hidden = true;
   }
 });
 $('adminConfirmPassword').addEventListener('keydown', event => {
@@ -2212,8 +2358,18 @@ $('adminConfirmSubmit').addEventListener('click', () => {
   action(password);
 });
 
+function ptzUnavailableReason(onvif) {
+  if (onvif && (onvif.lastStatus === 401 || onvif.lastStatus === 403 || onvif.rejectedAuthenticationEndpoints)) return 'A consulta de serviços requer outra autorização.';
+  if (onvif && onvif.catalogValid && !onvif.rejectedEndpoints && !onvif.catalogStale) return 'O serviço PTZ não foi anunciado em uma consulta válida.';
+  if (onvif && onvif.inaccessibleEndpoints) return 'Serviços ONVIF anunciados ficaram inacessíveis no endereço validado.';
+  if (onvif && onvif.invalidResponseEndpoints) return 'Serviços ONVIF responderam com dados inválidos.';
+  if (onvif && onvif.rejectedEndpoints) return 'Descoberta PTZ inconclusiva: endereços de serviços foram rejeitados.';
+  return 'Descoberta PTZ inconclusiva: catálogo indisponível ou serviço inacessível.';
+}
+
 function renderPtz(d) {
   ptzCatalog = d.onvif && d.onvif.ptz ? d.onvif.ptz : {};
+  if (!ptzCatalog.available) ptzCatalog.unavailableReason = ptzUnavailableReason(d.onvif);
   ptzPresets = Array.isArray(ptzCatalog.presets) ? ptzCatalog.presets : [];
   const pending = Boolean(d.adminAction && d.adminAction.pending !== 'none');
   ptzControlsEnabled = Boolean(settingsWriteToken) && !settingsBusy && !pending;
@@ -2231,7 +2387,7 @@ function renderPtz(d) {
   );
 
   $('ptzMeta').textContent = !ptzCatalog.available
-    ? 'Serviço PTZ não anunciado pela câmera.'
+    ? ptzCatalog.unavailableReason
     : !ptzCatalog.presetsLoaded
       ? localizeTimestampText(ptzCatalog.lastResult || 'Consultando a câmera…')
       : (ptzCatalog.reportedPresetCount || usableCount) + ' posições publicadas · perfil '
@@ -2252,7 +2408,7 @@ function renderPtz(d) {
       ptzCatalog.command.lastStatus >= 200 && ptzCatalog.command.lastStatus < 300 ? 'ok' : 'bad'
     );
   } else if (!ptzCatalog.available) {
-    setPtzActionStatus('Esta câmera não anunciou controle PTZ.', 'bad');
+    setPtzActionStatus(ptzCatalog.unavailableReason, 'warn');
   } else if (!ptzCatalog.presetsLoaded) {
     setPtzActionStatus('Consultando as posições PTZ da câmera…', 'warn');
   } else if (!usableCount) {

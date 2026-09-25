@@ -45,6 +45,7 @@ extern const char DASHBOARD_PAGE[] PROGMEM;
 
 constexpr size_t ONVIF_PTZ_PRESET_CAPACITY = 128;
 constexpr size_t CAMERA_OPERATION_HEAP_RESERVE = 70000;
+constexpr size_t CAMERA_ALTERNATE_ENDPOINT_CAPACITY = 4;
 constexpr int32_t CAMERA_CLOCK_HEALTHY_DRIFT_MS = 5000L;
 
 enum class CameraState {
@@ -75,6 +76,8 @@ enum class AdminAction {
 
 enum class OnvifMetadataStage {
     DeviceInformation,
+    IdentityReference,
+    NetworkInterfaces,
     Scopes,
     SystemTime,
     EventProperties,
@@ -113,11 +116,17 @@ struct CameraTarget {
     String onvifPath;
     String onvifUrl;
     String endpointUuid;
+    String serialNumber;
+    String manufacturer;
+    String model;
+    String interfaceMacs;
+    uint32_t discoveryGroup = 0;
     String scopes;
 };
 
 struct OnvifServiceEndpoint {
     bool available = false;
+    bool validated = false;
     String url;
     uint16_t majorVersion = 0;
     uint16_t minorVersion = 0;
@@ -125,6 +134,8 @@ struct OnvifServiceEndpoint {
 
 struct OnvifServiceCatalog {
     bool resolved = false;
+    bool catalogValid = false;
+    bool stale = false;
     bool usedMediaFallback = false;
     bool usernameToken = false;
     bool httpDigest = false;
@@ -138,6 +149,10 @@ struct OnvifServiceCatalog {
     uint32_t successes = 0;
     uint32_t failures = 0;
     uint32_t rejectedEndpoints = 0;
+    uint16_t rejectedAuthenticationEndpoints = 0;
+    uint16_t inaccessibleEndpoints = 0;
+    uint16_t unvalidatedEndpoints = 0;
+    uint16_t invalidResponseEndpoints = 0;
     uint32_t lastLatencyMs = 0;
     unsigned long resolvedAtMs = 0;
     int lastStatusCode = 0;
@@ -231,6 +246,7 @@ struct SntpReferenceSnapshot {
 struct ServiceProbe {
     bool tcpConnected = false;
     bool protocolResponded = false;
+    bool soapResponse = false;
     int statusCode = 0;
     uint32_t latencyMs = 0;
 };
@@ -305,6 +321,12 @@ struct CameraContext {
     std::unique_ptr<CameraContext> next;
     CameraSnapshotHttpSession cameraSnapshotHttpSession = {};
     CameraTarget camera = {};
+    String alternateOnvifUrls[CAMERA_ALTERNATE_ENDPOINT_CAPACITY];
+    uint8_t alternateOnvifCount = 0;
+    uint8_t preferredFailureStreak = 0;
+    unsigned long lastAlternateAttemptAtMs = 0;
+    uint8_t nextAlternateIndex = 0;
+    unsigned long lastIdentityVerificationAtMs = 0;
     OnvifServiceCatalog onvifServices = {};
     OnvifPtzStatus onvifPtz = {};
     OnvifDeviceMetadata onvifMetadata = {};
@@ -517,12 +539,13 @@ void maintainCameraSnapshotHttpSession(CameraContext& ctx);
 void resetCameraSnapshotHttpSession(CameraContext& ctx);
 void invalidateSnapshotTarget(CameraContext& ctx);
 void resetSnapshotProfileFailover(CameraContext& ctx);
-void saveCameraTarget(CameraContext& ctx, uint16_t contextId = 0, uint8_t flags = PersistentLog::FlagScheduled);
 bool loadCameraTarget(CameraContext& ctx);
 bool loadCameraIpHint(CameraContext& ctx);
 bool discoverOnvifCameras(bool manualRequest = false, uint16_t contextId = 0);
+void maintainDiscoveryIdentityCandidates();
 ServiceProbe probeOnvif(CameraContext& ctx, const CameraTarget& target, uint16_t contextId = 0);
 bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId = 0);
+bool probeCameraIdentity(CameraContext& ctx, CameraTarget& target, uint16_t contextId = 0, bool* identityConflict = nullptr);
 void maintainCameraClock(CameraContext& ctx);
 void invalidateOnvifServiceCatalog(CameraContext& ctx);
 String limitedOnvifText(String value, size_t maximumLength = 120);
@@ -556,7 +579,17 @@ extern uint32_t batchAccepted;
 extern uint32_t batchFailed;
 CameraContext* findCamera(uint32_t id);
 CameraContext* registerCameraTarget(const CameraTarget& target, String& error);
+bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSettings, String& error);
+bool reconcileIdentifiedCameras();
+bool cameraIdWasMerged(uint32_t id, uint32_t* primaryId = nullptr);
+bool cameraIdentityMatches(const CameraTarget& left, const CameraTarget& right);
+String normalizeCameraIdentifier(String value);
+bool switchToAlternateEndpoint(CameraContext& ctx);
+bool persistCameraMergeAlias(uint32_t secondaryId, uint32_t primaryId);
 bool persistCamera(CameraContext& ctx);
+bool suspendCameraForIdentityConflict(CameraContext& ctx, const char* reason);
+bool persistRebootLimiter(CameraContext& ctx);
+void loadRebootLimiter(CameraContext& ctx);
 void applyGlobalSettings(const GlobalSettings& previous);
 bool cameraHealthCheckDue(const CameraContext& ctx);
 bool anyCameraHealthCheckDue();

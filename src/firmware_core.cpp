@@ -1,8 +1,9 @@
 #include "firmware_internal.h"
+#include "camera_policy.h"
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.17.0";
+const char FIRMWARE_VERSION[] = "0.18.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -12,6 +13,10 @@ constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
 constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t GLOBAL_SETTINGS_MAGIC = 0x43573036UL;
 constexpr uint32_t CAMERA_RECORD_MAGIC = 0x43414D36UL;
+constexpr uint32_t CAMERA_RECORD_MAGIC_V7 = 0x43414D37UL;
+constexpr uint16_t CAMERA_RECORD_SCHEMA_VERSION = 7;
+constexpr uint32_t CAMERA_ALIAS_MAGIC = 0x43414C37UL;
+constexpr uint32_t CAMERA_REBOOT_LEDGER_MAGIC = 0x43524C37UL;
 constexpr char CAMERAS_NVS_NAMESPACE[] = "cameras";
 uint32_t nextCameraId = 1;
 bool cameraRegistryFullyLoaded = true;
@@ -34,6 +39,41 @@ struct CameraRecordHeader {
     RuntimeSettings values;
     uint32_t checksum;
 };
+
+struct CameraRecordHeaderV7 {
+    uint32_t magic;
+    uint32_t id;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    uint16_t urlBytes;
+    uint16_t uuidBytes;
+    uint16_t serialBytes;
+    uint16_t manufacturerBytes;
+    uint16_t modelBytes;
+    uint16_t interfaceMacsBytes;
+    uint8_t alternateCount;
+    uint8_t reserved;
+    uint16_t alternateBytes[CAMERA_ALTERNATE_ENDPOINT_CAPACITY];
+    RuntimeSettings values;
+    uint32_t checksum;
+};
+
+struct CameraAliasRecord {
+    uint32_t magic;
+    uint32_t secondaryId;
+    uint32_t primaryId;
+    uint32_t checksum;
+};
+
+struct CameraRebootLedger {
+    uint32_t magic;
+    uint32_t id;
+    uint8_t count;
+    uint8_t reserved[3];
+    uint32_t checksum;
+};
+
+void resolveActiveIncident(CameraContext& ctx);
 
 struct MigrationSettingsV5 {
     char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
@@ -168,15 +208,7 @@ String lastScanResult = "Ainda nao executada";
 
 uint32_t settingsChecksumBytes(const void* values, size_t valueSize)
 {
-    const uint8_t* bytes = static_cast<const uint8_t*>(values);
-    uint32_t hash = 2166136261UL;
-
-    for (size_t index = 0; index < valueSize; index++) {
-        hash ^= bytes[index];
-        hash *= 16777619UL;
-    }
-
-    return hash;
+    return CameraPolicy::checksumBytes(values, valueSize);
 }
 
 template <typename T>
@@ -366,6 +398,79 @@ CameraContext* findCamera(uint32_t id)
     return nullptr;
 }
 
+String normalizeCameraIdentifier(String value)
+{
+    char normalized[129];
+    return CameraPolicy::normalizeIdentifier(value.c_str(), normalized) ? String(normalized) : String();
+}
+
+bool cameraIdentityMatches(const CameraTarget& left, const CameraTarget& right)
+{
+    const CameraPolicy::Identity leftIdentity{left.endpointUuid.c_str(), left.serialNumber.c_str(), left.manufacturer.c_str(), left.model.c_str(), left.interfaceMacs.c_str()};
+    const CameraPolicy::Identity rightIdentity{right.endpointUuid.c_str(), right.serialNumber.c_str(), right.manufacturer.c_str(), right.model.c_str(), right.interfaceMacs.c_str()};
+    return CameraPolicy::sameIdentity(leftIdentity, rightIdentity);
+}
+
+bool cameraIdWasMerged(uint32_t id, uint32_t* primaryId)
+{
+    char key[12];
+    snprintf(key, sizeof(key), "m%08lx", static_cast<unsigned long>(id));
+    CameraAliasRecord alias{};
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, true))
+        return false;
+    const bool loaded = storage.getBytesLength(key) == sizeof(alias) && storage.getBytes(key, &alias, sizeof(alias)) == sizeof(alias);
+    const uint32_t checksum = alias.checksum;
+    alias.checksum = 0;
+    if (!loaded || alias.magic != CAMERA_ALIAS_MAGIC || alias.secondaryId != id || alias.primaryId == id || alias.primaryId == 0 || checksum != settingsChecksum(alias)) {
+        storage.end();
+        return false;
+    }
+    char primaryKey[12];
+    snprintf(primaryKey, sizeof(primaryKey), "c%08lx", static_cast<unsigned long>(alias.primaryId));
+    const size_t size = storage.getBytesLength(primaryKey);
+    if (size < sizeof(CameraRecordHeaderV7) + 6 || size > sizeof(CameraRecordHeaderV7) + 2200) {
+        storage.end();
+        return false;
+    }
+    std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
+    if (!bytes || storage.getBytes(primaryKey, bytes.get(), size) != size) {
+        storage.end();
+        return false;
+    }
+    storage.end();
+    CameraRecordHeaderV7* primary = reinterpret_cast<CameraRecordHeaderV7*>(bytes.get());
+    const uint32_t primaryChecksum = primary->checksum;
+    primary->checksum = 0;
+    size_t expectedSize = sizeof(*primary) + primary->urlBytes + primary->uuidBytes + primary->serialBytes + primary->manufacturerBytes + primary->modelBytes + primary->interfaceMacsBytes;
+    if (primary->alternateCount > CAMERA_ALTERNATE_ENDPOINT_CAPACITY)
+        return false;
+    for (uint8_t index = 0; index < primary->alternateCount; index++)
+        expectedSize += primary->alternateBytes[index];
+    const char* url = reinterpret_cast<const char*>(bytes.get() + sizeof(*primary));
+    ParsedUrl parsed;
+    String settingsError;
+    if (primary->magic != CAMERA_RECORD_MAGIC_V7 || primary->id != alias.primaryId || primary->schemaVersion != CAMERA_RECORD_SCHEMA_VERSION || primary->payloadSize != sizeof(RuntimeSettings) || primary->urlBytes == 0 || primary->uuidBytes == 0 || primary->serialBytes == 0 || primary->manufacturerBytes == 0 || primary->modelBytes == 0 || primary->interfaceMacsBytes == 0 || expectedSize != size || url[primary->urlBytes - 1] != '\0' || (url[0] != '\0' && (!parseHttpUrl(url, parsed) || parsed.secure)) || !validateRuntimeSettings(primary->values, settingsError) || !CameraPolicy::committedAliasCanHide(id, alias.primaryId, checksum == settingsChecksum(alias), settingsChecksumBytes(bytes.get(), size) == primaryChecksum))
+        return false;
+    if (primaryId != nullptr)
+        *primaryId = alias.primaryId;
+    return true;
+}
+
+bool persistCameraMergeAlias(uint32_t secondaryId, uint32_t primaryId)
+{
+    CameraAliasRecord alias{CAMERA_ALIAS_MAGIC, secondaryId, primaryId, 0};
+    alias.checksum = settingsChecksum(alias);
+    char key[12];
+    snprintf(key, sizeof(key), "m%08lx", static_cast<unsigned long>(secondaryId));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false))
+        return false;
+    const bool saved = storage.putBytes(key, &alias, sizeof(alias)) == sizeof(alias);
+    storage.end();
+    return saved;
+}
+
 bool saveGlobalSettingsToNvs(const GlobalSettings& values)
 {
     GlobalSettingsBlob blob{};
@@ -386,22 +491,50 @@ bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values)
 {
     const String& url = ctx.camera.onvifUrl;
     const String& uuid = ctx.camera.endpointUuid;
-    if (url.length() > 1024 || uuid.length() > 256)
+    const String& serial = ctx.camera.serialNumber;
+    const String& manufacturer = ctx.camera.manufacturer;
+    const String& model = ctx.camera.model;
+    const String& interfaceMacs = ctx.camera.interfaceMacs;
+    if (url.length() > 256 || uuid.length() > 128 || serial.length() > 128 || manufacturer.length() > 120 || model.length() > 120 || interfaceMacs.length() > 128 || ctx.alternateOnvifCount > CAMERA_ALTERNATE_ENDPOINT_CAPACITY)
         return false;
-    const size_t size = sizeof(CameraRecordHeader) + url.length() + 1 + uuid.length() + 1;
+    size_t size = sizeof(CameraRecordHeaderV7) + url.length() + uuid.length() + serial.length() + manufacturer.length() + model.length() + interfaceMacs.length() + 6;
+    for (uint8_t index = 0; index < ctx.alternateOnvifCount; index++) {
+        if (ctx.alternateOnvifUrls[index].length() > 256)
+            return false;
+        size += ctx.alternateOnvifUrls[index].length() + 1;
+    }
     std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]());
     if (!bytes)
         return false;
-    CameraRecordHeader* header = reinterpret_cast<CameraRecordHeader*>(bytes.get());
-    header->magic = CAMERA_RECORD_MAGIC;
+    CameraRecordHeaderV7* header = reinterpret_cast<CameraRecordHeaderV7*>(bytes.get());
+    header->magic = CAMERA_RECORD_MAGIC_V7;
     header->id = ctx.id;
-    header->schemaVersion = RUNTIME_SETTINGS_SCHEMA_VERSION;
+    header->schemaVersion = CAMERA_RECORD_SCHEMA_VERSION;
     header->payloadSize = sizeof(values);
     header->urlBytes = url.length() + 1;
     header->uuidBytes = uuid.length() + 1;
+    header->serialBytes = serial.length() + 1;
+    header->manufacturerBytes = manufacturer.length() + 1;
+    header->modelBytes = model.length() + 1;
+    header->interfaceMacsBytes = interfaceMacs.length() + 1;
+    header->alternateCount = ctx.alternateOnvifCount;
+    header->reserved = ctx.camera.valid ? 1 : 0;
     header->values = values;
-    memcpy(bytes.get() + sizeof(*header), url.c_str(), header->urlBytes);
-    memcpy(bytes.get() + sizeof(*header) + header->urlBytes, uuid.c_str(), header->uuidBytes);
+    size_t offset = sizeof(*header);
+    const auto append = [&](const String& text, uint16_t length) {
+        memcpy(bytes.get() + offset, text.c_str(), length);
+        offset += length;
+    };
+    append(url, header->urlBytes);
+    append(uuid, header->uuidBytes);
+    append(serial, header->serialBytes);
+    append(manufacturer, header->manufacturerBytes);
+    append(model, header->modelBytes);
+    append(interfaceMacs, header->interfaceMacsBytes);
+    for (uint8_t index = 0; index < ctx.alternateOnvifCount; index++) {
+        header->alternateBytes[index] = ctx.alternateOnvifUrls[index].length() + 1;
+        append(ctx.alternateOnvifUrls[index], header->alternateBytes[index]);
+    }
     header->checksum = settingsChecksumBytes(bytes.get(), size);
     char key[12];
     snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(ctx.id));
@@ -424,53 +557,148 @@ bool persistCamera(CameraContext& ctx)
     return saved;
 }
 
+bool suspendCameraForIdentityConflict(CameraContext& ctx, const char* reason)
+{
+    ctx.camera.valid = false;
+    invalidateSnapshotTarget(ctx);
+    invalidateOnvifServiceCatalog(ctx);
+    resetCameraSnapshotHttpSession(ctx);
+    ctx.activeIncident = IncidentKind::None;
+    ctx.pendingIncidentEmail = false;
+    ctx.pendingRecoveryEmail = false;
+    ctx.incidentAlertSent = false;
+    ctx.incidentStartedAtMs = 0;
+    ctx.cameraState = CameraState::Discovering;
+    ctx.lastStateChangeAtMs = millis();
+    ctx.lastEvent = reason;
+    ctx.onvifMetadata.lastResult = reason;
+    const bool saved = persistCamera(ctx);
+    if (!saved)
+        ctx.onvifMetadata.lastResult += "; NVS indisponivel";
+    registryRevision++;
+    return saved;
+}
+
+bool automaticMergeSettingsCompatible(const CameraContext& primary, const CameraContext& secondary)
+{
+    RuntimeSettings primarySettings = primary.settings;
+    RuntimeSettings secondarySettings = secondary.settings;
+    memset(primarySettings.cameraName, 0, sizeof(primarySettings.cameraName));
+    memset(secondarySettings.cameraName, 0, sizeof(secondarySettings.cameraName));
+    const String primaryDefault = String("Camera ") + primary.id + " - " + primary.camera.ip.toString();
+    const String secondaryDefault = String("Camera ") + secondary.id + " - " + secondary.camera.ip.toString();
+    return strcmp(primary.settings.cameraName, primaryDefault.c_str()) == 0 && strcmp(secondary.settings.cameraName, secondaryDefault.c_str()) == 0 && memcmp(&primarySettings, &secondarySettings, sizeof(RuntimeSettings)) == 0;
+}
+
 CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
 {
     if (!target.valid || target.onvifUrl.isEmpty()) {
         error = "Endpoint ONVIF invalido";
         return nullptr;
     }
+    ParsedUrl parsedTarget;
+    if (!parseHttpUrl(target.onvifUrl, parsedTarget) || parsedTarget.secure || parsedTarget.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsedTarget.path.c_str(), 160, false)) {
+        error = "Destino ONVIF nao permitido";
+        return nullptr;
+    }
+    CameraContext* identityMatch = nullptr;
+    size_t identityMatches = 0;
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
-        const bool sameIdentity = !target.endpointUuid.isEmpty() && !ctx->camera.endpointUuid.isEmpty() && target.endpointUuid.equalsIgnoreCase(ctx->camera.endpointUuid);
-        const bool sameEndpoint = target.onvifUrl == ctx->camera.onvifUrl;
-        const bool identityConflict = !target.endpointUuid.isEmpty() && !ctx->camera.endpointUuid.isEmpty() && !sameIdentity;
-        if (sameEndpoint && identityConflict) {
-            ctx->camera.valid = false;
-            ctx->camera.onvifUrl = String();
-            invalidateSnapshotTarget(*ctx);
-            invalidateOnvifServiceCatalog(*ctx);
-            resetCameraCheckSequences(*ctx, "Endereco ocupado por outra camera; aguardando redescoberta");
-            ctx->lastHealthCheckAtMs = 0;
-            setState(*ctx, CameraState::Discovering, "Identidade ONVIF mudou neste endereco; acesso suspenso");
-            if (!persistCamera(*ctx)) {
-                error = "Falha ao persistir conflito de identidade ONVIF";
-                return nullptr;
-            }
-            registryRevision++;
+        if (cameraIdentityMatches(ctx->camera, target)) {
+            identityMatch = ctx;
+            identityMatches++;
         }
-        if (!sameIdentity && !(sameEndpoint && !identityConflict))
-            continue;
-
-        const bool changed = ctx->camera.onvifUrl != target.onvifUrl || (ctx->camera.endpointUuid.isEmpty() && !target.endpointUuid.isEmpty());
-        ctx->lastDiscoverySeenAtMs = millis();
-        if (!changed)
-            return ctx;
-        const CameraTarget previous = ctx->camera;
-        ctx->camera = target;
-        ctx->camera.rtspPort = ctx->settings.cameraRtspPort;
-        if (!persistCamera(*ctx)) {
-            ctx->camera = previous;
-            error = "Falha ao persistir o endpoint; cadastro anterior preservado";
+    }
+    if (identityMatches > 1) {
+        error = "Identificador ONVIF repetido; associacao automatica suspensa";
+        return nullptr;
+    }
+    CameraContext* endpointMatch = nullptr;
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        if (ctx->camera.onvifUrl == target.onvifUrl) {
+            endpointMatch = ctx;
+            break;
+        }
+    }
+    if (identityMatch != nullptr && endpointMatch != nullptr && endpointMatch != identityMatch) {
+        const CameraPolicy::Identity endpointIdentity{endpointMatch->camera.endpointUuid.c_str(), endpointMatch->camera.serialNumber.c_str(), endpointMatch->camera.manufacturer.c_str(), endpointMatch->camera.model.c_str(), endpointMatch->camera.interfaceMacs.c_str()};
+        const CameraPolicy::Identity observedIdentity{target.endpointUuid.c_str(), target.serialNumber.c_str(), target.manufacturer.c_str(), target.model.c_str(), target.interfaceMacs.c_str()};
+        const bool descriptiveConflict = (!endpointMatch->camera.manufacturer.isEmpty() && !target.manufacturer.isEmpty() && !endpointMatch->camera.manufacturer.equalsIgnoreCase(target.manufacturer)) || (!endpointMatch->camera.model.isEmpty() && !target.model.isEmpty() && !endpointMatch->camera.model.equalsIgnoreCase(target.model));
+        if (!CameraPolicy::identifiersConflict(endpointIdentity, observedIdentity) && !descriptiveConflict && automaticMergeSettingsCompatible(*identityMatch, *endpointMatch)) {
+            if (mergeCameraRecords(identityMatch->id, endpointMatch->id, true, error))
+                return registerCameraTarget(target, error);
             return nullptr;
         }
-        invalidateSnapshotTarget(*ctx);
-        invalidateOnvifServiceCatalog(*ctx);
-        resetCameraCheckSequences(*ctx, "Endpoint atualizado; aguardando verificacao");
-        ctx->lastSnapshotResolveAttemptAtMs = 0;
-        ctx->lastHealthCheckAtMs = 0;
-        if (previous.valid && previous.ip != target.ip) {
-            ctx->previousCameraIp = previous.ip.toString();
-            ctx->pendingIpChangeEmail = true;
+        error = "Endereco associado a outro cadastro; revise identidade e configuracoes";
+        return nullptr;
+    }
+    CameraContext* ctx = identityMatch;
+    if (ctx == nullptr && endpointMatch != nullptr) {
+        const bool existingIdentified = !normalizeCameraIdentifier(endpointMatch->camera.endpointUuid).isEmpty() || !normalizeCameraIdentifier(endpointMatch->camera.serialNumber).isEmpty();
+        const bool incomingIdentified = !normalizeCameraIdentifier(target.endpointUuid).isEmpty() || !normalizeCameraIdentifier(target.serialNumber).isEmpty();
+        if (existingIdentified && incomingIdentified) {
+            const String knownUuid = normalizeCameraIdentifier(endpointMatch->camera.endpointUuid);
+            const String seenUuid = normalizeCameraIdentifier(target.endpointUuid);
+            const String knownSerial = normalizeCameraIdentifier(endpointMatch->camera.serialNumber);
+            const String seenSerial = normalizeCameraIdentifier(target.serialNumber);
+            const bool descriptiveConflict = (!endpointMatch->camera.manufacturer.isEmpty() && !target.manufacturer.isEmpty() && !endpointMatch->camera.manufacturer.equalsIgnoreCase(target.manufacturer)) || (!endpointMatch->camera.model.isEmpty() && !target.model.isEmpty() && !endpointMatch->camera.model.equalsIgnoreCase(target.model));
+            const bool conflict = (!knownUuid.isEmpty() && !seenUuid.isEmpty() && knownUuid != seenUuid) || (!knownSerial.isEmpty() && !seenSerial.isEmpty() && knownSerial != seenSerial) || descriptiveConflict;
+            if (!conflict) {
+                error = "Identidade parcial neste endereco; associacao pendente";
+                return nullptr;
+            }
+            if (endpointMatch->camera.valid && !suspendCameraForIdentityConflict(*endpointMatch, "Identidade diferente neste endereco; acesso suspenso")) {
+                error = "Falha ao suspender endereco reutilizado";
+                return nullptr;
+            }
+            endpointMatch = nullptr;
+        }
+        if (existingIdentified && !incomingIdentified) {
+            error = "Identidade do endereco nao confirmada";
+            return nullptr;
+        }
+        ctx = endpointMatch;
+    }
+    if (ctx != nullptr) {
+        ctx->lastDiscoverySeenAtMs = millis();
+        if (ctx->camera.onvifUrl == target.onvifUrl) {
+            const CameraTarget previous = ctx->camera;
+            ctx->camera.valid = true;
+            if (ctx->camera.endpointUuid.isEmpty())
+                ctx->camera.endpointUuid = target.endpointUuid;
+            if (ctx->camera.serialNumber.isEmpty())
+                ctx->camera.serialNumber = target.serialNumber;
+            if (ctx->camera.manufacturer.isEmpty())
+                ctx->camera.manufacturer = target.manufacturer;
+            if (ctx->camera.model.isEmpty())
+                ctx->camera.model = target.model;
+            if (ctx->camera.interfaceMacs.isEmpty())
+                ctx->camera.interfaceMacs = target.interfaceMacs;
+            if (previous.valid != ctx->camera.valid || previous.endpointUuid != ctx->camera.endpointUuid || previous.serialNumber != ctx->camera.serialNumber || previous.manufacturer != ctx->camera.manufacturer || previous.model != ctx->camera.model || previous.interfaceMacs != ctx->camera.interfaceMacs) {
+                if (!persistCamera(*ctx)) {
+                    ctx->camera = previous;
+                    error = "Falha ao persistir identidade";
+                    return nullptr;
+                }
+                registryRevision++;
+            }
+            return ctx;
+        }
+        for (uint8_t index = 0; index < ctx->alternateOnvifCount; index++) {
+            if (ctx->alternateOnvifUrls[index] == target.onvifUrl)
+                return ctx;
+        }
+        if (ctx->alternateOnvifCount >= CAMERA_ALTERNATE_ENDPOINT_CAPACITY || target.onvifUrl.length() > 256) {
+            error = "Limite de enderecos confirmados atingido";
+            return nullptr;
+        }
+        const uint8_t index = ctx->alternateOnvifCount++;
+        ctx->alternateOnvifUrls[index] = target.onvifUrl;
+        if (!persistCamera(*ctx)) {
+            ctx->alternateOnvifUrls[index] = String();
+            ctx->alternateOnvifCount--;
+            error = "Falha ao persistir endereco alternativo";
+            return nullptr;
         }
         registryRevision++;
         return ctx;
@@ -513,6 +741,176 @@ CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
     return result;
 }
 
+bool persistRebootLimiter(CameraContext& ctx)
+{
+    CameraRebootLedger ledger{};
+    ledger.magic = CAMERA_REBOOT_LEDGER_MAGIC;
+    ledger.id = ctx.id;
+    ledger.count = ctx.cameraRebootAttemptsInWindow;
+    ledger.checksum = settingsChecksum(ledger);
+    char key[12];
+    snprintf(key, sizeof(key), "r%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false))
+        return false;
+    const bool saved = storage.putBytes(key, &ledger, sizeof(ledger)) == sizeof(ledger);
+    storage.end();
+    return saved;
+}
+
+void loadRebootLimiter(CameraContext& ctx)
+{
+    char key[12];
+    snprintf(key, sizeof(key), "r%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, true))
+        return;
+    CameraRebootLedger ledger{};
+    const bool loaded = storage.getBytesLength(key) == sizeof(ledger) && storage.getBytes(key, &ledger, sizeof(ledger)) == sizeof(ledger);
+    storage.end();
+    const uint32_t checksum = ledger.checksum;
+    ledger.checksum = 0;
+    if (!loaded || ledger.magic != CAMERA_REBOOT_LEDGER_MAGIC || ledger.id != ctx.id || checksum != settingsChecksum(ledger))
+        return;
+    ctx.cameraRebootAttemptsInWindow = min(ledger.count, static_cast<uint8_t>(MAX_ONVIF_REBOOT_ATTEMPTS_MAX));
+    for (uint8_t index = 0; index < ctx.cameraRebootAttemptsInWindow; index++)
+        ctx.cameraRebootAcceptedAtMs[index] = 1;
+    if (ctx.cameraRebootAttemptsInWindow != 0) {
+        ctx.cameraRebootWindowStartedAtMs = 1;
+        ctx.lastCameraRebootAttemptAtMs = 1;
+    }
+}
+
+bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSettings, String& error)
+{
+    if (primaryId == secondaryId || !confirmSettings || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None) {
+        error = "Mesclagem exige dois cadastros distintos, confirmacao e operacao ociosa";
+        return false;
+    }
+    uint32_t existingPrimary = 0;
+    if (cameraIdWasMerged(secondaryId, &existingPrimary))
+        return existingPrimary == primaryId;
+    CameraContext* primary = findCamera(primaryId);
+    CameraContext* secondary = findCamera(secondaryId);
+    if (primary == nullptr || secondary == nullptr) {
+        error = "Cadastro nao encontrado";
+        return false;
+    }
+    const String primaryUuid = normalizeCameraIdentifier(primary->camera.endpointUuid);
+    const String secondaryUuid = normalizeCameraIdentifier(secondary->camera.endpointUuid);
+    const String primarySerial = normalizeCameraIdentifier(primary->camera.serialNumber);
+    const String secondarySerial = normalizeCameraIdentifier(secondary->camera.serialNumber);
+    if ((!primaryUuid.isEmpty() && !secondaryUuid.isEmpty() && primaryUuid != secondaryUuid) || (!primarySerial.isEmpty() && !secondarySerial.isEmpty() && primarySerial != secondarySerial)) {
+        error = "Identificadores ONVIF conflitantes";
+        return false;
+    }
+    const CameraTarget previousTarget = primary->camera;
+    String previousAlternates[CAMERA_ALTERNATE_ENDPOINT_CAPACITY];
+    const uint8_t previousCount = primary->alternateOnvifCount;
+    for (uint8_t index = 0; index < previousCount; index++)
+        previousAlternates[index] = primary->alternateOnvifUrls[index];
+    if (primary->camera.endpointUuid.isEmpty())
+        primary->camera.endpointUuid = secondary->camera.endpointUuid;
+    if (primary->camera.serialNumber.isEmpty())
+        primary->camera.serialNumber = secondary->camera.serialNumber;
+    if (primary->camera.manufacturer.isEmpty())
+        primary->camera.manufacturer = secondary->camera.manufacturer;
+    if (primary->camera.model.isEmpty())
+        primary->camera.model = secondary->camera.model;
+    if (primary->camera.interfaceMacs.isEmpty())
+        primary->camera.interfaceMacs = secondary->camera.interfaceMacs;
+    const bool useSecondaryEndpoint = (secondary->cameraState == CameraState::Online || secondary->cameraState == CameraState::Degraded) && (primary->cameraState == CameraState::Offline || primary->cameraState == CameraState::Discovering || !primary->camera.valid);
+    if (useSecondaryEndpoint) {
+        const CameraTarget identifiedPrimary = primary->camera;
+        primary->camera = secondary->camera;
+        if (primary->camera.endpointUuid.isEmpty())
+            primary->camera.endpointUuid = identifiedPrimary.endpointUuid;
+        if (primary->camera.serialNumber.isEmpty())
+            primary->camera.serialNumber = identifiedPrimary.serialNumber;
+        if (primary->camera.manufacturer.isEmpty())
+            primary->camera.manufacturer = identifiedPrimary.manufacturer;
+        if (primary->camera.model.isEmpty())
+            primary->camera.model = identifiedPrimary.model;
+        if (primary->camera.interfaceMacs.isEmpty())
+            primary->camera.interfaceMacs = identifiedPrimary.interfaceMacs;
+    }
+    const auto addEndpoint = [&](const String& url) {
+        if (url.isEmpty() || url == primary->camera.onvifUrl)
+            return true;
+        for (uint8_t index = 0; index < primary->alternateOnvifCount; index++)
+            if (primary->alternateOnvifUrls[index] == url)
+                return true;
+        if (primary->alternateOnvifCount >= CAMERA_ALTERNATE_ENDPOINT_CAPACITY)
+            return false;
+        primary->alternateOnvifUrls[primary->alternateOnvifCount++] = url;
+        return true;
+    };
+    bool endpointsFit = useSecondaryEndpoint ? addEndpoint(previousTarget.onvifUrl) : addEndpoint(secondary->camera.onvifUrl);
+    for (uint8_t index = 0; endpointsFit && index < secondary->alternateOnvifCount; index++)
+        endpointsFit = addEndpoint(secondary->alternateOnvifUrls[index]);
+    if (!endpointsFit || !persistCamera(*primary)) {
+        primary->camera = previousTarget;
+        primary->alternateOnvifCount = previousCount;
+        for (uint8_t index = 0; index < CAMERA_ALTERNATE_ENDPOINT_CAPACITY; index++)
+            primary->alternateOnvifUrls[index] = index < previousCount ? previousAlternates[index] : String();
+        error = endpointsFit ? "Falha ao gravar mesclagem na NVS; registros originais preservados" : "Limite de enderecos confirmados atingido";
+        return false;
+    }
+    if (secondary->cameraRebootAttemptsInWindow != 0) {
+        const uint8_t combined = CameraPolicy::combinedRebootReservations(primary->cameraRebootAttemptsInWindow, secondary->cameraRebootAttemptsInWindow, MAX_ONVIF_REBOOT_ATTEMPTS_MAX);
+        primary->cameraRebootAttemptsInWindow = combined;
+        primary->lastCameraRebootAttemptAtMs = millis();
+        primary->cameraRebootWindowStartedAtMs = primary->lastCameraRebootAttemptAtMs;
+        for (size_t index = 0; index < MAX_ONVIF_REBOOT_ATTEMPTS_MAX; index++)
+            primary->cameraRebootAcceptedAtMs[index] = index < combined ? primary->cameraRebootWindowStartedAtMs : 0;
+    }
+    if (!persistRebootLimiter(*primary) || !persistCameraMergeAlias(secondaryId, primaryId)) {
+        primary->camera = previousTarget;
+        primary->alternateOnvifCount = previousCount;
+        for (uint8_t index = 0; index < CAMERA_ALTERNATE_ENDPOINT_CAPACITY; index++)
+            primary->alternateOnvifUrls[index] = index < previousCount ? previousAlternates[index] : String();
+        error = "Falha ao gravar limite ou mapa de IDs; registros originais preservados";
+        return false;
+    }
+    if (useSecondaryEndpoint) {
+        invalidateSnapshotTarget(*primary);
+        invalidateOnvifServiceCatalog(*primary);
+        resetCameraSnapshotHttpSession(*primary);
+        resolveActiveIncident(*primary);
+        primary->cameraState = secondary->cameraState;
+        primary->lastHealthCheckAtMs = secondary->lastHealthCheckAtMs;
+        primary->lastSnapshotProbe = secondary->lastSnapshotProbe;
+    }
+    std::unique_ptr<CameraContext>* link = &cameras;
+    while (link->get() != secondary)
+        link = &(*link)->next;
+    std::unique_ptr<CameraContext> removed = std::move(*link);
+    *link = std::move(removed->next);
+    cameraCount--;
+    registryRevision++;
+    lastRegistryResult = String("Cadastros associados: ") + secondaryId + " -> " + primaryId;
+    return true;
+}
+
+bool reconcileIdentifiedCameras()
+{
+    if (registryBusy || currentAdminAction() != AdminAction::None)
+        return false;
+    for (CameraContext* primary = cameras.get(); primary != nullptr; primary = primary->next.get()) {
+        if (!cameraIdentityMatches(primary->camera, primary->camera))
+            continue;
+        for (CameraContext* secondary = primary->next.get(); secondary != nullptr; secondary = secondary->next.get()) {
+            if (!cameraIdentityMatches(primary->camera, secondary->camera))
+                continue;
+            if (!automaticMergeSettingsCompatible(*primary, *secondary))
+                continue;
+            String error;
+            return mergeCameraRecords(primary->id, secondary->id, true, error);
+        }
+    }
+    return false;
+}
+
 void loadRuntimeSettings()
 {
     GlobalSettingsBlob globalBlob{};
@@ -533,6 +931,7 @@ void loadRuntimeSettings()
     }
 
     uint32_t lastId = 0;
+    uint32_t missingCameraIds = 0;
     if (storage.begin(CAMERAS_NVS_NAMESPACE, true)) {
         lastId = storage.getUInt("last_id", 0);
         nvs_stats_t stats{};
@@ -543,10 +942,17 @@ void loadRuntimeSettings()
         }
         std::unique_ptr<CameraContext>* link = &cameras;
         for (uint32_t id = 1; id <= lastId; id++) {
+            if (cameraIdWasMerged(id))
+                continue;
             char key[12];
             snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(id));
             const size_t size = storage.getBytesLength(key);
-            if (size < sizeof(CameraRecordHeader) + 2 || size > sizeof(CameraRecordHeader) + 1282) {
+            const CameraPolicy::StoredRecordLength recordLength = CameraPolicy::classifyStoredRecordLength(size, sizeof(CameraRecordHeader) + 2, sizeof(CameraRecordHeaderV7) + 2200);
+            if (recordLength == CameraPolicy::StoredRecordLength::MissingReserved) {
+                missingCameraIds++;
+                continue;
+            }
+            if (recordLength == CameraPolicy::StoredRecordLength::Invalid) {
                 lastRegistryResult = String("Cadastro invalido: camera ") + id;
                 cameraRegistryFullyLoaded = false;
                 continue;
@@ -562,17 +968,31 @@ void loadRuntimeSettings()
                 cameraRegistryFullyLoaded = false;
                 break;
             }
-            CameraRecordHeader* record = reinterpret_cast<CameraRecordHeader*>(bytes.get());
-            const uint32_t checksum = record->checksum;
-            record->checksum = 0;
-            if (record->magic != CAMERA_RECORD_MAGIC || record->id != id || record->schemaVersion != RUNTIME_SETTINGS_SCHEMA_VERSION || record->payloadSize != sizeof(RuntimeSettings) || record->urlBytes == 0 || record->uuidBytes == 0 || sizeof(*record) + record->urlBytes + record->uuidBytes != size || settingsChecksumBytes(bytes.get(), size) != checksum) {
+            CameraRecordHeader* oldRecord = reinterpret_cast<CameraRecordHeader*>(bytes.get());
+            CameraRecordHeaderV7* record = reinterpret_cast<CameraRecordHeaderV7*>(bytes.get());
+            const bool version7 = size >= sizeof(CameraRecordHeaderV7) + 5 && record->magic == CAMERA_RECORD_MAGIC_V7;
+            const uint32_t checksum = version7 ? record->checksum : oldRecord->checksum;
+            if (version7)
+                record->checksum = 0;
+            else
+                oldRecord->checksum = 0;
+            const bool headerValid = version7 ? record->id == id && record->schemaVersion == CAMERA_RECORD_SCHEMA_VERSION && record->payloadSize == sizeof(RuntimeSettings) && record->alternateCount <= CAMERA_ALTERNATE_ENDPOINT_CAPACITY : oldRecord->magic == CAMERA_RECORD_MAGIC && oldRecord->id == id && oldRecord->schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION && oldRecord->payloadSize == sizeof(RuntimeSettings);
+            const uint16_t urlBytes = version7 ? record->urlBytes : oldRecord->urlBytes;
+            const uint16_t uuidBytes = version7 ? record->uuidBytes : oldRecord->uuidBytes;
+            size_t expected = (version7 ? sizeof(CameraRecordHeaderV7) : sizeof(CameraRecordHeader)) + urlBytes + uuidBytes;
+            if (version7) {
+                expected += record->serialBytes + record->manufacturerBytes + record->modelBytes + record->interfaceMacsBytes;
+                for (uint8_t index = 0; index < record->alternateCount; index++)
+                    expected += record->alternateBytes[index];
+            }
+            if (!headerValid || urlBytes == 0 || uuidBytes == 0 || (version7 && (record->serialBytes == 0 || record->manufacturerBytes == 0 || record->modelBytes == 0 || record->interfaceMacsBytes == 0)) || expected != size || settingsChecksumBytes(bytes.get(), size) != checksum) {
                 lastRegistryResult = String("Integridade invalida: camera ") + id;
                 cameraRegistryFullyLoaded = false;
                 continue;
             }
-            const char* url = reinterpret_cast<const char*>(bytes.get() + sizeof(*record));
-            const char* uuid = url + record->urlBytes;
-            if (url[record->urlBytes - 1] != '\0' || uuid[record->uuidBytes - 1] != '\0') {
+            const char* url = reinterpret_cast<const char*>(bytes.get() + (version7 ? sizeof(CameraRecordHeaderV7) : sizeof(CameraRecordHeader)));
+            const char* uuid = url + urlBytes;
+            if (url[urlBytes - 1] != '\0' || uuid[uuidBytes - 1] != '\0' || memchr(url, '\0', urlBytes - 1) != nullptr || memchr(uuid, '\0', uuidBytes - 1) != nullptr) {
                 lastRegistryResult = String("Endereco invalido: camera ") + id;
                 cameraRegistryFullyLoaded = false;
                 continue;
@@ -580,7 +1000,8 @@ void loadRuntimeSettings()
             ParsedUrl parsed;
             String error;
             const bool endpointKnown = url[0] != '\0';
-            if ((endpointKnown && (!parseHttpUrl(url, parsed) || parsed.secure)) || !validateRuntimeSettings(record->values, error)) {
+            const RuntimeSettings& values = version7 ? record->values : oldRecord->values;
+            if ((endpointKnown && (!parseHttpUrl(url, parsed) || parsed.secure)) || !validateRuntimeSettings(values, error)) {
                 lastRegistryResult = String("Configuracao invalida: camera ") + id;
                 cameraRegistryFullyLoaded = false;
                 continue;
@@ -592,17 +1013,47 @@ void loadRuntimeSettings()
                 break;
             }
             entry->id = id;
-            entry->settings = record->values;
+            entry->settings = values;
             entry->settingsLoadedFromNvs = true;
             entry->registeredAtMs = millis();
             entry->lastStateChangeAtMs = entry->registeredAtMs;
-            entry->camera.valid = endpointKnown;
+            entry->camera.valid = endpointKnown && (!version7 || (record->reserved & 1) != 0);
             entry->camera.ip = parsed.ip;
             entry->camera.onvifPort = parsed.port;
             entry->camera.rtspPort = entry->settings.cameraRtspPort;
             entry->camera.onvifPath = parsed.path;
             entry->camera.onvifUrl = url;
             entry->camera.endpointUuid = uuid;
+            if (version7) {
+                const char* cursor = uuid + uuidBytes;
+                const auto readField = [&](uint16_t length, String& result) {
+                    if (length == 0 || cursor[length - 1] != '\0' || memchr(cursor, '\0', length - 1) != nullptr)
+                        return false;
+                    result = cursor;
+                    cursor += length;
+                    return true;
+                };
+                if (!readField(record->serialBytes, entry->camera.serialNumber) || !readField(record->manufacturerBytes, entry->camera.manufacturer) || !readField(record->modelBytes, entry->camera.model) || !readField(record->interfaceMacsBytes, entry->camera.interfaceMacs)) {
+                    lastRegistryResult = String("Identidade invalida: camera ") + id;
+                    cameraRegistryFullyLoaded = false;
+                    continue;
+                }
+                bool alternateValid = true;
+                for (uint8_t index = 0; index < record->alternateCount; index++) {
+                    String& alternative = entry->alternateOnvifUrls[index];
+                    ParsedUrl parsedAlternative;
+                    alternateValid = readField(record->alternateBytes[index], alternative) && parseHttpUrl(alternative, parsedAlternative) && !parsedAlternative.secure;
+                    if (!alternateValid)
+                        break;
+                    entry->alternateOnvifCount++;
+                }
+                if (!alternateValid) {
+                    lastRegistryResult = String("Enderecos alternativos invalidos: camera ") + id;
+                    cameraRegistryFullyLoaded = false;
+                    continue;
+                }
+            }
+            loadRebootLimiter(*entry);
             *link = std::move(entry);
             link = &(*link)->next;
             cameraCount++;
@@ -692,8 +1143,10 @@ void loadRuntimeSettings()
         } else {
             lastRegistryResult = "Falha ao gravar configuracoes globais";
         }
-    } else if (cameraRegistryFullyLoaded && cameraCount == lastId) {
+    } else if (cameraRegistryFullyLoaded) {
         lastRegistryResult = String(cameraCount) + " cameras carregadas da NVS";
+        if (missingCameraIds != 0)
+            lastRegistryResult += String("; ") + missingCameraIds + " IDs ausentes reservados";
     }
     lastSettingsResult = settingsLoadedFromNvs ? "Configuracoes carregadas da NVS" : "Usando valores de fabrica";
 }
@@ -1200,6 +1653,7 @@ unsigned long cameraRebootGraceRemainingMs(CameraContext& ctx)
 void refreshCameraRebootWindow(CameraContext& ctx)
 {
     const unsigned long now = millis();
+    const uint8_t previousCount = ctx.cameraRebootAttemptsInWindow;
     uint8_t activeCount = 0;
 
     for (uint8_t index = 0; index < ctx.cameraRebootAttemptsInWindow; index++) {
@@ -1216,6 +1670,8 @@ void refreshCameraRebootWindow(CameraContext& ctx)
 
     ctx.cameraRebootAttemptsInWindow = activeCount;
     ctx.cameraRebootWindowStartedAtMs = activeCount > 0 ? ctx.cameraRebootAcceptedAtMs[0] : 0;
+    if (activeCount != previousCount)
+        persistRebootLimiter(ctx);
 }
 
 String durationText(unsigned long durationMs)

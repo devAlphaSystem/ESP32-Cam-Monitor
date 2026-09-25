@@ -14,6 +14,8 @@ void appendOnvifEndpointJson(String& json, const char* name, const OnvifServiceE
     json += name;
     json += "\":{\"available\":";
     json += endpoint.available ? "true" : "false";
+    json += ",\"validated\":";
+    json += endpoint.validated ? "true" : "false";
     json += ",\"url\":\"";
     json += jsonEscape(endpoint.url);
     json += "\",\"version\":\"";
@@ -178,7 +180,20 @@ String buildStatusJson(CameraContext& ctx)
     json += jsonEscape(ctx.camera.onvifUrl);
     json += "\",\"uuid\":\"";
     json += jsonEscape(ctx.camera.endpointUuid);
-    json += "\",\"scopes\":\"";
+    json += "\",\"serialNumber\":\"";
+    json += jsonEscape(ctx.camera.serialNumber);
+    json += "\",\"identityConfirmed\":";
+    json += cameraIdentityMatches(ctx.camera, ctx.camera) ? "true" : "false";
+    json += ",\"alternateOnvifUrls\":[";
+    for (uint8_t index = 0; index < ctx.alternateOnvifCount; index++) {
+        if (index != 0)
+            json += ',';
+        json += '"';
+        appendJsonEscaped(json, ctx.alternateOnvifUrls[index]);
+        json += '"';
+    }
+    json += "]";
+    json += ",\"scopes\":\"";
     json += jsonEscape(ctx.camera.scopes);
     json += "\",\"rtspPort\":";
     json += ctx.camera.rtspPort;
@@ -199,6 +214,18 @@ String buildStatusJson(CameraContext& ctx)
     json += ctx.onvifServices.failures;
     json += ",\"rejectedEndpoints\":";
     json += ctx.onvifServices.rejectedEndpoints;
+    json += ",\"rejectedAuthenticationEndpoints\":";
+    json += ctx.onvifServices.rejectedAuthenticationEndpoints;
+    json += ",\"inaccessibleEndpoints\":";
+    json += ctx.onvifServices.inaccessibleEndpoints;
+    json += ",\"invalidResponseEndpoints\":";
+    json += ctx.onvifServices.invalidResponseEndpoints;
+    json += ",\"unvalidatedEndpoints\":";
+    json += ctx.onvifServices.unvalidatedEndpoints;
+    json += ",\"catalogValid\":";
+    json += ctx.onvifServices.catalogValid ? "true" : "false";
+    json += ",\"catalogStale\":";
+    json += ctx.onvifServices.stale ? "true" : "false";
     json += ",\"lastStatus\":";
     json += ctx.onvifServices.lastStatusCode;
     json += ",\"lastLatencyMs\":";
@@ -235,6 +262,8 @@ String buildStatusJson(CameraContext& ctx)
     json += "},\"ptz\":{";
     json += "\"available\":";
     json += ctx.onvifServices.ptz.available ? "true" : "false";
+    json += ",\"validated\":";
+    json += ctx.onvifServices.ptz.validated ? "true" : "false";
     json += ",\"profileResolved\":";
     json += ctx.onvifPtz.profileResolved ? "true" : "false";
     json += ",\"profileToken\":\"";
@@ -1342,8 +1371,13 @@ CameraContext* requestedCamera()
         return nullptr;
     }
     CameraContext* ctx = findCamera(id);
-    if (ctx == nullptr)
-        sendApiError(404, "camera_not_found", "Camera nao cadastrada");
+    if (ctx == nullptr) {
+        uint32_t primaryId = 0;
+        if (cameraIdWasMerged(id, &primaryId))
+            sendApiError(410, "camera_merged", String("Este ID foi associado ao cadastro ") + primaryId + "; atualize a selecao");
+        else
+            sendApiError(404, "camera_not_found", "Camera nao cadastrada");
+    }
     return ctx;
 }
 
@@ -1418,6 +1452,23 @@ void handleCameraRegistry()
             json += (millis() - ctx->lastHealthCheckAtMs) / 1000UL;
         json += ",\"healthCheckIntervalMs\":";
         json += ctx->settings.healthCheckIntervalMs;
+        json += ",\"feedTargetCycleMs\":";
+        json += ctx->settings.feedTargetCycleMs;
+        json += ",\"credentialsConfigured\":";
+        json += ctx->settings.cameraUsername[0] != '\0' || ctx->settings.cameraPassword[0] != '\0' ? "true" : "false";
+        json += ",\"preferredUrl\":\"";
+        appendJsonEscaped(json, ctx->camera.onvifUrl);
+        json += "\",\"alternateUrls\":[";
+        for (uint8_t index = 0; index < ctx->alternateOnvifCount; index++) {
+            if (index != 0)
+                json += ',';
+            json += '"';
+            appendJsonEscaped(json, ctx->alternateOnvifUrls[index]);
+            json += '"';
+        }
+        json += "]";
+        json += ",\"identityConfirmed\":";
+        json += cameraIdentityMatches(ctx->camera, ctx->camera) ? "true" : "false";
         json += ",\"successfulChecks\":";
         json += ctx->successfulHealthChecks;
         json += ",\"failedChecks\":";
@@ -1537,6 +1588,41 @@ bool queueAdminAction(AdminAction action, uint32_t cameraId, String& error)
     return true;
 }
 
+void handleMergeCameras()
+{
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+    uint32_t primaryId = 0;
+    uint32_t secondaryId = 0;
+    if (!readUnsignedSettingArgument("primaryId", 1, UINT32_MAX, primaryId, error) || !readUnsignedSettingArgument("secondaryId", 1, UINT32_MAX, secondaryId, error)) {
+        sendApiError(422, "invalid_camera", error);
+        return;
+    }
+    if (httpServer.arg("confirmSettings") != "1") {
+        sendApiError(422, "settings_confirmation_required", "Confirme que as configuracoes do cadastro principal prevalecem; o registro original permanece na NVS");
+        return;
+    }
+    CameraIoGuard ioGuard;
+    if (!ioGuard.acquired()) {
+        sendApiError(503, "camera_busy", "Acesso a camera ocupado");
+        return;
+    }
+    if (!mergeCameraRecords(primaryId, secondaryId, true, error)) {
+        sendApiError(409, "merge_failed", error);
+        return;
+    }
+    PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, "camera_merge", IPAddress(), 0, 0, 0, secondaryId, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, primaryId);
+    String json = "{\"ok\":true,\"primaryId\":";
+    json += primaryId;
+    json += ",\"secondaryId\":";
+    json += secondaryId;
+    json += ",\"message\":\"Cadastros associados; configuracoes do principal preservadas\"}";
+    sendJsonResponse(200, json);
+}
+
 void handleAdminAction(AdminAction action)
 {
     String error;
@@ -1652,6 +1738,7 @@ void configureHttpServer()
     });
 
     httpServer.on("/api/cameras", HTTP_GET, handleCameraRegistry);
+    httpServer.on("/api/cameras/merge", HTTP_POST, handleMergeCameras);
 
     httpServer.on("/api/actions/reboot-all-cameras", HTTP_POST, [] {
         handleAdminAction(AdminAction::RebootAllCameras);

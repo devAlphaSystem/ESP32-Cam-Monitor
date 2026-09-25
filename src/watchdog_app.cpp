@@ -18,9 +18,18 @@ bool cameraControlResponded(CameraContext& ctx, uint16_t contextId = 0)
     ctx.lastOnvifProbe = probeOnvif(ctx, ctx.camera, logContextId);
 
     if (ctx.lastOnvifProbe.protocolResponded) {
+        ctx.preferredFailureStreak = 0;
         ctx.lastRtspProbe = ServiceProbe{};
         ctx.lastRtspProbeAttempted = false;
         return true;
+    }
+
+    if (ctx.preferredFailureStreak < 255)
+        ctx.preferredFailureStreak++;
+    if (ctx.preferredFailureStreak >= 2 && switchToAlternateEndpoint(ctx)) {
+        ctx.lastOnvifProbe = probeOnvif(ctx, ctx.camera, logContextId);
+        if (ctx.lastOnvifProbe.protocolResponded)
+            return true;
     }
 
     httpServer.handleClient();
@@ -150,6 +159,14 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.failedHealthChecks++;
         resetCameraCheckSequences(ctx, "ESP32 sem conexao Wi-Fi");
         setState(ctx, CameraState::Degraded, "ESP32 perdeu a conexao Wi-Fi");
+        return;
+    }
+
+    if (!ctx.camera.valid) {
+        ctx.totalHealthChecks++;
+        ctx.inconclusiveHealthChecks++;
+        discoveryRequested = true;
+        setState(ctx, CameraState::Discovering, "Endereco suspenso; aguardando nova identificacao");
         return;
     }
 
@@ -475,10 +492,23 @@ void processPendingAdminAction()
             return;
         case AdminAction::ResetRebootLimiter:
             if (ctx != nullptr) {
+                const unsigned long previousAttempt = ctx->lastCameraRebootAttemptAtMs;
+                const unsigned long previousWindow = ctx->cameraRebootWindowStartedAtMs;
+                const uint8_t previousCount = ctx->cameraRebootAttemptsInWindow;
+                unsigned long previousAccepted[MAX_ONVIF_REBOOT_ATTEMPTS_MAX];
+                memcpy(previousAccepted, ctx->cameraRebootAcceptedAtMs, sizeof(previousAccepted));
                 ctx->lastCameraRebootAttemptAtMs = 0;
                 ctx->cameraRebootWindowStartedAtMs = 0;
                 ctx->cameraRebootAttemptsInWindow = 0;
                 memset(ctx->cameraRebootAcceptedAtMs, 0, sizeof(ctx->cameraRebootAcceptedAtMs));
+                if (!persistRebootLimiter(*ctx)) {
+                    ctx->lastCameraRebootAttemptAtMs = previousAttempt;
+                    ctx->cameraRebootWindowStartedAtMs = previousWindow;
+                    ctx->cameraRebootAttemptsInWindow = previousCount;
+                    memcpy(ctx->cameraRebootAcceptedAtMs, previousAccepted, sizeof(previousAccepted));
+                    lastAdminActionResult = "Falha ao persistir redefinicao do limitador";
+                    break;
+                }
                 ctx->lastCameraRebootResult = "Limitador de reboots reiniciado";
                 lastAdminActionResult = String(ctx->settings.cameraName) + ": " + ctx->lastCameraRebootResult;
                 succeeded = true;
@@ -531,7 +561,7 @@ void maintainWiFi()
 
 bool cameraHealthCheckDue(const CameraContext& ctx)
 {
-    return WiFi.status() == WL_CONNECTED && (ctx.lastHealthCheckAtMs == 0 || millis() - ctx.lastHealthCheckAtMs >= ctx.settings.healthCheckIntervalMs);
+    return WiFi.status() == WL_CONNECTED && ctx.camera.valid && (ctx.lastHealthCheckAtMs == 0 || millis() - ctx.lastHealthCheckAtMs >= ctx.settings.healthCheckIntervalMs);
 }
 
 bool anyCameraHealthCheckDue()
@@ -580,6 +610,7 @@ void loop()
     static uint32_t lastCheckedId = 0;
     static uint32_t lastMaintenanceId = 0;
     static uint8_t maintenanceStage = 0;
+    static unsigned long lastIdentityReconcileAtMs = 0;
     PersistentLog::maintain();
     updateCameraAlertLed();
     maintainWiFi();
@@ -629,7 +660,12 @@ void loop()
                     maintenanceStage = (maintenanceStage + 1) % 3;
             }
             processPendingEmails();
+            maintainDiscoveryIdentityCandidates();
             maintainSubnetScan();
+            if (millis() - lastIdentityReconcileAtMs >= 30000UL) {
+                lastIdentityReconcileAtMs = millis();
+                reconcileIdentifiedCameras();
+            }
         }
     }
     const SntpReferenceSnapshot sntpReference = snapshotSntpReference();

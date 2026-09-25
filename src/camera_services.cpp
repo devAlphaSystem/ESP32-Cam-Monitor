@@ -1,4 +1,5 @@
 #include "firmware_internal.h"
+#include "camera_policy.h"
 
 namespace CameraWatchdog {
 
@@ -11,6 +12,11 @@ constexpr unsigned long CAMERA_CLOCK_RETRY_INTERVAL_MS = 60UL * 1000UL;
 constexpr uint32_t CAMERA_CLOCK_MAX_ROUND_TRIP_MS = 2000UL;
 
 const IPAddress WS_DISCOVERY_MULTICAST(239, 255, 255, 250);
+constexpr size_t DISCOVERY_IDENTITY_QUEUE_CAPACITY = 8;
+CameraTarget discoveryIdentityQueue[DISCOVERY_IDENTITY_QUEUE_CAPACITY];
+size_t discoveryIdentityQueueCount = 0;
+uint32_t nextDiscoveryMatchGroup = 1;
+uint32_t lastUnconfirmedDiscoveryGroup = 0;
 
 constexpr char SOAP_GET_SYSTEM_TIME[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" " "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">" "<s:Body><tds:GetSystemDateAndTime/></s:Body>" "</s:Envelope>";
 
@@ -400,6 +406,7 @@ int openAuthenticatedCameraGet(CameraContext& ctx, const String& url, uint16_t c
     request.setTimeout(ctx.settings.snapshotHttpTimeoutMs);
     request.useHTTP10(session.forceHttp10);
     request.setReuse(!session.forceHttp10);
+    request.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
     request.setUserAgent(String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION);
     request.collectHeaders(responseHeaders, 3);
 
@@ -864,14 +871,6 @@ TcpConnectionAttempt connectTcp(WiFiClient& client, const IPAddress& ip, uint16_
     return attempt;
 }
 
-void saveCameraTarget(CameraContext& ctx, uint16_t contextId, uint8_t flags)
-{
-    if (!ctx.camera.valid)
-        return;
-    const bool saved = persistCamera(ctx);
-    PersistentLog::record(PersistentLog::Event::CameraTargetSave, saved ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, saved ? "nvs_target" : "nvs_write_failed", ctx.camera.ip, ctx.camera.onvifPort, saved ? 1 : 0, 0, ctx.camera.rtspPort, flags, saved ? PersistentLog::Level::Info : PersistentLog::Level::Error, true, contextId, ctx.id);
-}
-
 bool loadCameraTarget(CameraContext& ctx)
 {
     if (!preferences.begin(NVS_NAMESPACE, true)) {
@@ -905,7 +904,7 @@ bool loadCameraTarget(CameraContext& ctx)
     ctx.camera.endpointUuid = savedUuid;
     ctx.camera.scopes = savedScopes;
 
-    Serial.printf("Camera carregada da NVS: %s\n", ctx.camera.onvifUrl.c_str());
+    Serial.printf("Camera carregada da NVS: %s:%u\n", ctx.camera.ip.toString().c_str(), ctx.camera.onvifPort);
     PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Success, "nvs_target", ctx.camera.ip, ctx.camera.onvifPort, 1, 0, ctx.camera.rtspPort, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     return true;
 }
@@ -992,6 +991,17 @@ bool sendDiscoveryProbe(const char* typeName, uint16_t contextId, uint8_t flags)
     return sent;
 }
 
+void enqueueDiscoveryIdentityCandidate(const CameraTarget& target)
+{
+    for (size_t index = 0; index < discoveryIdentityQueueCount; index++)
+        if (discoveryIdentityQueue[index].onvifUrl == target.onvifUrl)
+            return;
+    if (discoveryIdentityQueueCount < DISCOVERY_IDENTITY_QUEUE_CAPACITY)
+        discoveryIdentityQueue[discoveryIdentityQueueCount++] = target;
+    else
+        lastRegistryResult = "Fila de identificacao cheia; candidato sera reavaliado na proxima descoberta";
+}
+
 void addDiscoveryResponse(const String& xml)
 {
     int position = 0;
@@ -999,6 +1009,7 @@ void addDiscoveryResponse(const String& xml)
     int next = 0;
     while (extractLocalElementContent(xml, "ProbeMatch", position, match, next)) {
         position = next;
+        const uint32_t discoveryGroup = nextDiscoveryMatchGroup++;
         String xaddrs;
         String uuid;
         String scopes;
@@ -1009,32 +1020,81 @@ void addDiscoveryResponse(const String& xml)
         extractLocalTag(match, "Address", 0, uuid, ignored);
         extractLocalTag(match, "Scopes", 0, scopes, ignored);
         extractLocalTag(match, "Types", 0, types, ignored);
-        const String url = xmlUnescape(firstWhitespaceToken(xaddrs));
-        ParsedUrl parsed;
-        if (!parseHttpUrl(url, parsed) || parsed.secure)
-            continue;
-        if (!containsIgnoreCase(types, "NetworkVideoTransmitter") && !containsIgnoreCase(scopes, "onvif") && !containsIgnoreCase(parsed.path, "onvif"))
-            continue;
-        CameraTarget target;
-        target.valid = true;
-        target.ip = parsed.ip;
-        target.onvifPort = parsed.port;
-        target.onvifPath = parsed.path;
-        target.onvifUrl = url;
-        target.endpointUuid = uuid;
-        target.scopes = limitedOnvifText(scopes, 512);
-        String error;
-        CameraContext* ctx = registerCameraTarget(target, error);
-        if (ctx == nullptr) {
-            lastRegistryResult = error + "; " + parsed.ip.toString();
-            PersistentLog::record(PersistentLog::Event::DiscoveryResult, PersistentLog::Outcome::Failure, "registration_failed", parsed.ip, parsed.port, 0, 0, cameraCount, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
-            continue;
-        }
-        if (ctx->lastDiscoveryGeneration != discoveryRuns) {
-            ctx->lastDiscoveryGeneration = discoveryRuns;
-            discoveredCount++;
+        const bool expectedType = containsIgnoreCase(types, "NetworkVideoTransmitter") || containsIgnoreCase(scopes, "onvif");
+        int tokenStart = 0;
+        uint8_t examined = 0;
+        while (tokenStart < static_cast<int>(xaddrs.length()) && examined < CAMERA_ALTERNATE_ENDPOINT_CAPACITY + 1) {
+            while (tokenStart < static_cast<int>(xaddrs.length()) && isspace(static_cast<unsigned char>(xaddrs[tokenStart])))
+                tokenStart++;
+            if (tokenStart >= static_cast<int>(xaddrs.length()))
+                break;
+            int tokenEnd = tokenStart;
+            while (tokenEnd < static_cast<int>(xaddrs.length()) && !isspace(static_cast<unsigned char>(xaddrs[tokenEnd])))
+                tokenEnd++;
+            const String url = xmlUnescape(xaddrs.substring(tokenStart, tokenEnd));
+            tokenStart = tokenEnd;
+            examined++;
+            ParsedUrl parsed;
+            if (!parseHttpUrl(url, parsed) || parsed.secure || parsed.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false) || (!expectedType && !containsIgnoreCase(parsed.path, "onvif")))
+                continue;
+            CameraTarget target;
+            target.valid = true;
+            target.ip = parsed.ip;
+            target.onvifPort = parsed.port;
+            target.onvifPath = parsed.path;
+            target.onvifUrl = url;
+            target.endpointUuid = uuid;
+            target.scopes = limitedOnvifText(scopes, 512);
+            target.discoveryGroup = discoveryGroup;
+            enqueueDiscoveryIdentityCandidate(target);
         }
     }
+}
+
+void maintainDiscoveryIdentityCandidates()
+{
+    if (discoveryIdentityQueueCount == 0 || registryBusy || anyCameraHealthCheckDue() || currentAdminAction() != AdminAction::None || WiFi.status() != WL_CONNECTED || ESP.getFreeHeap() < sizeof(CameraContext) + MAX_ONVIF_RESPONSE_SIZE + CAMERA_OPERATION_HEAP_RESERVE || ESP.getMaxAllocHeap() < MAX_ONVIF_RESPONSE_SIZE + 4096)
+        return;
+    CameraIoGuard ioGuard;
+    if (!ioGuard.acquired())
+        return;
+    CameraTarget target = discoveryIdentityQueue[0];
+    for (size_t index = 1; index < discoveryIdentityQueueCount; index++)
+        discoveryIdentityQueue[index - 1] = std::move(discoveryIdentityQueue[index]);
+    discoveryIdentityQueue[--discoveryIdentityQueueCount] = CameraTarget{};
+    if (target.discoveryGroup != 0 && target.discoveryGroup == lastUnconfirmedDiscoveryGroup)
+        return;
+    std::unique_ptr<CameraContext> candidate(new (std::nothrow) CameraContext());
+    if (!candidate)
+        return;
+    candidate->camera = target;
+    bool identityConflict = false;
+    if (!probeCameraIdentity(*candidate, target, 0, &identityConflict)) {
+        if (identityConflict)
+            return;
+        const ServiceProbe serviceProbe = probeOnvif(*candidate, target);
+        if (!serviceProbe.protocolResponded || (!serviceProbe.soapResponse && target.discoveryGroup == 0))
+            return;
+        target.endpointUuid = String();
+        target.serialNumber = String();
+        target.manufacturer = String();
+        target.model = String();
+        target.interfaceMacs = String();
+    }
+    String error;
+    CameraContext* ctx = registerCameraTarget(target, error);
+    if (ctx == nullptr) {
+        lastRegistryResult = error;
+        return;
+    }
+    if (target.discoveryGroup != 0 && !cameraIdentityMatches(target, target))
+        lastUnconfirmedDiscoveryGroup = target.discoveryGroup;
+    if (ctx->lastDiscoveryGeneration != discoveryRuns) {
+        ctx->lastDiscoveryGeneration = discoveryRuns;
+        discoveredCount++;
+    }
+    if (discoveryIdentityQueueCount == 0)
+        lastDiscoveryResult = currentTimestamp() + " - cameras identificadas=" + String(discoveredCount) + "; cadastradas=" + String(cameraCount);
 }
 
 bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
@@ -1124,9 +1184,9 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
 
     discoveryUdp.stop();
 
-    lastDiscoveryResult = currentTimestamp() + " - cameras encontradas=" + String(discoveredCount) + "; cadastradas=" + String(cameraCount);
-    PersistentLog::record(PersistentLog::Event::DiscoveryResult, discoveredCount > 0 ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, discoveredCount > 0 ? "cameras_discovered" : "no_camera_found", IPAddress(), 0, 0, millis() - startedAtMs, discoveredCount, logFlags, discoveredCount > 0 ? PersistentLog::Level::Info : PersistentLog::Level::Warning, true, logContextId);
-    return discoveredCount > 0;
+    lastDiscoveryResult = currentTimestamp() + " - candidatos=" + String(discoveryIdentityQueueCount) + "; cadastradas=" + String(cameraCount) + "; identificacao pendente";
+    PersistentLog::record(PersistentLog::Event::DiscoveryResult, discoveryIdentityQueueCount > 0 ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, discoveryIdentityQueueCount > 0 ? "identity_pending" : "no_camera_found", IPAddress(), 0, 0, millis() - startedAtMs, discoveryIdentityQueueCount, logFlags, discoveryIdentityQueueCount > 0 ? PersistentLog::Level::Info : PersistentLog::Level::Warning, true, logContextId);
+    return discoveryIdentityQueueCount > 0;
 }
 
 ServiceProbe probeOnvif(CameraContext& ctx, const CameraTarget& target, uint16_t contextId)
@@ -1219,7 +1279,8 @@ ServiceProbe probeOnvif(CameraContext& ctx, const CameraTarget& target, uint16_t
     String normalizedHeader = responseHeader;
     normalizedHeader.toLowerCase();
 
-    result.protocolResponded = result.statusCode == 401 || result.statusCode == 403 || normalizedHeader.indexOf("content-type: application/soap+xml") >= 0 || normalizedHeader.indexOf("content-type: text/xml") >= 0;
+    result.soapResponse = normalizedHeader.indexOf("content-type: application/soap+xml") >= 0 || normalizedHeader.indexOf("content-type: text/xml") >= 0;
+    result.protocolResponded = result.statusCode == 401 || result.statusCode == 403 || result.soapResponse;
 
     const char* resultDetail = result.protocolResponded ? "GetSystemDateAndTime" : result.statusCode != 0 ? "non_soap_response" : "invalid_response";
 
@@ -1239,6 +1300,7 @@ bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId)
 
     if (currentProbe.protocolResponded) {
         ctx.lastOnvifProbe = currentProbe;
+        ctx.preferredFailureStreak = 0;
         return true;
     }
 
@@ -1259,23 +1321,119 @@ bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId)
         if (!candidateProbe.protocolResponded) {
             continue;
         }
-
-        ctx.camera.onvifPort = candidate.onvifPort;
-        ctx.camera.onvifPath = candidate.onvifPath;
-        ctx.camera.onvifUrl = candidate.onvifUrl;
+        CameraTarget observed = candidate;
+        observed.endpointUuid = String();
+        observed.serialNumber = String();
+        observed.manufacturer = String();
+        observed.model = String();
+        observed.interfaceMacs = String();
+        std::unique_ptr<CameraContext> identityProbe(new (std::nothrow) CameraContext());
+        if (!identityProbe)
+            return false;
+        identityProbe->camera = observed;
+        if (!probeCameraIdentity(*identityProbe, observed, logContextId) || !cameraIdentityMatches(ctx.camera, observed))
+            continue;
+        const CameraTarget previous = ctx.camera;
+        const uint8_t previousAlternateCount = ctx.alternateOnvifCount;
+        bool oldEndpointKnown = false;
+        for (uint8_t index = 0; index < previousAlternateCount; index++)
+            if (ctx.alternateOnvifUrls[index] == previous.onvifUrl)
+                oldEndpointKnown = true;
+        if (!oldEndpointKnown && ctx.alternateOnvifCount < CAMERA_ALTERNATE_ENDPOINT_CAPACITY)
+            ctx.alternateOnvifUrls[ctx.alternateOnvifCount++] = previous.onvifUrl;
+        ctx.camera = observed;
+        ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
+        if (!persistCamera(ctx)) {
+            ctx.camera = previous;
+            if (ctx.alternateOnvifCount > previousAlternateCount)
+                ctx.alternateOnvifUrls[--ctx.alternateOnvifCount] = String();
+            continue;
+        }
         ctx.lastOnvifProbe = candidateProbe;
         invalidateSnapshotTarget(ctx);
         invalidateOnvifServiceCatalog(ctx);
         resetSnapshotProfileFailover(ctx);
         ctx.lastSnapshotResolveAttemptAtMs = 0;
-        saveCameraTarget(ctx, logContextId);
+        registryRevision++;
 
         Serial.printf("Servico ONVIF confirmado na porta %u.\n", ctx.camera.onvifPort);
         return true;
     }
 
     ctx.lastOnvifProbe = currentProbe;
+    if (ctx.preferredFailureStreak < 255)
+        ctx.preferredFailureStreak++;
+    if (ctx.preferredFailureStreak >= 2 && switchToAlternateEndpoint(ctx))
+        return true;
     return false;
+}
+
+bool switchToAlternateEndpoint(CameraContext& ctx)
+{
+    if (ctx.alternateOnvifCount == 0 || ESP.getFreeHeap() < sizeof(CameraContext) + MAX_ONVIF_RESPONSE_SIZE + CAMERA_OPERATION_HEAP_RESERVE || ESP.getMaxAllocHeap() < MAX_ONVIF_RESPONSE_SIZE + 4096 || (ctx.lastAlternateAttemptAtMs != 0 && millis() - ctx.lastAlternateAttemptAtMs < 30000UL))
+        return false;
+    ctx.lastAlternateAttemptAtMs = millis();
+    const uint8_t index = ctx.nextAlternateIndex % ctx.alternateOnvifCount;
+    ctx.nextAlternateIndex = (index + 1) % ctx.alternateOnvifCount;
+    ParsedUrl parsed;
+    if (!parseHttpUrl(ctx.alternateOnvifUrls[index], parsed) || parsed.secure || parsed.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false))
+        return false;
+    CameraTarget target = ctx.camera;
+    target.ip = parsed.ip;
+    target.onvifPort = parsed.port;
+    target.onvifPath = parsed.path;
+    target.onvifUrl = ctx.alternateOnvifUrls[index];
+    target.endpointUuid = String();
+    target.serialNumber = String();
+    target.manufacturer = String();
+    target.model = String();
+    target.interfaceMacs = String();
+    std::unique_ptr<CameraContext> probe(new (std::nothrow) CameraContext());
+    if (!probe)
+        return false;
+    probe->camera = target;
+    if (!probeCameraIdentity(*probe, target))
+        return false;
+    if (!cameraIdentityMatches(ctx.camera, target)) {
+        const CameraPolicy::Identity known{ctx.camera.endpointUuid.c_str(), ctx.camera.serialNumber.c_str(), ctx.camera.manufacturer.c_str(), ctx.camera.model.c_str(), ctx.camera.interfaceMacs.c_str()};
+        const CameraPolicy::Identity seen{target.endpointUuid.c_str(), target.serialNumber.c_str(), target.manufacturer.c_str(), target.model.c_str(), target.interfaceMacs.c_str()};
+        if (CameraPolicy::identifiersConflict(known, seen)) {
+            const String previousAlternative = ctx.alternateOnvifUrls[index];
+            for (uint8_t remaining = index + 1; remaining < ctx.alternateOnvifCount; remaining++)
+                ctx.alternateOnvifUrls[remaining - 1] = ctx.alternateOnvifUrls[remaining];
+            ctx.alternateOnvifUrls[--ctx.alternateOnvifCount] = String();
+            if (!persistCamera(ctx)) {
+                for (uint8_t remaining = ctx.alternateOnvifCount; remaining > index; remaining--)
+                    ctx.alternateOnvifUrls[remaining] = ctx.alternateOnvifUrls[remaining - 1];
+                ctx.alternateOnvifUrls[index] = previousAlternative;
+                ctx.alternateOnvifCount++;
+            } else
+                registryRevision++;
+        }
+        return false;
+    }
+    if (!CameraPolicy::allowEndpointPromotion(ctx.preferredFailureStreak, true, true))
+        return false;
+    const CameraTarget previous = ctx.camera;
+    const String alternative = ctx.alternateOnvifUrls[index];
+    ctx.camera = target;
+    ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
+    ctx.alternateOnvifUrls[index] = previous.onvifUrl;
+    if (!persistCamera(ctx)) {
+        ctx.camera = previous;
+        ctx.alternateOnvifUrls[index] = alternative;
+        return false;
+    }
+    invalidateSnapshotTarget(ctx);
+    invalidateOnvifServiceCatalog(ctx);
+    resetCameraSnapshotHttpSession(ctx);
+    resetCameraCheckSequences(ctx, "Endereco alternativo validado; aguardando verificacao");
+    ctx.previousCameraIp = previous.ip.toString();
+    ctx.pendingIpChangeEmail = previous.ip != target.ip;
+    ctx.preferredFailureStreak = 0;
+    ctx.nextAlternateIndex = 0;
+    registryRevision++;
+    return true;
 }
 
 bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* action, const String& body, String& responseBody, bool requireResponseBody, int* finalStatusCode, bool* transportFailure, uint32_t timeoutMs, uint16_t contextId)
@@ -1314,6 +1472,7 @@ bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* act
     request.setConnectTimeout(min(ctx.settings.tcpConnectTimeoutMs, timeoutMs));
     request.setTimeout(timeoutMs);
     request.setReuse(false);
+    request.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
     request.useHTTP10(true);
     request.setUserAgent(String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION);
     request.collectHeaders(responseHeaders, 1);
@@ -1388,6 +1547,64 @@ bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* act
     }
 
     return !requireResponseBody || (responseRead && !responseBody.isEmpty());
+}
+
+bool probeCameraIdentity(CameraContext& ctx, CameraTarget& target, uint16_t contextId, bool* identityConflict)
+{
+    if (!target.valid || target.onvifUrl.isEmpty())
+        return false;
+    if (identityConflict != nullptr)
+        *identityConflict = false;
+    String response;
+    int status = 0;
+    const uint32_t timeout = min(ctx.settings.serviceResponseTimeoutMs, uint32_t(1200));
+    const bool deviceInfo = postOnvifSoap(ctx, target.onvifUrl, "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation", "<tds:GetDeviceInformation/>", response, true, &status, nullptr, timeout, contextId) && CameraPolicy::hasXmlLocalOpeningTag(response.c_str(), "GetDeviceInformationResponse");
+    if (deviceInfo) {
+        String field;
+        int ignored = 0;
+        if (extractLocalTag(response, "SerialNumber", 0, field, ignored))
+            target.serialNumber = normalizeCameraIdentifier(limitedOnvifText(field, 128));
+        if (extractLocalTag(response, "Manufacturer", 0, field, ignored))
+            target.manufacturer = limitedOnvifText(field, 120);
+        if (extractLocalTag(response, "Model", 0, field, ignored))
+            target.model = limitedOnvifText(field, 120);
+    }
+    if (deviceInfo) {
+        response = String();
+        if (postOnvifSoap(ctx, target.onvifUrl, "http://www.onvif.org/ver10/device/wsdl/GetNetworkInterfaces", "<tds:GetNetworkInterfaces/>", response, true, &status, nullptr, timeout, contextId) && CameraPolicy::hasXmlLocalOpeningTag(response.c_str(), "GetNetworkInterfacesResponse")) {
+            int offset = 0;
+            String mac;
+            for (uint8_t index = 0; index < 4 && extractLocalTag(response, "HwAddress", offset, mac, offset); index++) {
+                mac = limitedOnvifText(mac, 17);
+                mac.toLowerCase();
+                bool valid = mac.length() == 17;
+                for (size_t digit = 0; valid && digit < mac.length(); digit++)
+                    valid = (digit % 3 == 2) ? mac[digit] == ':' : isxdigit(static_cast<unsigned char>(mac[digit]));
+                if (valid && target.interfaceMacs.indexOf(mac) < 0) {
+                    if (!target.interfaceMacs.isEmpty())
+                        target.interfaceMacs += ',';
+                    target.interfaceMacs += mac;
+                }
+            }
+        }
+    }
+    const String announcedUuid = normalizeCameraIdentifier(target.endpointUuid);
+    target.endpointUuid = String();
+    response = String();
+    if (postOnvifSoap(ctx, target.onvifUrl, "http://www.onvif.org/ver10/device/wsdl/GetEndpointReference", "<tds:GetEndpointReference/>", response, true, &status, nullptr, timeout, contextId) && CameraPolicy::hasXmlLocalOpeningTag(response.c_str(), "GetEndpointReferenceResponse")) {
+        String guid;
+        int ignored = 0;
+        if (extractLocalTag(response, "GUID", 0, guid, ignored)) {
+            const String verifiedUuid = normalizeCameraIdentifier(limitedOnvifText(guid, 128));
+            if (!announcedUuid.isEmpty() && !verifiedUuid.isEmpty() && announcedUuid != verifiedUuid) {
+                if (identityConflict != nullptr)
+                    *identityConflict = true;
+                return false;
+            }
+            target.endpointUuid = verifiedUuid;
+        }
+    }
+    return deviceInfo || !target.endpointUuid.isEmpty();
 }
 
 void noteCameraClockFailure(CameraContext& ctx, const String& result)
@@ -1537,11 +1754,11 @@ String limitedOnvifText(String value, size_t maximumLength)
     return value;
 }
 
-bool normalizeAdvertisedOnvifUrl(CameraContext& ctx, const String& advertisedUrl, String& normalizedUrl)
+bool normalizeAdvertisedOnvifUrl(CameraContext& ctx, const String& advertisedUrl, String& normalizedUrl, bool* rewritten = nullptr)
 {
     ParsedHttpResource parsed;
 
-    if (!ctx.camera.valid || !parseHttpResourceUrl(advertisedUrl, parsed) || parsed.secure) {
+    if (!ctx.camera.valid || !parseHttpResourceUrl(advertisedUrl, parsed) || parsed.secure || !CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false)) {
         return false;
     }
 
@@ -1553,12 +1770,28 @@ bool normalizeAdvertisedOnvifUrl(CameraContext& ctx, const String& advertisedUrl
 
     const bool unspecifiedAddress = advertisedIp[0] == 0 && advertisedIp[1] == 0 && advertisedIp[2] == 0 && advertisedIp[3] == 0;
 
-    if (!unspecifiedAddress && advertisedIp != ctx.camera.ip) {
+    if (ctx.camera.ip == WiFi.localIP())
         return false;
-    }
-
+    if (rewritten != nullptr)
+        *rewritten = unspecifiedAddress || advertisedIp != ctx.camera.ip;
     normalizedUrl = makeOnvifUrl(ctx.camera.ip, parsed.port, parsed.path);
     return true;
+}
+
+bool validateRewrittenOnvifService(CameraContext& ctx, const String& serviceNamespace, const String& url, int& status)
+{
+    const char* prefix = nullptr;
+    if (serviceNamespace == "http://www.onvif.org/ver10/media/wsdl")
+        prefix = "trt";
+    else if (serviceNamespace == "http://www.onvif.org/ver20/ptz/wsdl")
+        prefix = "tptz";
+    else
+        return false;
+    const String body = String("<") + prefix + ":GetServiceCapabilities/>";
+    const String action = serviceNamespace + "/GetServiceCapabilities";
+    String response;
+    status = 0;
+    return postOnvifSoap(ctx, url, action.c_str(), body, response, true, &status, nullptr, min(ctx.settings.serviceResponseTimeoutMs, uint32_t(1200))) && CameraPolicy::hasXmlLocalOpeningTag(response.c_str(), "GetServiceCapabilitiesResponse");
 }
 
 OnvifServiceEndpoint* endpointForOnvifNamespace(CameraContext& ctx, const String& serviceNamespace)
@@ -1652,6 +1885,8 @@ void collectOnvifServiceCapabilities(CameraContext& ctx, const String& serviceNa
 
 bool parseOnvifServices(CameraContext& ctx, const String& servicesXml)
 {
+    if (!CameraPolicy::hasXmlLocalOpeningTag(servicesXml.c_str(), "GetServicesResponse"))
+        return false;
     int serviceStart = 0;
     int serviceOpenEnd = 0;
     int searchPosition = 0;
@@ -1673,9 +1908,19 @@ bool parseOnvifServices(CameraContext& ctx, const String& servicesXml)
 
             if (endpoint != nullptr && !endpoint->available) {
                 String normalizedUrl;
-
-                if (normalizeAdvertisedOnvifUrl(ctx, advertisedUrl, normalizedUrl)) {
+                bool rewritten = false;
+                const bool normalized = normalizeAdvertisedOnvifUrl(ctx, advertisedUrl, normalizedUrl, &rewritten);
+                int validationStatus = 0;
+                const bool validated = normalized && (!rewritten || validateRewrittenOnvifService(ctx, serviceNamespace, normalizedUrl, validationStatus));
+                ParsedUrl advertised;
+                ParsedUrl effective;
+                parseHttpUrl(advertisedUrl, advertised);
+                parseHttpUrl(normalizedUrl, effective);
+                const char* reason = validated ? (rewritten ? "rewritten_validated" : "advertised") : !normalized ? "invalid_destination" : validationStatus == 401 || validationStatus == 403 ? "authentication" : validationStatus >= 200 && validationStatus < 300 ? "invalid_response" : validationStatus == 0 ? "unvalidated" : "inaccessible";
+                Serial.printf("ONVIF service %s advertised=%s:%u effective=%s:%u status=%d %s\n", serviceNamespace.c_str(), advertised.ip.toString().c_str(), advertised.port, effective.ip.toString().c_str(), effective.port, validationStatus, reason);
+                if (validated) {
                     endpoint->available = true;
+                    endpoint->validated = rewritten;
                     endpoint->url = normalizedUrl;
                     endpoint->majorVersion = onvifUnsignedTag(serviceXml, "Major");
                     endpoint->minorVersion = onvifUnsignedTag(serviceXml, "Minor");
@@ -1683,6 +1928,14 @@ bool parseOnvifServices(CameraContext& ctx, const String& servicesXml)
                     collectOnvifServiceCapabilities(ctx, serviceNamespace, serviceXml);
                 } else {
                     ctx.onvifServices.rejectedEndpoints++;
+                    if (validationStatus == 401 || validationStatus == 403)
+                        ctx.onvifServices.rejectedAuthenticationEndpoints++;
+                    else if (validationStatus >= 200 && validationStatus < 300)
+                        ctx.onvifServices.invalidResponseEndpoints++;
+                    else if (normalized && rewritten && validationStatus != 0)
+                        ctx.onvifServices.inaccessibleEndpoints++;
+                    else if (normalized && rewritten)
+                        ctx.onvifServices.unvalidatedEndpoints++;
                 }
             }
         }
@@ -1694,13 +1947,13 @@ bool parseOnvifServices(CameraContext& ctx, const String& servicesXml)
         searchPosition = nextServiceStart;
     }
 
-    return ctx.onvifServices.serviceCount > 0;
+    return true;
 }
 
 bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t contextId)
 {
     if (ctx.onvifServices.resolved && !forceRefresh) {
-        const bool fallbackRetryDue = ctx.onvifServices.usedMediaFallback && millis() - ctx.onvifServices.resolvedAtMs >= ONVIF_CATALOG_FALLBACK_RETRY_MS;
+        const bool fallbackRetryDue = (ctx.onvifServices.usedMediaFallback || ctx.onvifServices.stale) && millis() - ctx.onvifServices.resolvedAtMs >= ONVIF_CATALOG_FALLBACK_RETRY_MS;
 
         if (!fallbackRetryDue) {
             return ctx.onvifServices.media1.available;
@@ -1711,6 +1964,7 @@ bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t 
     const uint32_t previousSuccesses = ctx.onvifServices.successes;
     const uint32_t previousFailures = ctx.onvifServices.failures;
     const bool previousUsedMediaFallback = ctx.onvifServices.usedMediaFallback;
+    const OnvifServiceCatalog previousCatalog = ctx.onvifServices;
     ctx.onvifServices = OnvifServiceCatalog{};
     ctx.onvifServices.attempts = previousAttempts + 1;
     ctx.onvifServices.successes = previousSuccesses;
@@ -1725,16 +1979,35 @@ bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t 
     ctx.onvifServices.lastLatencyMs = millis() - startedAtMs;
     ctx.onvifServices.lastStatusCode = statusCode;
 
-    if (received && parseOnvifServices(ctx, responseXml)) {
+    const bool catalogParsed = received && parseOnvifServices(ctx, responseXml);
+    ctx.onvifServices.catalogValid = catalogParsed;
+    if (catalogParsed) {
         ctx.onvifServices.successes++;
-        ctx.onvifServices.lastResult = String("GetServices retornou ") + String(ctx.onvifServices.serviceCount) + " servicos validos";
+        ctx.onvifServices.lastResult = String("GetServices retornou ") + String(ctx.onvifServices.serviceCount) + " servicos validados; rejeitados=" + String(ctx.onvifServices.rejectedEndpoints);
     } else {
         ctx.onvifServices.failures++;
-        ctx.onvifServices.lastResult = transportFailure ? "GetServices falhou no transporte; Media1 convencional preservado" : String("GetServices indisponivel; HTTP ") + String(statusCode) + "; Media1 convencional preservado";
+        ctx.onvifServices.lastResult = transportFailure ? "GetServices falhou no transporte" : statusCode == 401 || statusCode == 403 ? "GetServices requer outra autorizacao" : responseXml.indexOf("Fault") >= 0 ? "GetServices retornou SOAP Fault" : statusCode >= 400 ? String("GetServices HTTP ") + statusCode : "GetServices retornou resposta invalida";
+    }
+    if ((!catalogParsed || (ctx.onvifServices.serviceCount == 0 && ctx.onvifServices.rejectedEndpoints > 0)) && previousCatalog.catalogValid && previousCatalog.serviceCount > 0) {
+        const String failure = ctx.onvifServices.lastResult;
+        const uint32_t attempts = ctx.onvifServices.attempts;
+        const uint32_t successes = ctx.onvifServices.successes;
+        const uint32_t failures = ctx.onvifServices.failures;
+        const int lastStatus = ctx.onvifServices.lastStatusCode;
+        ctx.onvifServices = previousCatalog;
+        ctx.onvifServices.attempts = attempts;
+        ctx.onvifServices.successes = successes;
+        ctx.onvifServices.failures = failures;
+        ctx.onvifServices.lastStatusCode = lastStatus;
+        ctx.onvifServices.lastResult = failure + "; catalogo anterior desatualizado";
+        ctx.onvifServices.stale = true;
+        ctx.onvifServices.resolvedAtMs = millis();
+        return ctx.onvifServices.media1.available;
     }
 
     if (!ctx.onvifServices.device.available) {
         ctx.onvifServices.device.available = true;
+        ctx.onvifServices.device.validated = catalogParsed;
         ctx.onvifServices.device.url = ctx.camera.onvifUrl;
         ctx.onvifServices.device.majorVersion = 1;
     }
@@ -1748,6 +2021,9 @@ bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t 
 
     ctx.onvifServices.resolved = true;
     ctx.onvifServices.resolvedAtMs = millis();
+
+    if (ctx.onvifServices.ptz.available && (!previousCatalog.ptz.available || previousCatalog.ptz.url != ctx.onvifServices.ptz.url))
+        ctx.onvifPtz = OnvifPtzStatus{};
 
     if (previousUsedMediaFallback && !ctx.onvifServices.usedMediaFallback) {
         ctx.onvifMetadata = OnvifDeviceMetadata{};
@@ -1802,6 +2078,7 @@ uint16_t countOnvifTopicMarkers(const String& xml)
 void completeOnvifMetadataRefresh(CameraContext& ctx)
 {
     ctx.onvifMetadataStage = OnvifMetadataStage::Complete;
+    ctx.lastIdentityVerificationAtMs = millis();
     ctx.onvifMetadata.loadedAtMs = millis();
     ctx.onvifMetadataStageFailureStreak = 0;
     ctx.lastOnvifMetadataRequestFailed = false;
@@ -1812,6 +2089,12 @@ void advanceOnvifMetadataStage(CameraContext& ctx)
 {
     switch (ctx.onvifMetadataStage) {
         case OnvifMetadataStage::DeviceInformation:
+            ctx.onvifMetadataStage = OnvifMetadataStage::IdentityReference;
+            break;
+        case OnvifMetadataStage::IdentityReference:
+            ctx.onvifMetadataStage = OnvifMetadataStage::NetworkInterfaces;
+            break;
+        case OnvifMetadataStage::NetworkInterfaces:
             ctx.onvifMetadataStage = OnvifMetadataStage::Scopes;
             break;
         case OnvifMetadataStage::Scopes:
@@ -1851,6 +2134,11 @@ void noteOnvifMetadataFailure(CameraContext& ctx, const char* operation, int sta
     ctx.onvifMetadata.lastResult = String(operation) + " falhou; HTTP " + String(statusCode) + "; nova tentativa em 30 s";
 }
 
+void suspendCameraOnIdentityConflict(CameraContext& ctx, const char* reason)
+{
+    suspendCameraForIdentityConflict(ctx, reason);
+}
+
 void refreshOnvifDeviceMetadata(CameraContext& ctx)
 {
     if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED) {
@@ -1860,7 +2148,12 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
     const unsigned long now = millis();
 
     if (ctx.onvifMetadataStage == OnvifMetadataStage::Complete) {
-        const bool fallbackRetryDue = ctx.onvifServices.usedMediaFallback && now - ctx.onvifServices.resolvedAtMs >= ONVIF_CATALOG_FALLBACK_RETRY_MS;
+        if (ctx.lastIdentityVerificationAtMs == 0 || now - ctx.lastIdentityVerificationAtMs >= 15UL * 60UL * 1000UL) {
+            ctx.onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
+            ctx.onvifMetadataStageFailureStreak = 0;
+            return;
+        }
+        const bool fallbackRetryDue = (ctx.onvifServices.usedMediaFallback || ctx.onvifServices.stale) && now - ctx.onvifServices.resolvedAtMs >= ONVIF_CATALOG_FALLBACK_RETRY_MS;
 
         if (!fallbackRetryDue) {
             return;
@@ -1902,6 +2195,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
 
     switch (ctx.onvifMetadataStage) {
         case OnvifMetadataStage::DeviceInformation: {
+            const CameraTarget previousIdentity = ctx.camera;
             succeeded = postOnvifSoap(ctx, ctx.onvifServices.device.url, "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation", "<tds:GetDeviceInformation/>", responseXml, true, &statusCode, nullptr, 1000UL);
 
             if (!succeeded) {
@@ -1924,7 +2218,104 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
                 ctx.onvifMetadata.firmware = limitedOnvifText(value);
             }
 
+            if ((!ctx.camera.manufacturer.isEmpty() && !ctx.onvifMetadata.manufacturer.isEmpty() && !ctx.camera.manufacturer.equalsIgnoreCase(ctx.onvifMetadata.manufacturer)) || (!ctx.camera.model.isEmpty() && !ctx.onvifMetadata.model.isEmpty() && !ctx.camera.model.equalsIgnoreCase(ctx.onvifMetadata.model))) {
+                suspendCameraOnIdentityConflict(ctx, "Fabricante ou modelo mudou neste endereco; acesso suspenso");
+                return;
+            }
+
+            bool identityChanged = false;
+            if (extractLocalTag(responseXml, "SerialNumber", 0, value, ignored)) {
+                const String serial = normalizeCameraIdentifier(limitedOnvifText(value, 128));
+                if (!serial.isEmpty() && !ctx.camera.serialNumber.isEmpty() && ctx.camera.serialNumber != serial) {
+                    suspendCameraOnIdentityConflict(ctx, "Numero de serie mudou neste endereco; acesso suspenso");
+                    return;
+                }
+                if (ctx.camera.serialNumber != serial && !serial.isEmpty()) {
+                    ctx.camera.serialNumber = serial;
+                    identityChanged = true;
+                }
+            }
+            if (ctx.camera.manufacturer.isEmpty() && !ctx.onvifMetadata.manufacturer.isEmpty()) {
+                ctx.camera.manufacturer = ctx.onvifMetadata.manufacturer;
+                identityChanged = true;
+            }
+            if (ctx.camera.model.isEmpty() && !ctx.onvifMetadata.model.isEmpty()) {
+                ctx.camera.model = ctx.onvifMetadata.model;
+                identityChanged = true;
+            }
+            if (identityChanged) {
+                if (persistCamera(ctx))
+                    registryRevision++;
+                else {
+                    ctx.camera = previousIdentity;
+                    ctx.onvifMetadata.lastResult = "NVS sem espaco para identidade; nova tentativa apos reinicio";
+                }
+            }
             ctx.onvifMetadata.loaded = true;
+            ctx.onvifMetadataStage = OnvifMetadataStage::IdentityReference;
+            break;
+        }
+
+        case OnvifMetadataStage::IdentityReference: {
+            const CameraTarget previousIdentity = ctx.camera;
+            succeeded = postOnvifSoap(ctx, ctx.onvifServices.device.url, "http://www.onvif.org/ver10/device/wsdl/GetEndpointReference", "<tds:GetEndpointReference/>", responseXml, true, &statusCode, nullptr, 1000UL);
+            if (!succeeded) {
+                noteOnvifMetadataFailure(ctx, "GetEndpointReference", statusCode);
+                return;
+            }
+            String value;
+            int ignored = 0;
+            if (extractLocalTag(responseXml, "GUID", 0, value, ignored)) {
+                const String uuid = normalizeCameraIdentifier(limitedOnvifText(value, 128));
+                if (!uuid.isEmpty() && !ctx.camera.endpointUuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
+                    suspendCameraOnIdentityConflict(ctx, "EPR mudou neste endereco; acesso suspenso");
+                    return;
+                }
+                if (!uuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
+                    ctx.camera.endpointUuid = uuid;
+                    if (persistCamera(ctx))
+                        registryRevision++;
+                    else {
+                        ctx.camera = previousIdentity;
+                        ctx.onvifMetadata.lastResult = "NVS sem espaco para EPR";
+                    }
+                }
+            }
+            ctx.onvifMetadataStage = OnvifMetadataStage::NetworkInterfaces;
+            break;
+        }
+
+        case OnvifMetadataStage::NetworkInterfaces: {
+            const CameraTarget previousIdentity = ctx.camera;
+            succeeded = postOnvifSoap(ctx, ctx.onvifServices.device.url, "http://www.onvif.org/ver10/device/wsdl/GetNetworkInterfaces", "<tds:GetNetworkInterfaces/>", responseXml, true, &statusCode, nullptr, 1000UL);
+            if (!succeeded) {
+                noteOnvifMetadataFailure(ctx, "GetNetworkInterfaces", statusCode);
+                return;
+            }
+            String macs;
+            String mac;
+            int offset = 0;
+            for (uint8_t index = 0; index < 4 && extractLocalTag(responseXml, "HwAddress", offset, mac, offset); index++) {
+                mac = limitedOnvifText(mac, 17);
+                mac.toLowerCase();
+                bool valid = mac.length() == 17;
+                for (size_t digit = 0; valid && digit < mac.length(); digit++)
+                    valid = digit % 3 == 2 ? mac[digit] == ':' : isxdigit(static_cast<unsigned char>(mac[digit]));
+                if (valid && macs.indexOf(mac) < 0) {
+                    if (!macs.isEmpty())
+                        macs += ',';
+                    macs += mac;
+                }
+            }
+            if (!macs.isEmpty() && macs != ctx.camera.interfaceMacs) {
+                ctx.camera.interfaceMacs = macs;
+                if (persistCamera(ctx))
+                    registryRevision++;
+                else {
+                    ctx.camera = previousIdentity;
+                    ctx.onvifMetadata.lastResult = "NVS sem espaco para interfaces";
+                }
+            }
             ctx.onvifMetadataStage = OnvifMetadataStage::Scopes;
             break;
         }
@@ -2233,6 +2624,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
         }
 
         ctx.lastSnapshotResolveStatusCode = profilesStatusCode;
+        ctx.onvifServices.media1.validated = true;
         if (!selectOnvifProfiles(ctx, profilesXml, profileToken, profileName, ptzProfileToken, ptzProfileName)) {
             ctx.lastSnapshotResult = "Nenhum perfil ONVIF compativel";
             return false;
@@ -2287,6 +2679,10 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
 
     if (parsedSnapshot.secure) {
         ctx.lastSnapshotResult = "Snapshot HTTPS local ainda nao suportado";
+        return false;
+    }
+    if (!CameraPolicy::safeHttpPath(parsedSnapshot.path.c_str(), 512, true) || ctx.camera.ip == WiFi.localIP()) {
+        ctx.lastSnapshotResult = "URI de snapshot com destino ou caminho inseguro";
         return false;
     }
 
@@ -2539,6 +2935,7 @@ bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
     ctx.onvifPtz.presets = std::move(presets);
 
     ctx.onvifPtz.presetsLoaded = true;
+    ctx.onvifServices.ptz.validated = true;
     ctx.onvifPtz.truncated = truncated;
     ctx.onvifPtz.presetCount = parsedCount;
     ctx.onvifPtz.reportedPresetCount = reportedCount;
@@ -2945,7 +3342,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     if (ctx.cameraRebootAttemptsInWindow >= ctx.settings.maxOnvifRebootAttemptsPerWindow) {
         const unsigned long elapsedMs = now - ctx.cameraRebootWindowStartedAtMs;
         const unsigned long remainingMs = elapsedMs < ctx.settings.onvifRebootWindowMs ? ctx.settings.onvifRebootWindowMs - elapsedMs : 0;
-        ctx.lastCameraRebootResult = currentTimestamp() + " - limite de tentativas aceitas atingido; nova janela em " + durationText(remainingMs);
+        ctx.lastCameraRebootResult = currentTimestamp() + " - limite de tentativas atingido; nova janela em " + durationText(remainingMs);
         recordReboot(PersistentLog::Outcome::Skipped, "window_limit", 0, PersistentLog::Level::Warning, true);
         return false;
     }
@@ -2961,6 +3358,15 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
 
     String responseBody;
     int statusCode = 0;
+    ctx.cameraRebootAcceptedAtMs[ctx.cameraRebootAttemptsInWindow++] = now;
+    ctx.cameraRebootWindowStartedAtMs = ctx.cameraRebootAcceptedAtMs[0];
+    if (!persistRebootLimiter(ctx)) {
+        ctx.cameraRebootAttemptsInWindow--;
+        ctx.cameraRebootAcceptedAtMs[ctx.cameraRebootAttemptsInWindow] = 0;
+        ctx.lastCameraRebootResult = currentTimestamp() + " - NVS indisponivel; reboot bloqueado para preservar limite";
+        recordReboot(PersistentLog::Outcome::Skipped, "reboot_ledger_failed", 0, PersistentLog::Level::Error, true);
+        return false;
+    }
     const bool accepted = postOnvifSoap(ctx, ctx.camera.onvifUrl, "http://www.onvif.org/ver10/device/wsdl/SystemReboot", "<tds:SystemReboot/>", responseBody, false, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, logContextId);
 
     if (!accepted) {
@@ -3027,8 +3433,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     recordCameraRebootEvidence(ctx, manualRequest);
 
     const unsigned long acceptedAtMs = millis();
-    ctx.cameraRebootAcceptedAtMs[ctx.cameraRebootAttemptsInWindow++] = acceptedAtMs;
-    ctx.cameraRebootWindowStartedAtMs = ctx.cameraRebootAcceptedAtMs[0];
+    ctx.cameraRebootAcceptedAtMs[ctx.cameraRebootAttemptsInWindow - 1] = acceptedAtMs;
     ctx.cameraRebootGraceStartedAtMs = acceptedAtMs;
     invalidateSnapshotTarget(ctx);
     invalidateOnvifServiceCatalog(ctx);
@@ -3438,11 +3843,7 @@ void maintainSubnetScan()
     candidate->settings.serviceResponseTimeoutMs = globalSettings.scanConnectTimeoutMs;
     const ServiceProbe probe = probeOnvif(*candidate, candidate->camera, contextId);
     if (probe.protocolResponded) {
-        String error;
-        if (registerCameraTarget(candidate->camera, error) == nullptr) {
-            lastRegistryResult = error;
-            PersistentLog::record(PersistentLog::Event::SubnetScan, PersistentLog::Outcome::Failure, "registration_failed", candidateIp, candidate->camera.onvifPort, 0, millis() - startedAtMs, cameraCount, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true, contextId);
-        }
+        enqueueDiscoveryIdentityCandidate(candidate->camera);
         checkingOnvif = false;
     } else if (portIndex >= ONVIF_PORT_CANDIDATE_COUNT) {
         checkingOnvif = false;
