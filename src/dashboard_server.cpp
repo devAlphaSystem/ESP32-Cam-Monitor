@@ -4,6 +4,13 @@ namespace CameraWatchdog {
 
 void sendJsonResponse(int statusCode, const String& json);
 
+const char* factoryResetStateName()
+{
+    if (factoryResetRequestedAtMs != 0)
+        return "scheduled";
+    return factoryResetFailed ? "failed" : "idle";
+}
+
 void appendOnvifEndpointJson(String& json, const char* name, const OnvifServiceEndpoint& endpoint, bool prependComma)
 {
     if (prependComma) {
@@ -646,7 +653,9 @@ String buildStatusJson(CameraContext& ctx)
     json += settingsLoadedFromNvs ? "nvs" : "factory";
     json += "\",\"lastResult\":\"";
     json += jsonEscape(lastSettingsResult);
-    json += "\"},\"adminAction\":{";
+    json += "\"},\"factoryResetState\":\"";
+    json += factoryResetStateName();
+    json += "\",\"adminAction\":{";
     json += "\"pending\":\"";
     json += adminActionName(currentAdminAction());
     json += "\",\"lastResult\":\"";
@@ -988,6 +997,11 @@ bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
 bool authorizeSettingsMutation(String& error)
 {
     if (!authorizeDashboardMutation(error, true)) {
+        return false;
+    }
+
+    if (factoryResetRequestedAtMs != 0) {
+        error = "Restauracao dos dados de fabrica em andamento";
         return false;
     }
 
@@ -1419,6 +1433,8 @@ void handleCameraRegistry()
     json += ESP.getMaxAllocHeap();
     json += ",\"lastResult\":\"";
     appendJsonEscaped(json, lastRegistryResult);
+    json += "\",\"factoryResetState\":\"";
+    json += factoryResetStateName();
     json += "\",\"adminAction\":{\"pending\":\"";
     json += adminActionName(currentAdminAction());
     json += "\",\"cameraId\":";
@@ -1623,6 +1639,43 @@ void handleMergeCameras()
     sendJsonResponse(200, json);
 }
 
+void handleForgetCamera()
+{
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+    uint32_t cameraId = 0;
+    if (!readUnsignedSettingArgument("cameraId", 1, UINT32_MAX, cameraId, error)) {
+        sendApiError(422, "invalid_camera", error);
+        return;
+    }
+    if (httpServer.arg("confirmForget") != "1") {
+        sendApiError(422, "confirmation_required", "Confirme a remocao permanente do cadastro selecionado");
+        return;
+    }
+    CameraIoGuard ioGuard;
+    if (!ioGuard.acquired()) {
+        sendApiError(503, "camera_busy", "Acesso a camera ocupado");
+        return;
+    }
+    CameraContext* ctx = findCamera(cameraId);
+    if (ctx == nullptr || !httpServer.hasArg("expectedIp") || httpServer.arg("expectedIp") != ctx->camera.ip.toString()) {
+        sendApiError(409, "camera_changed", "O cadastro mudou; atualize a lista antes de remover");
+        return;
+    }
+    if (!forgetCameraRecord(cameraId, error)) {
+        sendApiError(409, "forget_failed", error);
+        return;
+    }
+    PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, "camera_forget", IPAddress(), 0, 0, 0, cameraId, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, cameraId);
+    String json = "{\"ok\":true,\"cameraId\":";
+    json += cameraId;
+    json += ",\"message\":\"Cadastro removido; ID reservado para nao ser reutilizado\"}";
+    sendJsonResponse(200, json);
+}
+
 void handleAdminAction(AdminAction action)
 {
     String error;
@@ -1683,6 +1736,30 @@ void handleClearPersistentLogs()
     sendJsonResponse(200, json);
 }
 
+void handleFactoryReset()
+{
+    String authorizationError;
+    if (!authorizeSettingsMutation(authorizationError)) {
+        sendApiError(403, "forbidden", authorizationError);
+        return;
+    }
+
+    if (httpServer.arg("confirmReset") != "APAGAR TUDO") {
+        sendApiError(422, "confirmation_required", "Digite APAGAR TUDO para confirmar a restauracao dos dados de fabrica");
+        return;
+    }
+
+    if (!PersistentLog::ready() || espRestartRequestedAtMs != 0) {
+        sendApiError(409, "reset_unavailable", "Armazenamento de logs indisponivel ou reinicio ja agendado");
+        return;
+    }
+
+    factoryResetRequestedAtMs = millis();
+    factoryResetFailed = false;
+    lastAdminActionResult = "Restauracao dos dados de fabrica agendada";
+    sendJsonResponse(202, "{\"ok\":true,\"message\":\"Restauracao dos dados agendada; o ESP32 sera reiniciado\"}");
+}
+
 void handleGotoPtzPresetAction()
 {
     CameraContext* selected = requestedCamera();
@@ -1739,6 +1816,7 @@ void configureHttpServer()
 
     httpServer.on("/api/cameras", HTTP_GET, handleCameraRegistry);
     httpServer.on("/api/cameras/merge", HTTP_POST, handleMergeCameras);
+    httpServer.on("/api/cameras/forget", HTTP_POST, handleForgetCamera);
 
     httpServer.on("/api/actions/reboot-all-cameras", HTTP_POST, [] {
         handleAdminAction(AdminAction::RebootAllCameras);
@@ -1803,6 +1881,10 @@ void configureHttpServer()
 
     httpServer.on("/api/actions/clear-logs", HTTP_POST, [] {
         handleClearPersistentLogs();
+    });
+
+    httpServer.on("/api/actions/factory-reset", HTTP_POST, [] {
+        handleFactoryReset();
     });
 
     httpServer.on("/api/actions/reboot-esp32", HTTP_POST, [] {

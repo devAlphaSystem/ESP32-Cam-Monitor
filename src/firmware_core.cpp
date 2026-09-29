@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.18.0";
+const char FIRMWARE_VERSION[] = "0.19.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -172,6 +172,8 @@ uint16_t pendingAdminActionContextId = 0;
 String lastAdminActionResult = "Nenhuma acao administrativa executada";
 String pendingPtzPresetToken;
 unsigned long espRestartRequestedAtMs = 0;
+unsigned long factoryResetRequestedAtMs = 0;
+bool factoryResetFailed = false;
 
 char discoveryBuffer[WS_DISCOVERY_BUFFER_SIZE + 1];
 size_t discoveredCount = 0;
@@ -889,6 +891,86 @@ bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSe
     cameraCount--;
     registryRevision++;
     lastRegistryResult = String("Cadastros associados: ") + secondaryId + " -> " + primaryId;
+    return true;
+}
+
+bool forgetCameraRecord(uint32_t id, String& error)
+{
+    if (!cameraRegistryFullyLoaded || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None) {
+        error = "Cadastro incompleto ou outra operacao em andamento";
+        return false;
+    }
+    CameraContext* target = findCamera(id);
+    if (target == nullptr) {
+        error = "Cadastro nao encontrado";
+        return false;
+    }
+
+    nvs_handle_t aliases;
+    if (nvs_open(CAMERAS_NVS_NAMESPACE, NVS_READONLY, &aliases) != ESP_OK) {
+        error = "NVS indisponivel";
+        return false;
+    }
+    uint32_t lastId = 0;
+    nvs_stats_t stats{};
+    if (nvs_get_u32(aliases, "last_id", &lastId) != ESP_OK || nvs_get_stats(nullptr, &stats) != ESP_OK || lastId < id || lastId > stats.total_entries) {
+        nvs_close(aliases);
+        error = "Indice de cameras invalido na NVS";
+        return false;
+    }
+    for (uint32_t otherId = 1; otherId <= lastId; otherId++) {
+        if (otherId == id)
+            continue;
+        char aliasKey[12];
+        snprintf(aliasKey, sizeof(aliasKey), "m%08lx", static_cast<unsigned long>(otherId));
+        size_t size = 0;
+        const esp_err_t sizeResult = nvs_get_blob(aliases, aliasKey, nullptr, &size);
+        if (sizeResult == ESP_ERR_NVS_NOT_FOUND)
+            continue;
+        CameraAliasRecord alias{};
+        if (sizeResult != ESP_OK || size != sizeof(alias) || nvs_get_blob(aliases, aliasKey, &alias, &size) != ESP_OK) {
+            nvs_close(aliases);
+            error = "Indice de associacoes invalido na NVS";
+            return false;
+        }
+        const uint32_t checksum = alias.checksum;
+        alias.checksum = 0;
+        if (alias.magic != CAMERA_ALIAS_MAGIC || alias.secondaryId != otherId || alias.primaryId == 0 || alias.primaryId == otherId || checksum != settingsChecksum(alias)) {
+            nvs_close(aliases);
+            error = "Indice de associacoes invalido na NVS";
+            return false;
+        }
+        if (alias.primaryId == id) {
+            nvs_close(aliases);
+            error = "Cadastro possui outros IDs associados; remocao isolada bloqueada";
+            return false;
+        }
+    }
+    nvs_close(aliases);
+
+    char key[12];
+    snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false)) {
+        error = "NVS indisponivel";
+        return false;
+    }
+    const bool removed = storage.getBytesLength(key) != 0 && storage.remove(key);
+    storage.end();
+    if (!removed) {
+        error = "Falha ao remover cadastro da NVS; camera preservada";
+        return false;
+    }
+
+    resetCameraSnapshotHttpSession(*target);
+    std::unique_ptr<CameraContext>* link = &cameras;
+    while (link->get() != target)
+        link = &(*link)->next;
+    std::unique_ptr<CameraContext> forgotten = std::move(*link);
+    *link = std::move(forgotten->next);
+    cameraCount--;
+    registryRevision++;
+    lastRegistryResult = String("Cadastro removido da NVS: ") + id;
     return true;
 }
 

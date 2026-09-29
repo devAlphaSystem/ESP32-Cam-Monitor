@@ -2687,8 +2687,32 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     }
 
     const int queryStart = parsedSnapshot.path.indexOf('?');
+    bool snapshotUriProvidesCredentials = false;
 
     if (queryStart >= 0) {
+        int parameterStart = queryStart + 1;
+
+        while (parameterStart < static_cast<int>(parsedSnapshot.path.length())) {
+            const int separator = parsedSnapshot.path.indexOf('&', parameterStart);
+            const int parameterEnd = separator >= 0 ? separator : static_cast<int>(parsedSnapshot.path.length());
+            const String parameter = parsedSnapshot.path.substring(parameterStart, parameterEnd);
+            const int equals = parameter.indexOf('=');
+
+            if (equals >= 0 && equals + 1 < static_cast<int>(parameter.length())) {
+                const String name = parameter.substring(0, equals);
+                if (name == "user" || name == "password") {
+                    snapshotUriProvidesCredentials = true;
+                    break;
+                }
+            }
+
+            if (separator < 0)
+                break;
+            parameterStart = separator + 1;
+        }
+    }
+
+    if (queryStart >= 0 && !snapshotUriProvidesCredentials) {
         String authenticatedPath = parsedSnapshot.path.substring(0, queryStart + 1);
         int parameterStart = queryStart + 1;
 
@@ -2727,6 +2751,10 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
         }
 
         parsedSnapshot.path = authenticatedPath;
+        if (!CameraPolicy::safeHttpPath(parsedSnapshot.path.c_str(), 512, true)) {
+            ctx.lastSnapshotResult = "URI de snapshot com destino ou caminho inseguro";
+            return false;
+        }
     }
 
     ctx.snapshotTarget.valid = true;

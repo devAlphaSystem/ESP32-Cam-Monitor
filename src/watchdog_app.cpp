@@ -1,8 +1,19 @@
 #include "firmware_internal.h"
+#include <esp_attr.h>
+#include <nvs_flash.h>
 
 namespace CameraWatchdog {
 
 constexpr unsigned long ADMIN_RESTART_DELAY_MS = 1200UL;
+constexpr uint32_t FACTORY_RESET_FAILURE_MAGIC = 0x46525354UL;
+
+struct FactoryResetFailureMarker {
+    uint32_t magic;
+    uint32_t invertedMagic;
+    int32_t eraseError;
+};
+
+RTC_NOINIT_ATTR volatile FactoryResetFailureMarker factoryResetFailureMarker;
 
 bool cameraControlResponded(CameraContext& ctx, uint16_t contextId = 0)
 {
@@ -577,6 +588,15 @@ void setup()
 {
     Serial.begin(115200);
 
+    if (factoryResetFailureMarker.magic == FACTORY_RESET_FAILURE_MAGIC && factoryResetFailureMarker.invertedMagic == ~FACTORY_RESET_FAILURE_MAGIC) {
+        const esp_err_t eraseError = static_cast<esp_err_t>(factoryResetFailureMarker.eraseError);
+        factoryResetFailureMarker.magic = 0;
+        factoryResetFailureMarker.invertedMagic = 0;
+        factoryResetFailed = true;
+        lastAdminActionResult = String("Falha ao apagar NVS: ") + esp_err_to_name(eraseError) + "; os dados podem ter sido apagados parcialmente";
+        Serial.println(lastAdminActionResult);
+    }
+
     if (!PersistentLog::begin()) {
         Serial.println("Particao persistente de logs indisponivel.");
     }
@@ -611,12 +631,47 @@ void loop()
     static uint32_t lastMaintenanceId = 0;
     static uint8_t maintenanceStage = 0;
     static unsigned long lastIdentityReconcileAtMs = 0;
+    if (factoryResetRequestedAtMs != 0) {
+        if (millis() - factoryResetRequestedAtMs < ADMIN_RESTART_DELAY_MS) {
+            delay(2);
+            return;
+        }
+
+        factoryResetRequestedAtMs = 0;
+        if (!PersistentLog::clear()) {
+            factoryResetFailed = true;
+            lastAdminActionResult = "Falha ao limpar os logs; dados de configuracao preservados";
+            Serial.println(lastAdminActionResult);
+            PersistentLog::begin();
+            return;
+        }
+
+        const esp_err_t eraseResult = nvs_flash_erase();
+        if (eraseResult != ESP_OK) {
+            lastAdminActionResult = String("Falha ao apagar NVS: ") + esp_err_to_name(eraseResult) + "; os dados podem ter sido apagados parcialmente";
+            Serial.println(lastAdminActionResult);
+            PersistentLog::record(PersistentLog::Event::AdminAction, PersistentLog::Outcome::Failure, "factory_reset", IPAddress(), 0, static_cast<int>(eraseResult), 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
+            PersistentLog::flush();
+            factoryResetFailureMarker.magic = 0;
+            factoryResetFailureMarker.invertedMagic = ~FACTORY_RESET_FAILURE_MAGIC;
+            factoryResetFailureMarker.eraseError = eraseResult;
+            factoryResetFailureMarker.magic = FACTORY_RESET_FAILURE_MAGIC;
+            ESP.restart();
+            return;
+        }
+
+        ESP.restart();
+        return;
+    }
+
     PersistentLog::maintain();
     updateCameraAlertLed();
     maintainWiFi();
     initializeConnectedServices();
     if (connectedServicesInitialized)
         httpServer.handleClient();
+    if (factoryResetRequestedAtMs != 0)
+        return;
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get())
         maintainCameraSnapshotHttpSession(*ctx);
     processPendingAdminAction();

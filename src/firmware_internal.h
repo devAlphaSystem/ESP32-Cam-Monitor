@@ -453,6 +453,8 @@ extern uint16_t pendingAdminActionContextId;
 extern String lastAdminActionResult;
 extern String pendingPtzPresetToken;
 extern unsigned long espRestartRequestedAtMs;
+extern unsigned long factoryResetRequestedAtMs;
+extern bool factoryResetFailed;
 
 extern char discoveryBuffer[WS_DISCOVERY_BUFFER_SIZE + 1];
 extern size_t discoveredCount;
@@ -580,6 +582,7 @@ extern uint32_t batchFailed;
 CameraContext* findCamera(uint32_t id);
 CameraContext* registerCameraTarget(const CameraTarget& target, String& error);
 bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSettings, String& error);
+bool forgetCameraRecord(uint32_t id, String& error);
 bool reconcileIdentifiedCameras();
 bool cameraIdWasMerged(uint32_t id, uint32_t* primaryId = nullptr);
 bool cameraIdentityMatches(const CameraTarget& left, const CameraTarget& right);

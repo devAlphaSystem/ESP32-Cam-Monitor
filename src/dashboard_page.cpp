@@ -605,11 +605,13 @@ body.fs-locked{overflow:hidden}
       <div class="action-item"><b>Verificar agora</b><span>Verifica ONVIF, RTSP e JPEG da câmera selecionada.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Executar</button></div>
       <div class="action-item"><b>Redescobrir câmeras</b><span>Atualiza as cadastradas e cadastra automaticamente as novas encontradas.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Redescobrir</button></div>
       <div class="action-item" id="mergeAction" hidden><b>Associar cadastros</b><span>Una registros confirmados da mesma câmera, escolhendo qual ID e quais configurações permanecem.</span><button class="btn" type="button" id="mergeOpen">Revisar cadastros</button></div>
+      <div class="action-item"><b>Esquecer cadastro</b><span>Remove definitivamente apenas a câmera selecionada do monitoramento e da NVS. Uma câmera ativa poderá ser descoberta novamente.</span><button class="btn bad" type="button" id="forgetCameraOpen" disabled>Esquecer câmera</button></div>
       <div class="action-item"><b>Reiniciar câmera</b><span>Reinicia a câmera selecionada, respeitando cooldown e limite da janela.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Reiniciar câmera</button></div>
       <div class="action-item"><b>Reiniciar todas as câmeras</b><span>Envia SystemReboot a todas, em sequência, respeitando os limites de cada câmera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Reiniciar todas</button></div>
       <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas da câmera selecionada.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
       <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
       <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
+      <div class="action-item"><b>Zerar dados do ESP32</b><span>Apaga cadastros, ajustes salvos e histórico de logs e reinicia o dispositivo. O firmware e as credenciais incorporadas permanecem; câmeras ativas podem ser redescobertas.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Zerar todos os dados</button></div>
     </div>
     <p class="overview-note" id="actionCameraScope">Câmera selecionada: aguardando cadastro</p>
     <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
@@ -774,6 +776,7 @@ body.fs-locked{overflow:hidden}
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="adminConfirmTitle">
     <h3 id="adminConfirmTitle">Confirmar ação administrativa</h3>
     <p class="modal-desc" id="adminConfirmDesc"></p>
+    <div class="field" id="adminConfirmPhraseField" hidden><label for="adminConfirmPhrase">Digite APAGAR TUDO para confirmar</label><input id="adminConfirmPhrase" type="text" autocomplete="off" spellcheck="false"></div>
     <div class="field" id="adminConfirmPasswordField" hidden><label for="adminConfirmPassword">Senha administrativa</label><input id="adminConfirmPassword" type="password" maxlength="96" autocomplete="current-password"></div>
     <div class="form-result bad" id="adminConfirmError" hidden></div>
     <div class="button-row modal-actions">
@@ -834,11 +837,13 @@ function updateSettingsScope() {
 }
 
 function selectCamera(id) {
-  if (id === selectedCameraId || !cameraRegistry.some(camera => camera.id === id)) return;
+  if (!cameraRegistry.some(camera => camera.id === id)) return;
+  if (id === selectedCameraId) { cameraSelectionManual = true; return; }
   if (settingsBusy || !$('adminConfirmModal').hidden) return;
   if (settingsDirty && !window.confirm('Descartar as alterações não salvas antes de trocar de câmera?')) return;
   settingsDirty = false;
   selectedCameraId = id;
+  cameraSelectionManual = true;
   settingsRequestGeneration++;
   settingsLoaded = false;
   settingsLoadedKey = '';
@@ -907,7 +912,7 @@ function renderOverview(payload) {
     rows.append(row);
   });
   $('overviewCameras').replaceChildren(rows);
-  if (activeView === 'actions' && payload.adminAction) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
+  if (activeView === 'actions' && payload.adminAction && !factoryResetResult) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
   $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + payload.firmwareVersion + ' · ligado há ' + duration(payload.uptimeSeconds);
 }
 
@@ -1022,15 +1027,71 @@ $('mergeSubmit').addEventListener('click', () => {
   });
 });
 
+$('forgetCameraOpen').addEventListener('click', () => {
+  if (settingsBusy || !selectedCameraId || !settingsAuthorizationReady('actions')) return;
+  if (settingsDirty) {
+    setAdminActionStatus('Salve ou descarte as alterações pendentes antes de remover o cadastro.', 'bad');
+    return;
+  }
+  const camera = cameraRegistry.find(item => item.id === selectedCameraId);
+  if (!camera) return;
+  openConfirmModal('Remover definitivamente o cadastro #' + camera.id + ' (' + camera.name + ', ' + camera.ip + ') da NVS e do monitoramento. As configurações e credenciais desse cadastro serão apagadas; os demais cadastros permanecerão.', async password => {
+    settingsBusy = true;
+    setMutationControlsEnabled(false);
+    setAdminActionStatus('Removendo o cadastro selecionado…', 'warn');
+    let payload;
+    try {
+      const params = collectMutationParams(false, password);
+      params.set('cameraId', String(camera.id));
+      params.set('expectedIp', camera.ip);
+      params.set('confirmForget', '1');
+      payload = await postForm('/api/cameras/forget', params);
+      if (selectedCameraId === camera.id) {
+        cancelFeedLoad(true);
+        $('cameraFeed').removeAttribute('src');
+        selectedCameraId = 0;
+        cameraSelectionManual = false;
+        statusRequestGeneration++;
+        if (statusAbortController) statusAbortController.abort();
+        statusLoading = false;
+        settingsRequestGeneration++;
+        settingsLoaded = false;
+        settingsLoadedKey = '';
+      }
+    } catch (error) {
+      setAdminActionStatus('Remoção recusada: ' + error.message, 'bad');
+      return;
+    } finally {
+      settingsBusy = false;
+      setMutationControlsEnabled(Boolean(settingsWriteToken));
+    }
+    await refresh(true);
+    await loadSettings(false);
+    const updated = !cameraRegistry.some(item => item.id === camera.id);
+    setAdminActionStatus(updated ? (payload.message || 'Cadastro removido.') : 'Cadastro removido; atualize o painel para conferir a lista.', updated ? 'ok' : 'warn');
+  });
+});
+
 async function loadCameraRegistry(signal) {
+  const resetEpoch = factoryResetEpoch;
   const response = await fetch('/api/cameras', { cache: 'no-store', signal });
   if (!response.ok) throw new Error('HTTP ' + response.status);
   const payload = await response.json();
+  updateFactoryResetState(payload, resetEpoch);
   cameraRegistry = payload.cameras || [];
-  if (!cameraRegistry.some(camera => camera.id === selectedCameraId)) {
+  const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
+  const preferredCamera = cameraRegistry.find(camera => camera.state === 'online')
+    || cameraRegistry.find(camera => camera.state === 'degraded')
+    || cameraRegistry.find(camera => camera.identityConfirmed)
+    || cameraRegistry[0];
+  const shouldFollowActiveCamera = !cameraSelectionManual && !settingsDirty && !settingsBusy
+    && $('adminConfirmModal').hidden && selected && preferredCamera && preferredCamera.id !== selected.id
+    && (selected.state === 'offline' || preferredCamera.state === 'online');
+  if (!selected || shouldFollowActiveCamera) {
     cancelFeedLoad(true);
     $('cameraFeed').removeAttribute('src');
-    selectedCameraId = cameraRegistry.length ? cameraRegistry[0].id : 0;
+    selectedCameraId = preferredCamera ? preferredCamera.id : 0;
+    cameraSelectionManual = false;
     settingsLoaded = false;
     settingsLoadedKey = '';
   }
@@ -1054,6 +1115,7 @@ function viewFromHash() {
 let activeView = viewFromHash();
 let activeSettingsSection = 'global';
 let selectedCameraId = 0;
+let cameraSelectionManual = false;
 let cameraRegistry = [];
 let registryLoading = null;
 let settingsLoadedKey = '';
@@ -1073,6 +1135,13 @@ let settingsLoaded = false;
 let settingsLoading = false;
 let settingsLoadPromise = null;
 let settingsBusy = false;
+let factoryResetPending = false;
+let factoryResetResult = '';
+let factoryResetEpoch = 0;
+let factoryResetAcceptedAt = 0;
+let factoryResetUptimeAtAcceptance = null;
+let factoryResetSawScheduled = false;
+let lastDeviceUptimeSeconds = null;
 let settingsWriteToken = '';
 let settingsPasswordRequired = false;
 let ptzPresets = [];
@@ -1885,6 +1954,31 @@ function setAdminActionStatus(message, tone) {
   target.className = 'form-result' + (tone ? ' ' + tone : '');
 }
 
+function updateFactoryResetState(payload, responseEpoch) {
+  const uptime = Number(payload.uptimeSeconds);
+  if (factoryResetPending && factoryResetResult !== 'completed' && responseEpoch === factoryResetEpoch) {
+    if (payload.factoryResetState === 'scheduled') {
+      factoryResetSawScheduled = true;
+    } else if (payload.factoryResetState === 'failed') {
+      factoryResetPending = false;
+      factoryResetResult = 'failed';
+      settingsBusy = false;
+      setMutationControlsEnabled(Boolean(settingsWriteToken));
+      setAdminActionStatus(payload.adminAction && payload.adminAction.lastResult
+        ? payload.adminAction.lastResult : 'Não foi possível zerar os dados do ESP32.', 'bad');
+    } else if (payload.factoryResetState === 'idle') {
+      const elapsedSeconds = (Date.now() - factoryResetAcceptedAt) / 1000;
+      const rebootObserved = factoryResetSawScheduled || (factoryResetUptimeAtAcceptance !== null
+        && Number.isFinite(uptime) && uptime + 2 < factoryResetUptimeAtAcceptance + elapsedSeconds);
+      if (rebootObserved) {
+        factoryResetResult = 'completed';
+        setAdminActionStatus('O ESP32 reiniciou após a solicitação. Recarregue o painel e confira os cadastros e ajustes.', 'ok');
+      }
+    }
+  }
+  if (Number.isFinite(uptime)) lastDeviceUptimeSeconds = uptime;
+}
+
 function setPtzActionStatus(message, tone) {
   const target = $('ptzActionStatus');
   const isProblem = tone === 'bad';
@@ -1894,8 +1988,11 @@ function setPtzActionStatus(message, tone) {
 }
 
 function setMutationControlsEnabled(enabled) {
+  enabled = enabled && !settingsBusy && !factoryResetPending;
   $('settingsSave').disabled = !enabled;
   $('settingsReset').disabled = !enabled;
+  $('forgetCameraOpen').disabled = !enabled || !selectedCameraId;
+  $('factoryResetOpen').disabled = !enabled;
   document.querySelectorAll('[data-admin-action]').forEach(button => {
     const needsCamera = ['health-check','reboot-camera','reset-reboot-limiter','reboot-all-cameras'].includes(button.dataset.adminAction);
     button.disabled = !enabled || (needsCamera && !selectedCameraId);
@@ -1983,7 +2080,7 @@ function populateSettings(payload) {
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
   if (activeView === 'actions') {
-    setAdminActionStatus('Autorização carregada. Escolha uma ação administrativa.', 'ok');
+    if (!factoryResetResult) setAdminActionStatus('Autorização carregada. Escolha uma ação administrativa.', 'ok');
   } else if (activeView === 'feed') {
     if (!ptzCatalog.command || Number(ptzCatalog.command.attempts) === 0) {
       setPtzActionStatus('Controle PTZ autorizado. Abra a lista para escolher uma posição.', 'ok');
@@ -2139,16 +2236,20 @@ const ADMIN_ACTIONS = {
 
 let pendingConfirm = null;
 let pendingConfirmResumesFeed = false;
+let pendingConfirmPhrase = '';
 
-function openConfirmModal(description, onConfirm, resumeFeedOnCancel) {
+function openConfirmModal(description, onConfirm, resumeFeedOnCancel, requiredPhrase) {
   pendingConfirm = onConfirm;
   pendingConfirmResumesFeed = Boolean(resumeFeedOnCancel);
+  pendingConfirmPhrase = requiredPhrase || '';
   $('adminConfirmDesc').textContent = description + ' Confirme para continuar.';
+  $('adminConfirmPhraseField').hidden = !pendingConfirmPhrase;
+  $('adminConfirmPhrase').value = '';
   $('adminConfirmPasswordField').hidden = !settingsPasswordRequired;
   $('adminConfirmPassword').value = '';
   $('adminConfirmError').hidden = true;
   $('adminConfirmModal').hidden = false;
-  (settingsPasswordRequired ? $('adminConfirmPassword') : $('adminConfirmSubmit')).focus();
+  (pendingConfirmPhrase ? $('adminConfirmPhrase') : settingsPasswordRequired ? $('adminConfirmPassword') : $('adminConfirmSubmit')).focus();
 }
 
 function closeConfirmModal(resumePausedFeed) {
@@ -2156,10 +2257,12 @@ function closeConfirmModal(resumePausedFeed) {
   $('adminConfirmModal').hidden = true;
   pendingConfirm = null;
   pendingConfirmResumesFeed = false;
+  pendingConfirmPhrase = '';
   if (shouldResumeFeed) resumeFeedAfterPtz(0);
 }
 
 async function executeAdminAction(action, password) {
+  factoryResetResult = '';
   settingsBusy = true;
   document.querySelectorAll('[data-admin-action],[data-ptz-preset-token]').forEach(item => { item.disabled = true; });
   setAdminActionStatus('Enviando ação ao ESP32…', 'warn');
@@ -2182,6 +2285,45 @@ document.querySelectorAll('[data-admin-action]').forEach(button => {
     const individual = ['health-check','reboot-camera','reset-reboot-limiter'].includes(button.dataset.adminAction);
     openConfirmModal(action[1] + (individual ? '\nCâmera: ' + $('selectedCameraName').textContent : '\nAlcance: global.'), password => executeAdminAction(action, password));
   });
+});
+
+async function executeFactoryReset(password) {
+  factoryResetResult = 'requesting';
+  settingsBusy = true;
+  setMutationControlsEnabled(false);
+  setAdminActionStatus('Solicitando a limpeza completa dos dados do ESP32…', 'warn');
+  try {
+    const params = collectMutationParams(false, password);
+    params.set('confirmReset', 'APAGAR TUDO');
+    const payload = await postForm('/api/actions/factory-reset', params);
+    factoryResetEpoch++;
+    factoryResetAcceptedAt = Date.now();
+    factoryResetUptimeAtAcceptance = lastDeviceUptimeSeconds;
+    factoryResetSawScheduled = false;
+    factoryResetPending = true;
+    factoryResetResult = 'scheduled';
+    setAdminActionStatus((payload.message || 'Limpeza agendada.') + ' Aguarde o reinício e recarregue o painel.', 'warn');
+  } catch (error) {
+    factoryResetResult = 'failed';
+    setAdminActionStatus('Limpeza recusada: ' + error.message, 'bad');
+  } finally {
+    settingsBusy = factoryResetPending;
+    setMutationControlsEnabled(Boolean(settingsWriteToken));
+  }
+}
+
+$('factoryResetOpen').addEventListener('click', () => {
+  if (settingsBusy || factoryResetPending || !settingsAuthorizationReady('actions')) return;
+  if (settingsDirty) {
+    setAdminActionStatus('Salve ou descarte as alterações pendentes antes de zerar os dados.', 'bad');
+    return;
+  }
+  openConfirmModal(
+    'Todos os cadastros de câmeras, ajustes salvos e logs serão apagados permanentemente, e o ESP32 será reiniciado. O firmware e as credenciais incorporadas permanecem. Câmeras ativas podem ser descobertas novamente após o reinício.',
+    password => executeFactoryReset(password),
+    false,
+    'APAGAR TUDO'
+  );
 });
 
 async function refreshPtzCommandResult(previousAttempts) {
@@ -2344,8 +2486,20 @@ $('adminConfirmPassword').addEventListener('keydown', event => {
     $('adminConfirmSubmit').click();
   }
 });
+$('adminConfirmPhrase').addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    $('adminConfirmSubmit').click();
+  }
+});
 $('adminConfirmSubmit').addEventListener('click', () => {
   if (!pendingConfirm) return;
+  if (pendingConfirmPhrase && $('adminConfirmPhrase').value !== pendingConfirmPhrase) {
+    $('adminConfirmError').textContent = 'Digite APAGAR TUDO exatamente como indicado para continuar.';
+    $('adminConfirmError').hidden = false;
+    $('adminConfirmPhrase').focus();
+    return;
+  }
   const password = $('adminConfirmPassword').value;
   if (settingsPasswordRequired && !password) {
     $('adminConfirmError').textContent = 'Informe a senha administrativa antes de continuar.';
@@ -2445,7 +2599,7 @@ function render(d) {
     snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
   }
 
-  if (d.adminAction && d.adminAction.lastResult && activeView === 'actions') {
+  if (d.adminAction && d.adminAction.lastResult && activeView === 'actions' && !factoryResetResult) {
     setAdminActionStatus(d.adminAction.lastResult, d.adminAction.pending === 'none' ? '' : 'warn');
   }
   renderPtz(d);
@@ -2557,10 +2711,12 @@ async function refresh(force) {
     if (generation !== statusRequestGeneration) return;
     if (selectedCameraId && activeView !== 'overview' && activeView !== 'logs') {
       const id = selectedCameraId;
+      const resetEpoch = factoryResetEpoch;
       const response = await fetch(cameraUrl('/api/status', id), { cache: 'no-store', signal: controller ? controller.signal : undefined });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const payload = await response.json();
       if (generation !== statusRequestGeneration || payload.cameraId !== selectedCameraId) return;
+      updateFactoryResetState(payload, resetEpoch);
       render(payload);
     }
     if ((activeView === 'settings' || activeView === 'actions' || activeView === 'feed') && !settingsDirty) loadSettings(false);
