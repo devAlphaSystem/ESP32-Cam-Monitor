@@ -28,6 +28,7 @@
 
 #include "app_config.h"
 #include "live_stream.h"
+#include "wifi_setup.h"
 #if RELEASE_BLUETOOTH_MEMORY
 #include <esp32-hal-bt.h>
 #endif
@@ -601,6 +602,11 @@ bool cameraHealthCheckDue(const CameraContext& ctx);
 bool anyCameraHealthCheckDue();
 void runHealthCheck(CameraContext& ctx, bool manualRequest = false, uint16_t contextId = 0);
 void configureHttpServer();
+void startHttpServer();
+void sendJsonResponse(int statusCode, const String& json);
+void sendApiError(int statusCode, const char* code, const String& detail);
+bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck);
+extern bool httpServerRunning;
 bool startMdns();
 
 }

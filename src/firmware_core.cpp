@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.20.0";
+const char FIRMWARE_VERSION[] = "0.21.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";

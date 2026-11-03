@@ -1939,6 +1939,17 @@ void handleLiveStatus()
     sendJsonResponse(200, json);
 }
 
+bool httpServerRunning = false;
+
+void startHttpServer()
+{
+    if (httpServerRunning)
+        return;
+    httpServer.begin();
+    httpServerRunning = true;
+    Serial.printf("Painel HTTP iniciado na porta %u.\n", HTTP_SERVER_PORT);
+}
+
 void configureHttpServer()
 {
     httpServer.on("/", HTTP_GET, [] {
@@ -2032,11 +2043,12 @@ void configureHttpServer()
     });
 
     httpServer.onNotFound([] {
+        if (wifiSetupHandleNotFound())
+            return;
         httpServer.send(404, "application/json", "{\"error\":\"not_found\"}");
     });
 
-    httpServer.begin();
-    Serial.printf("Painel HTTP iniciado na porta %u.\n", HTTP_SERVER_PORT);
+    startHttpServer();
 }
 
 }

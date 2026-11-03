@@ -43,6 +43,8 @@ h2,h3{font-size:16px;font-weight:600;line-height:1.4}
 .tab:hover{color:var(--text);border-bottom-color:var(--line-strong)}
 .tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
 .tab-admin-start{margin-left:0}
+.tab-divided{position:relative}
+.tab-divided::before{content:"";position:absolute;left:-11px;top:50%;height:20px;border-left:1px solid var(--line);transform:translateY(-50%)}
 .navigation-actions{display:flex;align-items:center;justify-content:flex-end;gap:24px;min-width:0}
 .navigation-actions .tabs{flex:none}
 .camera-selector{display:grid;grid-template-columns:36px minmax(0,1fr) 36px;align-items:center;gap:8px;min-width:0}
@@ -57,9 +59,8 @@ h2,h3{font-size:16px;font-weight:600;line-height:1.4}
 .overview-note{margin:16px 0;color:var(--muted);font-size:12px}
 .overview-table .camera-state{font-weight:600;white-space:nowrap}
 .overview-table .check-stale{color:var(--warn)}
-@media(max-width:1250px){.navigation-inner{grid-template-columns:minmax(0,1fr) auto;gap:0 20px}.camera-selector{grid-row:2;grid-column:1/-1;width:280px;justify-self:center;margin:10px 0}.navigation-actions{grid-column:2;grid-row:1;gap:14px}.navigation-actions .connection{padding-left:14px}.tabs{gap:16px}}
+@media(max-width:1250px){.navigation-inner{grid-template-columns:minmax(0,1fr) auto;gap:0 20px}.camera-selector{grid-row:2;grid-column:1/-1;width:280px;justify-self:center;margin:10px 0}.navigation-actions{grid-column:2;grid-row:1;gap:14px}.navigation-actions .connection{padding-left:14px}.tabs{gap:16px}.tab-divided::before{left:-9px}}
 .connection{display:flex;align-items:center;gap:12px;flex:none;padding-left:24px;border-left:1px solid var(--line);font-size:12px}
-.connection>span{color:var(--muted)}
 .status-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
 .beat{width:6px;height:6px;background:var(--ok);border-radius:50%;flex:none}
 .status-pill.stale{color:var(--bad)}.status-pill.stale .beat{background:var(--bad)}
@@ -178,6 +179,8 @@ body.fs-locked{overflow:hidden}
 .settings-tab{min-height:40px;padding:10px 12px;border:0;border-left:2px solid transparent;background:transparent;color:var(--muted);font-size:13px;text-align:left;cursor:pointer}
 .settings-tab:hover{color:var(--text);background:var(--surface-alt)}
 .settings-tab[aria-selected="true"]{color:var(--accent);border-left-color:var(--accent);background:var(--surface-alt);font-weight:600}
+.settings-tab-divided{position:relative;margin-top:9px}
+.settings-tab-divided::before{content:"";position:absolute;left:0;right:0;top:-5px;border-top:1px solid var(--line)}
 .settings-panels,.settings-card{min-width:0}
 .settings-card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px}
 .settings-card-h p{margin-top:5px;color:var(--muted);font-size:13px}
@@ -231,6 +234,10 @@ body.fs-locked{overflow:hidden}
 .logs-empty{padding:36px 16px;text-align:center;color:var(--dim);font-size:13px}
 .logs-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-top:1px solid var(--line)}
 .logs-foot .form-result{flex:1 1 260px}
+.settings-tool .settings-card-h{flex-wrap:wrap}
+.settings-tool .diagnostic-output{margin-top:0}
+.settings-tool .grid{margin-top:4px}
+.logs-badge{margin-top:12px;--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)}
 
 /* Dialogos */
 .modal-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:#08090bcc}
@@ -301,6 +308,8 @@ body.fs-locked{overflow:hidden}
   .settings-tablist{flex-direction:row;overflow-x:auto;border-bottom:1px solid var(--line)}
   .settings-tab{min-height:44px;flex:none;padding:10px 12px;border-left:0;border-bottom:2px solid transparent;white-space:nowrap}
   .settings-tab[aria-selected="true"]{border-left:0;border-bottom-color:var(--accent)}
+  .settings-tab-divided{margin-top:0;margin-left:9px}
+  .settings-tab-divided::before{left:-5px;right:auto;top:8px;bottom:8px;border-top:0;border-left:1px solid var(--line)}
   .settings-savebar{grid-column:1}.settings-savebar .form-result{text-align:left}
   .settings-savebar .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .btn{min-height:44px;padding-inline:12px}
@@ -325,11 +334,9 @@ body.fs-locked{overflow:hidden}
   <div class="navigation-inner">
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab" id="overviewTab" type="button" role="tab" data-view="overview" aria-controls="overviewView" aria-selected="true">Visão geral</button>
-      <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Câmera</button>
+      <button class="tab tab-divided" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Câmera</button>
       <button class="tab" id="liveTab" type="button" role="tab" data-view="live" aria-controls="liveView" aria-selected="false" tabindex="-1">Ao vivo</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false" tabindex="-1">Prévia</button>
-      <button class="tab" id="diagnosticsTab" type="button" role="tab" data-view="diagnostics" aria-controls="diagnosticsView" aria-selected="false" tabindex="-1">Diagnóstico</button>
-      <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false" tabindex="-1">Logs</button>
     </nav>
     <div class="camera-selector" role="group" aria-label="Selecionar câmera">
       <button id="previousCamera" type="button" aria-label="Câmera anterior" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
@@ -342,7 +349,7 @@ body.fs-locked{overflow:hidden}
       <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Recursos</button>
       <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false" tabindex="-1">Configurações</button>
     </nav>
-    <div class="connection"><span>ESP32</span><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div></div>
+    <div class="connection"><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">conectando…</span></div></div>
     </div>
   </div>
 </div>
@@ -458,102 +465,6 @@ body.fs-locked{overflow:hidden}
   </section>
 </div>
 
-<div id="diagnosticsView" role="tabpanel" tabindex="0" aria-labelledby="diagnosticsTab" data-view-panel="diagnostics" hidden>
-  <h1>Diagnóstico completo (JSON)</h1>
-  <div class="diagnostic-output">
-    <button class="btn diagnostic-copy" id="copyDiagnostics" type="button" aria-label="Copiar JSON do diagnóstico" disabled><span id="diagnosticCopyStatus" role="status" aria-live="polite">Copiar JSON</span></button>
-    <pre id="raw">Carregando…</pre>
-  </div>
-</div>
-
-<div id="logsView" role="tabpanel" tabindex="0" aria-labelledby="logsTab" data-view-panel="logs" hidden>
-  <section class="device-header" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
-    <div class="device-copy">
-      <span class="badge"><i></i><span id="logsState">carregando histórico</span></span>
-      <h1 class="device-name">Histórico persistente</h1>
-      <div class="device-meta">Avisos e erros de todas as câmeras e do ESP32, preservados entre reinicializações.</div>
-    </div>
-    <div class="logs-hero-tools">
-      <button class="btn" id="logsRefresh" type="button">Atualizar</button>
-      <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Exportar CSV completo</a>
-    </div>
-  </section>
-
-  <div class="grid">
-    <article class="card">
-      <div class="card-h">Registros armazenados</div>
-      <div class="card-v info" id="logsCount">—</div>
-      <div class="card-m" id="logsCountMeta">limite circular de 7.500 registros</div>
-      <div class="meter"><i id="logsCountMeter"></i></div>
-    </article>
-    <article class="card">
-      <div class="card-h">Partição de logs</div>
-      <div class="card-v info" id="logsStorage">—</div>
-      <div class="card-m" id="logsStorageMeta">aguardando dados do LittleFS</div>
-      <div class="meter"><i id="logsStorageMeter"></i></div>
-    </article>
-    <article class="card">
-      <div class="card-h">Integridade</div>
-      <div class="card-v" id="logsIntegrity">—</div>
-      <div class="card-m" id="logsIntegrityMeta">registros descartados e erros de escrita</div>
-    </article>
-  </div>
-
-  <section class="logs-card" aria-labelledby="logsTableTitle">
-    <div class="logs-toolbar">
-      <div class="field">
-        <label for="logsSearch">Filtrar registros <span>nos itens carregados</span></label>
-        <input id="logsSearch" type="text" maxlength="80" placeholder="Evento, destino, detalhe ou status">
-      </div>
-      <div class="field">
-        <label for="logsLevel">Nível</label>
-        <select id="logsLevel">
-          <option value="">Todos</option>
-          <option value="warning">Aviso</option>
-          <option value="error">Erro</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="logsCategory">Categoria</label>
-        <select id="logsCategory">
-          <option value="">Todas</option>
-          <option value="system">Sistema</option>
-          <option value="wifi">Wi-Fi</option>
-          <option value="camera">Câmera</option>
-          <option value="discovery">Descoberta</option>
-          <option value="onvif">ONVIF</option>
-          <option value="snapshot">Snapshot</option>
-          <option value="rtsp">RTSP</option>
-          <option value="health">Health-check</option>
-          <option value="action">Ações</option>
-          <option value="notification">Notificações</option>
-          <option value="settings">Configurações</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="logsScope">Visualização</label>
-        <select id="logsScope">
-          <option value="diagnostic">Diagnóstico</option>
-          <option value="all">Todas as tentativas</option>
-        </select>
-      </div>
-    </div>
-    <div class="logs-table-wrap">
-      <table class="logs-table">
-        <thead>
-          <tr><th id="logsTableTitle">Data e hora</th><th>Nível</th><th>Câmera</th><th>Evento</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhes</th></tr>
-        </thead>
-        <tbody id="logsTableBody"></tbody>
-      </table>
-      <div class="logs-empty" id="logsEmpty">Nenhum registro carregado.</div>
-    </div>
-    <div class="logs-foot">
-      <div class="form-result" id="logsStatus">Abra esta aba para consultar o histórico persistente.</div>
-      <button class="btn" id="logsLoadMore" type="button" hidden>Carregar mais 100</button>
-    </div>
-  </section>
-</div>
-
 <div id="resourcesView" role="tabpanel" tabindex="0" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
   <section class="device-header" id="resourcesHero">
     <div class="device-copy">
@@ -650,7 +561,7 @@ body.fs-locked{overflow:hidden}
       <div class="action-item"><b>Limpar limitador</b><span>Zera cooldown e tentativas da câmera selecionada.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Limpar limite</button></div>
       <div class="action-item"><b>Zerar logs</b><span>Remove o histórico anterior e mantém apenas o marcador da limpeza.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Zerar logs</button></div>
       <div class="action-item"><b>Reiniciar ESP32</b><span>Reinicia somente o watchdog, sem interromper a alimentação da câmera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Reiniciar ESP32</button></div>
-      <div class="action-item"><b>Zerar dados do ESP32</b><span>Apaga cadastros, ajustes salvos e histórico de logs e reinicia o dispositivo. O firmware e as credenciais incorporadas permanecem; câmeras ativas podem ser redescobertas.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Zerar todos os dados</button></div>
+      <div class="action-item"><b>Zerar dados do ESP32</b><span>Apaga cadastros, ajustes salvos, redes Wi-Fi salvas pelo painel e histórico de logs e reinicia o dispositivo. O firmware e as credenciais incorporadas permanecem. Câmeras ativas podem ser redescobertas.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Zerar todos os dados</button></div>
     </div>
     <p class="overview-note" id="actionCameraScope">Câmera selecionada: aguardando cadastro</p>
     <div class="form-result" id="adminActionStatus">Nenhuma ação solicitada nesta sessão.</div>
@@ -680,6 +591,8 @@ body.fs-locked{overflow:hidden}
         <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recuperação</button>
         <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Rede e notificações</button>
         <button class="settings-tab" id="settingsCommunicationTab" type="button" role="tab" data-settings-section="communication" aria-controls="settingsCommunicationPanel" aria-selected="false" tabindex="-1">Comunicação</button>
+        <button class="settings-tab settings-tab-divided" id="settingsDiagnosticsTab" type="button" role="tab" data-settings-section="diagnostics" aria-controls="settingsDiagnosticsPanel" aria-selected="false" tabindex="-1">Diagnóstico</button>
+        <button class="settings-tab" id="settingsLogsTab" type="button" role="tab" data-settings-section="logs" aria-controls="settingsLogsPanel" aria-selected="false" tabindex="-1">Logs</button>
       </nav>
     </div>
 
@@ -696,6 +609,7 @@ body.fs-locked{overflow:hidden}
           <div class="field"><label for="cfgEmailRetry">Repetição de tentativa de e-mail <span>30–3600 s</span></label><input id="cfgEmailRetry" type="number" min="30" max="3600" step="1" required><small>Padrão: 60 s.</small></div>
           <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox"><label for="cfgLedEnabled"><b>Piscar o LED quando não estiver online</b><span>O GPIO permanece fixo no firmware para evitar conflito de hardware.</span></label></div></div>
           <div class="field"><label for="cfgLedBlink">Intervalo da piscada <span>200–10000 ms</span></label><input id="cfgLedBlink" type="number" min="200" max="10000" step="100" required><small>Padrão: 1000 ms.</small></div>
+          <div class="field"><label>Rede Wi-Fi do ESP32</label><a class="btn" href="/wifi">Escolher outra rede Wi-Fi</a><small>O ESP32 lista as redes disponíveis, testa a senha e o sinal e só então grava na NVS. Se o Wi-Fi ficar fora por mais de 2 minutos, ele abre a rede "Camera-Watchdog-XXXX" para você reconfigurar.</small></div>
       </div></section>
       <section class="settings-card settings-panel" id="settingsIdentificationPanel" role="tabpanel" aria-labelledby="settingsIdentificationTab" data-settings-section-panel="identification" hidden>
         <div class="settings-card-h"><div><h2>Identificação e interface</h2><p>Nome, perfil JPEG e ritmo da prévia da câmera selecionada.</p></div></div>
@@ -762,9 +676,104 @@ body.fs-locked{overflow:hidden}
         </div>
       </section>
 
+      <section class="settings-card settings-panel settings-tool" id="settingsDiagnosticsPanel" role="tabpanel" aria-labelledby="settingsDiagnosticsTab" data-settings-section-panel="diagnostics" hidden>
+        <div class="settings-card-h"><div><h2>Diagnóstico completo (JSON)</h2><p>Resposta do firmware para a câmera selecionada. Use Copiar JSON ao relatar um problema.</p></div></div>
+        <div class="diagnostic-output">
+          <button class="btn diagnostic-copy" id="copyDiagnostics" type="button" aria-label="Copiar JSON do diagnóstico" disabled><span id="diagnosticCopyStatus" role="status" aria-live="polite">Copiar JSON</span></button>
+          <pre id="raw">Carregando…</pre>
+        </div>
+      </section>
+
+      <section class="settings-card settings-panel settings-tool" id="settingsLogsPanel" role="tabpanel" aria-labelledby="settingsLogsTab" data-settings-section-panel="logs" hidden>
+        <div class="settings-card-h">
+          <div>
+            <h2>Histórico persistente</h2>
+            <p>Eventos gravados na partição de logs do ESP32.</p>
+            <span class="badge logs-badge"><i></i><span id="logsState">carregando histórico</span></span>
+          </div>
+          <div class="logs-hero-tools">
+            <button class="btn" id="logsRefresh" type="button">Atualizar</button>
+            <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Exportar CSV completo</a>
+          </div>
+        </div>
+      <div class="grid">
+        <article class="card">
+          <div class="card-h">Registros armazenados</div>
+          <div class="card-v info" id="logsCount">—</div>
+          <div class="card-m" id="logsCountMeta">limite circular de 7.500 registros</div>
+          <div class="meter"><i id="logsCountMeter"></i></div>
+        </article>
+        <article class="card">
+          <div class="card-h">Partição de logs</div>
+          <div class="card-v info" id="logsStorage">—</div>
+          <div class="card-m" id="logsStorageMeta">aguardando dados do LittleFS</div>
+          <div class="meter"><i id="logsStorageMeter"></i></div>
+        </article>
+        <article class="card">
+          <div class="card-h">Integridade</div>
+          <div class="card-v" id="logsIntegrity">—</div>
+          <div class="card-m" id="logsIntegrityMeta">registros descartados e erros de escrita</div>
+        </article>
+      </div>
+
+      <section class="logs-card" aria-labelledby="logsTableTitle">
+        <div class="logs-toolbar">
+          <div class="field">
+            <label for="logsSearch">Filtrar registros <span>nos itens carregados</span></label>
+            <input id="logsSearch" type="text" maxlength="80" placeholder="Evento, destino, detalhe ou status">
+          </div>
+          <div class="field">
+            <label for="logsLevel">Nível</label>
+            <select id="logsLevel">
+              <option value="">Todos</option>
+              <option value="warning">Aviso</option>
+              <option value="error">Erro</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="logsCategory">Categoria</label>
+            <select id="logsCategory">
+              <option value="">Todas</option>
+              <option value="system">Sistema</option>
+              <option value="wifi">Wi-Fi</option>
+              <option value="camera">Câmera</option>
+              <option value="discovery">Descoberta</option>
+              <option value="onvif">ONVIF</option>
+              <option value="snapshot">Snapshot</option>
+              <option value="rtsp">RTSP</option>
+              <option value="health">Health-check</option>
+              <option value="action">Ações</option>
+              <option value="notification">Notificações</option>
+              <option value="settings">Configurações</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="logsScope">Visualização</label>
+            <select id="logsScope">
+              <option value="diagnostic">Diagnóstico</option>
+              <option value="all">Todas as tentativas</option>
+            </select>
+          </div>
+        </div>
+        <div class="logs-table-wrap">
+          <table class="logs-table">
+            <thead>
+              <tr><th id="logsTableTitle">Data e hora</th><th>Nível</th><th>Câmera</th><th>Evento</th><th>Destino</th><th>Resultado</th><th>Duração</th><th>Detalhes</th></tr>
+            </thead>
+            <tbody id="logsTableBody"></tbody>
+          </table>
+          <div class="logs-empty" id="logsEmpty">Nenhum registro carregado.</div>
+        </div>
+        <div class="logs-foot">
+          <div class="form-result" id="logsStatus">Abra esta seção para consultar o histórico persistente.</div>
+          <button class="btn" id="logsLoadMore" type="button" hidden>Carregar mais 100</button>
+        </div>
+      </section>
+      </section>
+
     </div>
 
-    <div class="settings-savebar">
+    <div class="settings-savebar" id="settingsSavebar">
       <div class="button-row">
         <button class="btn warn" id="settingsReset" type="button" disabled>Restaurar padrões</button>
         <button class="btn primary" id="settingsSave" type="submit" disabled>Salvar configurações</button>
@@ -846,7 +855,7 @@ function cameraUrl(path, id = selectedCameraId) {
 }
 
 function currentSettingsScope() {
-  return (activeView === 'settings' && activeSettingsSection === 'global') || !selectedCameraId ? 'global' : 'camera';
+  return (activeView === 'settings' && settingsFormSection === 'global') || !selectedCameraId ? 'global' : 'camera';
 }
 
 function updateCameraSelector() {
@@ -855,11 +864,10 @@ function updateCameraSelector() {
   $('selectedCameraName').title = selected ? selected.name : '';
   $('previousCamera').disabled = $('nextCamera').disabled = cameraRegistry.length < 2 || settingsBusy;
   $('actionCameraScope').textContent = selected ? 'Câmera selecionada: ' + selected.name : 'Nenhuma câmera selecionada';
-  if (activeView === 'settings' && activeSettingsSection !== 'global') {
-    $('settingsTitle').textContent = 'Configurações · ' + (selected ? selected.name : 'nenhuma câmera');
-  }
+  updateSettingsHero();
   document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
-    tab.disabled = tab.dataset.settingsSection !== 'global' && !selected;
+    const section = tab.dataset.settingsSection;
+    tab.disabled = section !== 'global' && !SETTINGS_TOOL_SECTIONS.has(section) && !selected;
   });
 }
 
@@ -870,9 +878,23 @@ function updateSettingsScope() {
   });
   $('cfgCameraPasswordAction').disabled = globalScope;
   updateCameraCredentialFields();
+  updateSettingsHero();
+}
+
+function updateSettingsHero() {
   const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
-  $('settingsTitle').textContent = globalScope ? 'Configurações globais' : 'Configurações · ' + (selected ? selected.name : 'câmera');
-  $('settingsAlertEstimate').closest('.settings-kpi').hidden = globalScope;
+  const tool = SETTINGS_TOOL_SECTIONS.get(activeSettingsSection);
+  const globalScope = currentSettingsScope() === 'global';
+  if (tool) {
+    $('settingsTitle').textContent = tool.perCamera ? tool.title + ' · ' + (selected ? selected.name : 'nenhuma câmera') : tool.title;
+    $('settingsMeta').textContent = tool.meta;
+  } else {
+    $('settingsTitle').textContent = globalScope ? 'Configurações globais' : 'Configurações · ' + (selected ? selected.name : 'câmera');
+    $('settingsMeta').textContent = settingsFormMetaText;
+  }
+  $('settingsSource').textContent = settingsFormSourceText;
+  $('settingsSource').parentElement.hidden = Boolean(tool);
+  $('settingsAlertEstimate').closest('.settings-kpi').hidden = globalScope || Boolean(tool);
 }
 
 function selectCamera(id) {
@@ -1145,8 +1167,7 @@ async function loadCameraRegistry(signal) {
 function viewFromHash() {
   if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
-  if (location.hash === '#logs') return 'logs';
-  if (location.hash === '#diagnostics') return 'diagnostics';
+  if (location.hash === '#logs' || location.hash === '#diagnostics') return 'settings';
   if (location.hash === '#resources') return 'resources';
   if (location.hash === '#feed') return 'feed';
   if (location.hash === '#live') return 'live';
@@ -1154,8 +1175,34 @@ function viewFromHash() {
   return 'overview';
 }
 
+const SETTINGS_TOOL_SECTIONS = new Map([
+  ['diagnostics', { title: 'Diagnóstico', perCamera: true, meta: 'Estado completo da câmera selecionada e do ESP32, em JSON.' }],
+  ['logs', { title: 'Logs', perCamera: false, meta: 'Avisos e erros de todas as câmeras e do ESP32, preservados entre reinicializações.' }]
+]);
+
+function settingsSectionFromHash() {
+  const name = location.hash.slice(1);
+  return SETTINGS_TOOL_SECTIONS.has(name) ? name : '';
+}
+
+function settingsHashFor(section) {
+  return SETTINGS_TOOL_SECTIONS.has(section) ? '#' + section : '#settings';
+}
+
 let activeView = viewFromHash();
-let activeSettingsSection = 'global';
+let activeSettingsSection = settingsSectionFromHash() || 'global';
+let settingsFormSection = 'global';
+let settingsFormSourceText = 'carregando configurações';
+let settingsFormMetaText = 'Valores persistentes na NVS, validados também pelo firmware.';
+
+function logsSectionActive() {
+  return activeView === 'settings' && activeSettingsSection === 'logs';
+}
+
+function settingsDocumentTitle() {
+  const tool = SETTINGS_TOOL_SECTIONS.get(activeSettingsSection);
+  return (tool ? tool.title : 'Configurações') + ' · Camera Watchdog';
+}
 let selectedCameraId = 0;
 let cameraSelectionManual = false;
 let cameraRegistry = [];
@@ -1897,10 +1944,13 @@ function activateSettingsSection(name) {
   const target = available.find(panel => panel.dataset.settingsSectionPanel === name);
   if (!target) return;
 
-  const scopeChanged = (name === 'global') !== (activeSettingsSection === 'global');
+  const tool = SETTINGS_TOOL_SECTIONS.has(name);
+  const nextFormSection = tool ? settingsFormSection : name;
+  const scopeChanged = (nextFormSection === 'global') !== (settingsFormSection === 'global');
   if (scopeChanged && settingsDirty && !window.confirm('Descartar as alterações não salvas antes de mudar o escopo?')) return;
   if (scopeChanged) { settingsDirty = false; settingsLoaded = false; settingsLoadedKey = ''; }
   activeSettingsSection = name;
+  settingsFormSection = nextFormSection;
   available.forEach(panel => {
     panel.hidden = panel !== target;
   });
@@ -1909,8 +1959,19 @@ function activateSettingsSection(name) {
     tab.setAttribute('aria-selected', selected ? 'true' : 'false');
     tab.tabIndex = selected ? 0 : -1;
   });
+  $('settingsSavebar').hidden = tool;
   updateSettingsScope();
-  if (activeView === 'settings' && (scopeChanged || !settingsLoaded)) loadSettings(true);
+  if (activeView !== 'settings') return;
+  document.title = settingsDocumentTitle();
+  const hash = settingsHashFor(name);
+  if (location.hash !== hash) history.replaceState(null, '', hash);
+  if (name === 'logs') {
+    loadPersistentLogs(true);
+  } else if (tool) {
+    scheduleStatusRefresh(0);
+  } else if (scopeChanged || !settingsLoaded) {
+    loadSettings(true);
+  }
 }
 
 document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
@@ -2109,10 +2170,10 @@ function populateSettings(payload) {
     ? 'Senha configurada. Salvar outros ajustes mantém a senha atual.'
     : 'Nenhuma senha configurada.';
   updateCameraCredentialFields();
-  $('settingsSource').textContent = payload.source === 'nvs'
+  settingsFormSourceText = payload.source === 'nvs'
     ? 'configurações salvas na NVS'
     : 'valores padrão de fábrica';
-  $('settingsMeta').textContent = 'esquema ' + payload.schemaVersion
+  settingsFormMetaText = 'esquema ' + payload.schemaVersion
     + ' · padrões ' + (payload.defaultsRevision || 0) + ' · revisão ' + payload.revision
     + ' · ' + localizeTimestampText(payload.lastResult || 'configurações carregadas');
 
@@ -2215,10 +2276,18 @@ async function postForm(url, params, options) {
   return payload;
 }
 
-$('settingsForm').addEventListener('input', () => { settingsDirty = true; updateSettingsEstimates(); });
-$('settingsForm').addEventListener('change', () => { settingsDirty = true; });
+$('settingsForm').addEventListener('input', event => {
+  if (event.target.closest('.settings-tool')) return;
+  settingsDirty = true;
+  updateSettingsEstimates();
+});
+$('settingsForm').addEventListener('change', event => {
+  if (event.target.closest('.settings-tool')) return;
+  settingsDirty = true;
+});
 $('settingsForm').addEventListener('submit', event => {
   event.preventDefault();
+  if (SETTINGS_TOOL_SECTIONS.has(activeSettingsSection)) return;
   if (settingsBusy || !validateSettingsForm() || !settingsAuthorizationReady('settings')) return;
   openConfirmModal(currentSettingsScope() === 'global' ? 'Gravar as configurações globais do ESP32.' : 'Gravar as configurações de ' + $('selectedCameraName').textContent + '.', password => saveSettings(password));
 });
@@ -2365,7 +2434,7 @@ $('factoryResetOpen').addEventListener('click', () => {
     return;
   }
   openConfirmModal(
-    'Todos os cadastros de câmeras, ajustes salvos e logs serão apagados permanentemente, e o ESP32 será reiniciado. O firmware e as credenciais incorporadas permanecem. Câmeras ativas podem ser descobertas novamente após o reinício.',
+    'O ESP32 apagará permanentemente todos os cadastros de câmeras, ajustes salvos, redes Wi-Fi salvas pelo painel e logs, e depois reiniciará. O firmware e as credenciais incorporadas permanecem. Câmeras ativas podem ser descobertas novamente após o reinício.',
     password => executeFactoryReset(password),
     false,
     'APAGAR TUDO'
@@ -2760,7 +2829,7 @@ async function refresh(force) {
   try {
     await loadCameraRegistry(controller ? controller.signal : undefined);
     if (generation !== statusRequestGeneration) return;
-    if (selectedCameraId && activeView !== 'overview' && activeView !== 'logs') {
+    if (selectedCameraId && activeView !== 'overview' && !logsSectionActive()) {
       const id = selectedCameraId;
       const resetEpoch = factoryResetEpoch;
       const response = await fetch(cameraUrl('/api/status', id), { cache: 'no-store', signal: controller ? controller.signal : undefined });
@@ -2795,10 +2864,6 @@ setInterval(() => {
   $('deviceStatusText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
 }, 1000);
 
-// ===== Ao vivo: relé WebSocket do ESP32 -> H.264 -> fMP4 -> Media Source Extensions =====
-// O ESP32 repassa pacotes RTP de vídeo. Aqui eles são depacotados em NALs H.264, empacotados
-// em fragmentos fMP4 (1 quadro por fragmento) e entregues ao <video> por MSE, que decodifica
-// por hardware. WebCodecs não serve: exige contexto seguro (HTTPS) e o painel roda em HTTP.
 const LivePlayer = (() => {
   'use strict';
 
@@ -2806,7 +2871,7 @@ const LivePlayer = (() => {
   const MIN_DELTA = 1500;
   const MAX_DELTA = 22500;
   const ERROR_TEXT = {
-    live_in_use: 'Outro espectador está usando o ao vivo de outra câmera ou qualidade. Feche-o e tente novamente.',
+    live_in_use: 'Outro espectador está assistindo outra câmera ou outra qualidade. Feche essa transmissão e tente de novo.',
     busy: 'O ESP32 está ocupado verificando a câmera. Tentando novamente…',
     camera_unavailable: 'A câmera não está disponível no momento.',
     onvif_unavailable: 'A câmera não respondeu ao serviço ONVIF.',
@@ -2815,10 +2880,10 @@ const LivePlayer = (() => {
     no_h264_profile: 'A câmera não oferece um perfil de vídeo H.264.',
     invalid_stream_uri: 'A câmera anunciou um endereço de vídeo inválido.',
     relay_unavailable: 'O ESP32 não conseguiu iniciar o relé de vídeo.',
-    camera_unreachable: 'Não foi possível conectar ao vídeo (RTSP) da câmera.',
-    rtsp_describe_failed: 'A câmera recusou a descrição do vídeo (RTSP).',
-    rtsp_setup_failed: 'A câmera recusou a preparação do vídeo (RTSP).',
-    rtsp_play_failed: 'A câmera recusou iniciar o vídeo (RTSP).',
+    camera_unreachable: 'Não foi possível conectar ao vídeo RTSP da câmera.',
+    rtsp_describe_failed: 'A câmera recusou a descrição do vídeo RTSP.',
+    rtsp_setup_failed: 'A câmera recusou a preparação do vídeo RTSP.',
+    rtsp_play_failed: 'A câmera recusou iniciar o vídeo RTSP.',
     rtsp_auth_required: 'A câmera exige usuário e senha para o vídeo. Configure as credenciais da câmera.',
     rtsp_auth_rejected: 'A câmera recusou as credenciais usadas para o vídeo.',
     rtsp_transport_unsupported: 'A câmera não aceita vídeo RTSP sobre TCP.',
@@ -2828,11 +2893,10 @@ const LivePlayer = (() => {
     low_memory: 'O ESP32 está com pouca memória livre para o vídeo.',
     device_unreachable: 'Sem resposta do ESP32.',
     unsupported: 'Este navegador não oferece Media Source Extensions com H.264.',
-    stalled: 'O vídeo parou de chegar; reconectando…'
+    stalled: 'O vídeo parou de chegar. Reconectando…'
   };
   const NO_RETRY = new Set(['unsupported', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_auth_required', 'rtsp_auth_rejected', 'invalid_stream_uri']);
 
-  // ---------- MP4 ----------
   const concat = chunks => {
     let size = 0;
     for (const chunk of chunks) size += chunk.length;
@@ -2879,7 +2943,6 @@ const LivePlayer = (() => {
     return Uint8Array.from(out);
   };
 
-  // Largura, altura e formato de croma a partir do SPS (NAL completo, com o cabeçalho de 1 byte).
   const parseSps = nal => {
     const reader = new BitReader(unescapeRbsp(nal.subarray(1)));
     const profile = reader.bits(8);
@@ -2979,7 +3042,6 @@ const LivePlayer = (() => {
     return concat([moof, box('mdat', sample)]);
   };
 
-  // ---------- player ----------
   class Player {
     constructor(video, hooks) {
       this.video = video;
@@ -3064,7 +3126,7 @@ const LivePlayer = (() => {
       const socket = this.socket;
       if (socket) {
         socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-        try { socket.close(); } catch (error) { /* já fechado */ }
+        try { socket.close(); } catch (error) {}
       }
       const video = this.video;
       if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
@@ -3126,7 +3188,7 @@ const LivePlayer = (() => {
       socket.onmessage = event => {
         if (generation !== this.generation) return;
         if (typeof event.data === 'string') {
-          try { this.hello(JSON.parse(event.data)); } catch (error) { /* ignora texto inesperado */ }
+          try { this.hello(JSON.parse(event.data)); } catch (error) {}
           return;
         }
         this.lastDataAt = performance.now();
@@ -3143,7 +3205,7 @@ const LivePlayer = (() => {
         this.socket = null;
         this.fail(event.reason || (this.frames ? 'camera_stream_closed' : 'device_unreachable'));
       };
-      socket.onerror = () => { /* onclose trata */ };
+      socket.onerror = () => {};
       this.watchTimer = setInterval(() => this.watch(generation), 250);
     }
 
@@ -3170,7 +3232,6 @@ const LivePlayer = (() => {
       this.fail(code);
     }
 
-    // ----- depacotamento H.264 (RFC 6184) -----
     packet(data) {
       if (data.length < 6) return;
       const flags = data[0];
@@ -3252,7 +3313,6 @@ const LivePlayer = (() => {
       const key = Array.from(copy).join(',');
       if (kind === 'pps') { this.pps = copy; return; }
       if (this.spsKey && this.spsKey !== key && this.initialized) {
-        // Parâmetros mudaram no meio da sessão (ex.: troca de perfil): recomeça do zero.
         this.sps = copy; this.spsKey = key;
         this.restart('stalled');
         return;
@@ -3261,7 +3321,6 @@ const LivePlayer = (() => {
       this.spsKey = key;
     }
 
-    // ----- MSE -----
     initialize() {
       let info;
       try { info = parseSps(this.sps); } catch (error) { info = { width: (this.profile && this.profile.width) || 704, height: (this.profile && this.profile.height) || 576, profile: this.sps[1], chroma: 1, lumaDepth: 8, chromaDepth: 8 }; }
@@ -3295,7 +3354,6 @@ const LivePlayer = (() => {
     pump() {
       const buffer = this.buffer;
       if (!buffer || !this.mediaReady || buffer.updating || !this.queue.length || this.source.readyState !== 'open') return;
-      // Mantém ao máximo o atraso baixo: se acumulou fila, junta tudo numa só gravação.
       const batch = this.queue.length > 1 ? concat(this.queue) : this.queue[0];
       this.queue = [];
       try {
@@ -3316,11 +3374,10 @@ const LivePlayer = (() => {
       const start = buffer.buffered.start(0);
       const keepFrom = this.video.currentTime - (force ? 1 : 3);
       if (keepFrom - start > (force ? 0.5 : 3)) {
-        try { buffer.remove(start, keepFrom); } catch (error) { /* tenta depois */ }
+        try { buffer.remove(start, keepFrom); } catch (error) {}
       }
     }
 
-    // ----- sincronismo com a borda ao vivo -----
     watch(generation) {
       if (generation !== this.generation) return;
       const now = performance.now();
@@ -3356,7 +3413,6 @@ const LivePlayer = (() => {
         const rate = this.catchingUp ? Math.min(1.5, 1 + (lag - 0.2) * 0.8) : 1;
         if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
 
-        // Reprodução travada com dados à frente (ex.: após um buraco no buffer): salta para a borda.
         if (video.currentTime !== this.lastTime) {
           this.lastTime = video.currentTime;
           this.lastTimeAt = now;
@@ -3372,7 +3428,6 @@ const LivePlayer = (() => {
   return { Player, ERROR_TEXT };
 })();
 
-// ===== Aba Ao vivo: ligação do player ao painel =====
 const liveVideo = $('liveVideo');
 const liveStage = $('liveStage');
 let liveStartedFor = 0;
@@ -3407,7 +3462,7 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
   error(code, text, fatal) {
     liveVideo.classList.remove('ready');
     setLiveBadge(false);
-    setLiveOverlay(fatal ? text : text + ' Reconectando automaticamente…', fatal);
+    setLiveOverlay(fatal ? text : text + ' Reconectando…', fatal);
     $('liveStamp').textContent = fatal ? 'transmissão interrompida' : 'reconectando';
     if (fatal) liveStartedFor = 0;
   },
@@ -3501,12 +3556,12 @@ $('livePtzButton').addEventListener('click', openPtzPresetModal);
 window.addEventListener('pagehide', () => livePlayer.stop());
 
 function activateView(name, updateHash) {
-  const nextView = ['overview', 'camera', 'actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed', 'live'].includes(name)
+  const nextView = ['overview', 'camera', 'actions', 'settings', 'resources', 'feed', 'live'].includes(name)
     ? name
     : 'overview';
   if (activeView === 'settings' && nextView !== activeView && settingsDirty) {
     if (!window.confirm('Descartar as alterações não salvas antes de sair das configurações?')) {
-      if (updateHash === false) location.hash = '#settings';
+      if (updateHash === false) location.hash = settingsHashFor(activeSettingsSection);
       return;
     }
     settingsDirty = false;
@@ -3523,13 +3578,14 @@ function activateView(name, updateHash) {
     tab.tabIndex = selected ? 0 : -1;
   });
   const selectedTab = document.querySelector('.tab[aria-selected="true"]');
-  document.title = selectedTab.textContent + ' · Camera Watchdog';
+  document.title = nextView === 'settings' ? settingsDocumentTitle() : selectedTab.textContent + ' · Camera Watchdog';
 
+  if (nextView === 'settings') updateSettingsScope();
   if (nextView === 'settings' || nextView === 'actions') {
     loadSettings(false);
   }
 
-  if (nextView === 'logs') {
+  if (logsSectionActive()) {
     loadPersistentLogs(true);
   }
 
@@ -3571,7 +3627,7 @@ function activateView(name, updateHash) {
     exitLiveFullscreen();
   }
 
-  const nextHash = '#' + nextView;
+  const nextHash = nextView === 'settings' ? settingsHashFor(activeSettingsSection) : '#' + nextView;
   if (updateHash && location.hash !== nextHash) location.hash = nextHash;
   if (updateHash) window.scrollTo(0, 0);
 }
@@ -3654,6 +3710,11 @@ document.querySelectorAll('[role="tablist"]').forEach(tablist => {
 
 window.addEventListener('hashchange', () => {
   const nextView = viewFromHash();
+  if (nextView === 'settings') {
+    const hashSection = settingsSectionFromHash();
+    const wantedSection = hashSection || (SETTINGS_TOOL_SECTIONS.has(activeSettingsSection) ? settingsFormSection : activeSettingsSection);
+    if (wantedSection !== activeSettingsSection) activateSettingsSection(wantedSection);
+  }
   if (nextView !== activeView) activateView(nextView, false);
 });
 
@@ -3681,7 +3742,7 @@ document.addEventListener('visibilitychange', () => {
   if (activeView === 'live') startLive();
   if (activeView === 'feed') scheduleFeed(0);
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
-  if (activeView === 'logs') loadPersistentLogs(true);
+  if (logsSectionActive()) loadPersistentLogs(true);
 });
 
 activateSettingsSection(activeSettingsSection);

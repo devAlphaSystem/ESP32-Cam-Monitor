@@ -364,18 +364,31 @@ bool connectToWiFi()
     WiFi.persistent(false);
     WiFi.setSleep(false);
 
-    Serial.printf("Conectando a rede \"%s\"", WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    const unsigned long startedAt = millis();
-
-    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < globalSettings.wifiConnectTimeoutMs) {
-        updateCameraAlertLed();
-        Serial.print('.');
-        delay(500);
+    WifiCredential candidates[WIFI_CREDENTIAL_CANDIDATES_MAX];
+    const size_t candidateCount = wifiCredentialCandidates(candidates);
+    if (candidateCount == 0) {
+        Serial.println("Nenhuma rede Wi-Fi configurada; a rede de configuracao do ESP32 sera aberta.");
+        PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Skipped, "no_credentials", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
+        return false;
     }
 
-    Serial.println();
+    for (size_t index = 0; index < candidateCount && WiFi.status() != WL_CONNECTED; index++) {
+        const WifiCredential& candidate = candidates[index];
+        Serial.printf("Conectando a rede \"%s\"", candidate.ssid);
+        WiFi.begin(candidate.ssid, strlen(candidate.password) > 0 ? candidate.password : nullptr);
+
+        const unsigned long startedAt = millis();
+
+        while (WiFi.status() != WL_CONNECTED && millis() - startedAt < globalSettings.wifiConnectTimeoutMs) {
+            updateCameraAlertLed();
+            Serial.print('.');
+            delay(500);
+        }
+
+        Serial.println();
+        if (WiFi.status() != WL_CONNECTED)
+            WiFi.disconnect(false);
+    }
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Falha ao conectar ao Wi-Fi.");
@@ -383,7 +396,7 @@ bool connectToWiFi()
         return false;
     }
 
-    Serial.printf("Wi-Fi conectado. IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Wi-Fi conectado a \"%s\". IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     Serial.printf("Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
     Serial.printf("Mascara: %s\n", WiFi.subnetMask().toString().c_str());
     Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
@@ -582,11 +595,20 @@ void maintainWiFi()
         }
         PersistentLog::record(PersistentLog::Event::WifiDisconnect, PersistentLog::Outcome::Failure, "station", IPAddress(), 0, static_cast<int>(WiFi.status()), 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
     }
-    if (millis() - lastReconnectAttemptAtMs < 10000UL)
+    if (wifiSetupHoldsStation())
+        return;
+    const unsigned long retryIntervalMs = wifiSetupAccessPointActive() ? 45000UL : 10000UL;
+    if (millis() - lastReconnectAttemptAtMs < retryIntervalMs)
         return;
     lastReconnectAttemptAtMs = millis();
+    WifiCredential candidates[WIFI_CREDENTIAL_CANDIDATES_MAX];
+    const size_t candidateCount = wifiCredentialCandidates(candidates);
+    if (candidateCount == 0)
+        return;
+    static size_t nextCandidate = 0;
+    const WifiCredential& candidate = candidates[nextCandidate++ % candidateCount];
     WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(candidate.ssid, strlen(candidate.password) > 0 ? candidate.password : nullptr);
 }
 
 bool cameraHealthCheckDue(const CameraContext& ctx)
@@ -637,6 +659,7 @@ void setup()
     PersistentLog::record(PersistentLog::Event::RuntimeContext, PersistentLog::Outcome::Success, FIRMWARE_VERSION, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, RUNTIME_SETTINGS_DEFAULTS_REVISION, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     recordRuntimeSettingsContext(settingsLoadedFromNvs ? "nvs" : "factory", PersistentLog::FlagScheduled);
 
+    wifiSetupBegin();
     if (!connectToWiFi()) {
         lastRegistryResult = "ESP32 sem Wi-Fi; monitoramento suspenso";
     }
@@ -685,9 +708,10 @@ void loop()
 
     PersistentLog::maintain();
     updateCameraAlertLed();
+    wifiSetupLoop();
     maintainWiFi();
     initializeConnectedServices();
-    if (connectedServicesInitialized)
+    if (connectedServicesInitialized || httpServerRunning)
         httpServer.handleClient();
     if (factoryResetRequestedAtMs != 0)
         return;

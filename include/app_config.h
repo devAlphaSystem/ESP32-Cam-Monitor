@@ -81,6 +81,14 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000UL;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MIN_MS = 5000UL;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MAX_MS = 120000UL;
 
+constexpr char WIFI_SETUP_AP_PREFIX[] = "Camera-Watchdog";
+constexpr char WIFI_SETUP_AP_PASSWORD[] = "";
+constexpr uint8_t WIFI_SETUP_AP_CHANNEL = 1;
+constexpr uint32_t WIFI_SETUP_AP_DELAY_MS = 120000UL;
+constexpr uint32_t WIFI_SETUP_AP_WINDOW_MS = 15UL * 60UL * 1000UL;
+constexpr uint32_t WIFI_SETUP_AP_REOPEN_MS = 10UL * 60UL * 1000UL;
+constexpr uint32_t WIFI_SETUP_TEST_TIMEOUT_MS = 25000UL;
+
 constexpr uint32_t DISCOVERY_TIMEOUT_MS = 3500UL;
 constexpr uint32_t DISCOVERY_TIMEOUT_MIN_MS = 1000UL;
 constexpr uint32_t DISCOVERY_TIMEOUT_MAX_MS = 15000UL;
