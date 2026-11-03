@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.19.0";
+const char FIRMWARE_VERSION[] = "0.20.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -1366,6 +1366,8 @@ const char* healthEvidenceSourceName(HealthEvidenceSource source)
             return "snapshot_jpeg";
         case HealthEvidenceSource::PreviewJpeg:
             return "preview_jpeg";
+        case HealthEvidenceSource::LiveStream:
+            return "live_stream";
     }
 
     return "unknown";

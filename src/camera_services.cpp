@@ -2767,6 +2767,172 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     return true;
 }
 
+bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTarget& target, const char*& error, uint16_t contextId)
+{
+    const uint16_t logContextId = contextId != 0 ? contextId : allocateLogContextId();
+    target = LiveStreamTarget{};
+    error = "camera_unavailable";
+
+    if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED || ctx.camera.ip == WiFi.localIP())
+        return false;
+
+    error = "onvif_unavailable";
+    if (!ctx.lastOnvifProbe.protocolResponded && !resolveCameraOnvifEndpoint(ctx, logContextId))
+        return false;
+
+    error = "onvif_media_unavailable";
+    if (!resolveOnvifServiceCatalog(ctx, false, logContextId))
+        return false;
+
+    const String mediaUrl = ctx.onvifServices.media1.url;
+    String profilesXml;
+    if (!postOnvifSoap(ctx, mediaUrl, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<trt:GetProfiles/>", profilesXml, true, nullptr, nullptr, ctx.settings.serviceResponseTimeoutMs, logContextId))
+        return false;
+
+    constexpr uint32_t FLUID_MINIMUM_PIXELS = 230400UL;
+    String bestToken;
+    String bestName;
+    uint32_t bestPixels = 0;
+    uint32_t bestWidth = 0;
+    uint32_t bestHeight = 0;
+    bool haveBest = false;
+    int searchPosition = 0;
+
+    while (true) {
+        int profileStart = 0;
+        int profileTagEnd = 0;
+        if (!findNextOpeningTag(profilesXml, "Profiles", searchPosition, profileStart, profileTagEnd))
+            break;
+        int nextProfileStart = profilesXml.length();
+        int ignoredTagEnd = 0;
+        findNextOpeningTag(profilesXml, "Profiles", profileTagEnd + 1, nextProfileStart, ignoredTagEnd);
+        searchPosition = profileTagEnd + 1;
+
+        String token;
+        if (!extractXmlAttribute(profilesXml.substring(profileStart, profileTagEnd + 1), "token", token))
+            continue;
+        token = xmlUnescape(token);
+        token.trim();
+        if (token.isEmpty() || token.length() > 128)
+            continue;
+
+        const String profileXml = profilesXml.substring(profileTagEnd + 1, nextProfileStart);
+        const String encoderXml = snapshotProfileSection(profileXml, "VideoEncoderConfiguration", "AudioEncoderConfiguration");
+        String encoding;
+        int ignoredPosition = 0;
+        extractLocalTag(encoderXml, "Encoding", 0, encoding, ignoredPosition);
+        if (normalizedSnapshotEncoding(encoding) != "H264")
+            continue;
+
+        const uint32_t width = snapshotProfileUnsignedTag(encoderXml, "Width");
+        const uint32_t height = snapshotProfileUnsignedTag(encoderXml, "Height");
+        const uint32_t pixels = width * height;
+        if (pixels == 0)
+            continue;
+
+        bool better = !haveBest;
+        if (haveBest) {
+            if (highQuality) {
+                better = pixels > bestPixels;
+            } else if (bestPixels >= FLUID_MINIMUM_PIXELS) {
+                better = pixels >= FLUID_MINIMUM_PIXELS && pixels < bestPixels;
+            } else {
+                better = pixels > bestPixels;
+            }
+        }
+        if (!better)
+            continue;
+
+        String name;
+        if (extractLocalTag(profileXml, "Name", 0, name, ignoredPosition)) {
+            name = xmlUnescape(name);
+            name.trim();
+        }
+        if (name.isEmpty())
+            name = token;
+        bestToken = token;
+        bestName = name;
+        bestPixels = pixels;
+        bestWidth = width;
+        bestHeight = height;
+        haveBest = true;
+    }
+
+    error = "no_h264_profile";
+    if (!haveBest)
+        return false;
+
+    String request;
+    request.reserve(bestToken.length() + 240);
+    request += "<trt:GetStreamUri><trt:StreamSetup><tt:Stream>RTP-Unicast</tt:Stream><tt:Transport><tt:Protocol>RTSP</tt:Protocol></tt:Transport></trt:StreamSetup><trt:ProfileToken>";
+    request += htmlEscape(bestToken);
+    request += "</trt:ProfileToken></trt:GetStreamUri>";
+
+    String uriXml;
+    error = "onvif_stream_uri_failed";
+    if (!postOnvifSoap(ctx, mediaUrl, "http://www.onvif.org/ver10/media/wsdl/GetStreamUri", request, uriXml, true, nullptr, nullptr, ctx.settings.serviceResponseTimeoutMs, logContextId))
+        return false;
+
+    String streamUrl;
+    int ignoredPosition = 0;
+    if (!extractLocalTag(uriXml, "Uri", 0, streamUrl, ignoredPosition))
+        return false;
+    streamUrl = xmlUnescape(streamUrl);
+    streamUrl.trim();
+
+    error = "invalid_stream_uri";
+    if (!streamUrl.startsWith("rtsp://"))
+        return false;
+
+    const int authorityStart = 7;
+    const int pathStart = streamUrl.indexOf('/', authorityStart);
+    String authority = streamUrl.substring(authorityStart, pathStart >= 0 ? pathStart : streamUrl.length());
+    String path = pathStart >= 0 ? streamUrl.substring(pathStart) : String("/");
+
+    const int userInfoEnd = authority.lastIndexOf('@');
+    if (userInfoEnd >= 0) {
+        const String userInfo = authority.substring(0, userInfoEnd);
+        authority = authority.substring(userInfoEnd + 1);
+        const int separator = userInfo.indexOf(':');
+        const String user = separator >= 0 ? userInfo.substring(0, separator) : userInfo;
+        const String password = separator >= 0 ? userInfo.substring(separator + 1) : String();
+        if (user.length() < LIVE_STREAM_USERNAME_CAPACITY && password.length() < LIVE_STREAM_PASSWORD_CAPACITY) {
+            strlcpy(target.username, user.c_str(), sizeof(target.username));
+            strlcpy(target.password, password.c_str(), sizeof(target.password));
+        }
+    }
+
+    uint16_t port = ctx.camera.rtspPort;
+    const int portSeparator = authority.lastIndexOf(':');
+    if (portSeparator >= 0 && authority.indexOf(']') < portSeparator) {
+        const long advertisedPort = authority.substring(portSeparator + 1).toInt();
+        if (advertisedPort > 0 && advertisedPort <= 65535)
+            port = static_cast<uint16_t>(advertisedPort);
+    }
+
+    if (!CameraPolicy::safeHttpPath(path.c_str(), LIVE_STREAM_PATH_CAPACITY - 1, true))
+        return false;
+
+    if (target.username[0] == '\0') {
+        strlcpy(target.username, ctx.settings.cameraUsername, sizeof(target.username));
+        strlcpy(target.password, ctx.settings.cameraPassword, sizeof(target.password));
+    }
+
+    target.valid = true;
+    target.cameraId = ctx.id;
+    for (size_t index = 0; index < 4; index++)
+        target.ip[index] = ctx.camera.ip[index];
+    target.port = port;
+    target.width = static_cast<uint16_t>(min<uint32_t>(bestWidth, 65535));
+    target.height = static_cast<uint16_t>(min<uint32_t>(bestHeight, 65535));
+    target.highQuality = highQuality;
+    target.resolvedAtMs = millis();
+    strlcpy(target.path, path.c_str(), sizeof(target.path));
+    strlcpy(target.profileName, bestName.c_str(), sizeof(target.profileName));
+    error = "";
+    return true;
+}
+
 int onvifPtzPresetIndex(CameraContext& ctx, const String& token)
 {
     for (uint16_t index = 0; index < ctx.onvifPtz.presetCount; index++) {

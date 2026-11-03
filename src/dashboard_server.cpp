@@ -3,6 +3,7 @@
 namespace CameraWatchdog {
 
 void sendJsonResponse(int statusCode, const String& json);
+void appendLiveStreamJson(String& json);
 
 const char* factoryResetStateName()
 {
@@ -439,6 +440,10 @@ String buildStatusJson(CameraContext& ctx)
     json += "\",\"ageSeconds\":";
     json += ctx.lastHealthEvidenceAtMs == 0 ? 0UL : (now - ctx.lastHealthEvidenceAtMs) / 1000UL;
     json += "},";
+
+    json += "\"live\":";
+    appendLiveStreamJson(json);
+    json += ",";
 
     json += "\"snapshot\":{";
     json += "\"ready\":";
@@ -1806,6 +1811,134 @@ void handleGotoPtzPresetAction()
     sendJsonResponse(202, json);
 }
 
+const char* liveStreamErrorDetail(const char* code)
+{
+    if (strcmp(code, "camera_unavailable") == 0)
+        return "A camera nao esta disponivel no momento";
+    if (strcmp(code, "onvif_unavailable") == 0 || strcmp(code, "onvif_media_unavailable") == 0 || strcmp(code, "onvif_stream_uri_failed") == 0)
+        return "A camera nao respondeu ao servico de midia ONVIF";
+    if (strcmp(code, "no_h264_profile") == 0)
+        return "A camera nao oferece um perfil de video H.264";
+    if (strcmp(code, "invalid_stream_uri") == 0)
+        return "A camera anunciou um endereco de video invalido";
+    return "Nao foi possivel preparar o video ao vivo";
+}
+
+void appendLiveStreamJson(String& json)
+{
+    const LiveStreamStats stats = liveStreamStats();
+    json += "{\"state\":\"";
+    json += liveStreamStateName(stats.state);
+    json += "\",\"cameraId\":";
+    json += stats.cameraId;
+    json += ",\"viewers\":";
+    json += stats.clients;
+    json += ",\"profile\":\"";
+    appendJsonEscaped(json, String(stats.profileName));
+    json += "\",\"width\":";
+    json += stats.width;
+    json += ",\"height\":";
+    json += stats.height;
+    json += ",\"framesPerSecond\":";
+    json += stats.framesPerSecond;
+    json += ",\"kilobitsPerSecond\":";
+    json += stats.kilobitsPerSecond;
+    json += ",\"sessionsStarted\":";
+    json += stats.sessionsStarted;
+    json += ",\"sessionFailures\":";
+    json += stats.sessionFailures;
+    json += ",\"framesRelayed\":";
+    json += stats.framesRelayed;
+    json += ",\"packetsRelayed\":";
+    json += stats.packetsRelayed;
+    json += ",\"packetsDropped\":";
+    json += stats.packetsDropped;
+    json += ",\"viewersServed\":";
+    json += stats.clientsServed;
+    json += ",\"viewersRejected\":";
+    json += stats.clientsRejected;
+    json += ",\"bytesFromCamera\":";
+    appendUnsigned64(json, stats.bytesFromCamera);
+    json += ",\"bytesToViewers\":";
+    appendUnsigned64(json, stats.bytesToClients);
+    json += ",\"lastFrameAgeMs\":";
+    json += stats.lastFrameAgeMs == UINT32_MAX ? -1L : static_cast<long>(stats.lastFrameAgeMs);
+    json += ",\"sessionAgeSeconds\":";
+    json += stats.sessionAgeMs / 1000UL;
+    json += ",\"lastError\":\"";
+    json += stats.lastError;
+    json += "\",\"port\":";
+    json += LIVE_STREAM_PORT;
+    json += "}";
+}
+
+void handleLiveStart()
+{
+    CameraContext* ctx = requestedCamera();
+    if (ctx == nullptr)
+        return;
+
+    const bool highQuality = httpServer.arg("quality") == "high";
+    LiveStreamTarget target;
+    bool haveTarget = liveStreamCopyTarget(target);
+    const bool reusable = haveTarget && target.cameraId == ctx->id && target.highQuality == highQuality && ctx->camera.valid && target.ip[0] == ctx->camera.ip[0] && target.ip[1] == ctx->camera.ip[1] && target.ip[2] == ctx->camera.ip[2] && target.ip[3] == ctx->camera.ip[3] && millis() - target.resolvedAtMs < 10UL * 60UL * 1000UL;
+
+    if (!reusable) {
+        const LiveStreamStats stats = liveStreamStats();
+        if (haveTarget && stats.clients > 0 && stats.state != LiveStreamState::Idle) {
+            sendApiError(409, "live_in_use", "Outro espectador esta usando o video ao vivo de outra camera ou qualidade");
+            return;
+        }
+        if (healthCheckInProgress || registryBusy || cameraIoDepth != 0) {
+            sendApiError(503, "busy", "Verificacao da camera em andamento; tente novamente");
+            return;
+        }
+        CameraIoGuard cameraIoGuard;
+        if (!cameraIoGuard.acquired()) {
+            sendApiError(503, "busy", "Canal da camera ocupado; tente novamente");
+            return;
+        }
+        LiveStreamTarget resolved;
+        const char* error = "";
+        if (!resolveLiveStreamTarget(*ctx, highQuality, resolved, error)) {
+            sendApiError(503, error, liveStreamErrorDetail(error));
+            return;
+        }
+        liveStreamSetTarget(resolved);
+        target = resolved;
+    }
+
+    if (!liveStreamBegin()) {
+        sendApiError(503, "relay_unavailable", "Nao foi possivel iniciar o rele de video");
+        return;
+    }
+
+    String json;
+    json.reserve(220);
+    json += "{\"ok\":true,\"port\":";
+    json += LIVE_STREAM_PORT;
+    json += ",\"cameraId\":";
+    json += target.cameraId;
+    json += ",\"profile\":\"";
+    appendJsonEscaped(json, String(target.profileName));
+    json += "\",\"width\":";
+    json += target.width;
+    json += ",\"height\":";
+    json += target.height;
+    json += ",\"quality\":\"";
+    json += target.highQuality ? "high" : "fluid";
+    json += "\"}";
+    sendJsonResponse(200, json);
+}
+
+void handleLiveStatus()
+{
+    String json;
+    json.reserve(560);
+    appendLiveStreamJson(json);
+    sendJsonResponse(200, json);
+}
+
 void configureHttpServer()
 {
     httpServer.on("/", HTTP_GET, [] {
@@ -1841,6 +1974,9 @@ void configureHttpServer()
         if (ctx != nullptr)
             serveCameraSnapshot(*ctx);
     });
+
+    httpServer.on("/api/live/start", HTTP_GET, handleLiveStart);
+    httpServer.on("/api/live/status", HTTP_GET, handleLiveStatus);
 
     httpServer.on("/api/settings", HTTP_GET, [] {
         bool globalScope = false;

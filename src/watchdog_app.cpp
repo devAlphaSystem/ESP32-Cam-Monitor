@@ -186,6 +186,24 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         return;
     }
 
+    uint32_t liveFramesPerSecond = 0;
+    if (liveStreamDeliveredRecently(ctx.id, ctx.settings.healthCheckIntervalMs, &liveFramesPerSecond)) {
+        ctx.totalHealthChecks++;
+        ctx.previewHealthEvidenceUses++;
+        ctx.lastSnapshotProbe = SnapshotProbe{};
+        ctx.lastSnapshotProbe.attempted = true;
+        ctx.lastSnapshotProbe.conclusive = true;
+        ctx.lastSnapshotProbe.targetResolved = ctx.snapshotTarget.valid;
+        ctx.lastSnapshotProbe.httpResponded = true;
+        ctx.lastSnapshotProbe.jpegValid = true;
+        ctx.lastSnapshotProbe.statusCode = 200;
+        ctx.lastSnapshotProbe.latencyMs = 0;
+        ctx.lastSnapshotProbe.bytesRead = 0;
+        ctx.lastSnapshotProbe.detail = String("Video H.264 ao vivo recebido da camera (") + liveFramesPerSecond + " quadros/s)";
+        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::LiveStream, "Video ao vivo retornou; confirmando estabilidade", "Camera validada pelo video ao vivo", "Camera recuperada e video ao vivo validado");
+        return;
+    }
+
     if (browserSnapshotRecentlyDelivered(ctx)) {
         ctx.totalHealthChecks++;
         ctx.previewHealthEvidenceUses++;
@@ -398,6 +416,7 @@ void initializeConnectedServices()
     configTime(0, 0, "pool.ntp.org", "time.google.com");
     startMdns();
     configureHttpServer();
+    liveStreamBegin();
     discoverOnvifCameras();
     if (cameraCount == 0)
         subnetScanRequested = true;

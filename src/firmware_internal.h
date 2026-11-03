@@ -27,6 +27,7 @@
 #include <time.h>
 
 #include "app_config.h"
+#include "live_stream.h"
 #if RELEASE_BLUETOOTH_MEMORY
 #include <esp32-hal-bt.h>
 #endif
@@ -87,7 +88,8 @@ enum class OnvifMetadataStage {
 enum class HealthEvidenceSource {
     None,
     SnapshotJpeg,
-    PreviewJpeg
+    PreviewJpeg,
+    LiveStream
 };
 
 extern GlobalSettings globalSettings;
@@ -559,6 +561,7 @@ bool onvifPtzPresetIsDaemon(const String& token);
 bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId = 0);
 void maintainOnvifPtzPresets(CameraContext& ctx);
 bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId = 0);
+bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTarget& target, const char*& error, uint16_t contextId = 0);
 bool snapshotFailureAllowsAutomaticReboot(CameraContext& ctx);
 bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest = false, uint16_t contextId = 0);
 void serveCameraSnapshot(CameraContext& ctx);

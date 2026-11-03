@@ -158,6 +158,15 @@ footer{margin-top:32px;padding-top:16px;color:var(--dim);font-size:12px}
 .viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
+.viewer-stage video{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;cursor:zoom-in}
+.viewer-stage video.ready{opacity:1}
+.viewer-stage:fullscreen video,.viewer-stage:-webkit-full-screen video,.viewer-stage.fs-fallback video{cursor:zoom-out}
+.live-badge{position:absolute;z-index:4;left:12px;top:12px;display:flex;align-items:center;gap:8px;padding:5px 10px;background:#11161dde;color:#e0e5eb;font:600 11px/1.5 var(--mono);letter-spacing:.06em}
+.live-badge i{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.live-badge.on i{background:var(--bad);animation:livepulse 1.6s ease-in-out infinite}
+@keyframes livepulse{50%{opacity:.3}}
+.live-quality{min-height:36px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans)}
+.feed-state .btn{margin-top:14px}
 
 /* Configuracoes */
 .settings-kpi{min-width:200px;padding-left:24px;border-left:1px solid var(--line)}
@@ -317,6 +326,7 @@ body.fs-locked{overflow:hidden}
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab" id="overviewTab" type="button" role="tab" data-view="overview" aria-controls="overviewView" aria-selected="true">Visão geral</button>
       <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Câmera</button>
+      <button class="tab" id="liveTab" type="button" role="tab" data-view="live" aria-controls="liveView" aria-selected="false" tabindex="-1">Ao vivo</button>
       <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false" tabindex="-1">Prévia</button>
       <button class="tab" id="diagnosticsTab" type="button" role="tab" data-view="diagnostics" aria-controls="diagnosticsView" aria-selected="false" tabindex="-1">Diagnóstico</button>
       <button class="tab" id="logsTab" type="button" role="tab" data-view="logs" aria-controls="logsView" aria-selected="false" tabindex="-1">Logs</button>
@@ -400,7 +410,7 @@ body.fs-locked{overflow:hidden}
     <div class="viewer-h">
       <div class="viewer-copy">
         <h1 id="viewerTitle">Prévia de diagnóstico</h1>
-        <p id="feedMeta">Quadros JPEG protegidos pelo ESP32 · máximo de 1 FPS · sem expor credenciais</p>
+        <p id="feedMeta">Quadros JPEG da câmera selecionada</p>
       </div>
       <div class="viewer-tools">
         <button class="btn primary ptz-open-btn" type="button" id="ptzMenuButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>Posições PTZ <span class="ptz-count" id="ptzPresetCount">—</span></button>
@@ -412,6 +422,35 @@ body.fs-locked{overflow:hidden}
       <div class="feed-state" id="feedState">Carregando o primeiro quadro da câmera…</div>
       <div class="feed-stamp" id="feedStamp">aguardando imagem</div>
       <button type="button" class="feed-fs-btn" id="feedFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
+        <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
+        <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
+      </button>
+    </div>
+  </section>
+</div>
+
+<div id="liveView" role="tabpanel" tabindex="0" aria-labelledby="liveTab" data-view-panel="live" hidden>
+  <section class="viewer" aria-labelledby="liveTitle">
+    <div class="viewer-h">
+      <div class="viewer-copy">
+        <h1 id="liveTitle">Ao vivo</h1>
+        <p id="liveMeta">Vídeo H.264 da câmera selecionada</p>
+      </div>
+      <div class="viewer-tools">
+        <select class="live-quality" id="liveQuality" aria-label="Qualidade do vídeo ao vivo">
+          <option value="fluid">Padrão</option>
+          <option value="high">Alta resolução</option>
+        </select>
+        <button class="btn primary ptz-open-btn" type="button" id="livePtzButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>Posições PTZ <span class="ptz-count" id="livePtzCount">—</span></button>
+      </div>
+      <div class="form-result" id="liveActionStatus" hidden></div>
+    </div>
+    <div class="viewer-stage" id="liveStage">
+      <video id="liveVideo" muted playsinline autoplay disablepictureinpicture></video>
+      <div class="feed-state" id="liveState"><div><span id="liveStateText">Conectando à câmera…</span><br><button class="btn" type="button" id="liveRetry" hidden>Tentar novamente</button></div></div>
+      <div class="live-badge" id="liveBadge"><i></i><span id="liveBadgeText">SEM SINAL</span></div>
+      <div class="feed-stamp" id="liveStamp">aguardando vídeo</div>
+      <button type="button" class="feed-fs-btn" id="liveFsBtn" aria-label="Ver em tela cheia" aria-pressed="false" title="Tela cheia">
         <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
         <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
       </button>
@@ -665,7 +704,7 @@ body.fs-locked{overflow:hidden}
           <div class="field"><label for="cfgSnapshotProfileMatch">Perfil ONVIF preferido <span>até 32 caracteres</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>O firmware prioriza um perfil JPEG compatível; padrão: “snap”.</small></div>
           <div class="field"><label for="cfgCameraRtspPort">Porta RTSP <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Padrão: 554.</small></div>
           <div class="field"><label for="cfgFeedMinimum">Intervalo mínimo da prévia <span>segundos</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Mínimo permitido: 0,25 s; use 0,25 s com ciclo de 0,5 s para até 2 FPS.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Padrão estável: 5 s; mínimo permitido: 0,5 s, limitando a prévia a 2 FPS.</small></div>
+          <div class="field"><label for="cfgFeedTarget">Ciclo-alvo da prévia <span>segundos</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Padrão: 5 s; mínimo permitido: 0,5 s, limitando a prévia a 2 FPS.</small></div>
         </div>
       </section>
 
@@ -716,7 +755,7 @@ body.fs-locked{overflow:hidden}
         <div class="settings-card-h"><div><h2>Comunicação</h2><p>Timeouts e nova resolução do snapshot.</p></div></div>
         <div class="form-grid">
           <div class="field"><label for="cfgTcpTimeout">Conexão TCP <span>200–5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Padrão: 900 ms.</small></div>
-          <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão estável: 3000 ms.</small></div>
+          <div class="field"><label for="cfgServiceTimeout">Resposta ONVIF/RTSP <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Padrão: 3000 ms.</small></div>
           <div class="field"><label for="cfgSnapshotTimeout">Timeout do JPEG <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Padrão: 5 s.</small></div>
           <div class="field"><label for="cfgSnapshotResolveRetry">Nova resolução do URI <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Padrão: 15 s.</small></div>
           <div class="field"><label for="cfgSnapshotFailuresReresolve">Falhas antes de resolver o URI <span>1–10</span></label><input id="cfgSnapshotFailuresReresolve" type="number" min="1" max="10" step="1" required><small>Padrão: 2.</small></div>
@@ -751,7 +790,7 @@ body.fs-locked{overflow:hidden}
     <div class="ptz-list" id="ptzPresetList" role="list">
       <div class="ptz-empty">O ESP32 consultará os presets diretamente na câmera.</div>
     </div>
-    <div class="ptz-modal-foot"><span id="ptzVisibleCount">Nenhuma posição carregada</span><span>A Prévia fica pausada enquanto este controle está aberto.</span></div>
+    <div class="ptz-modal-foot"><span id="ptzVisibleCount">Nenhuma posição carregada</span><span id="ptzPauseNote">A Prévia fica pausada enquanto este controle está aberto.</span></div>
   </div>
 </div>
 
@@ -861,6 +900,7 @@ function selectCamera(id) {
   ptzControlsEnabled = false;
   ptzCatalog = { available: false, presets: [], command: {} };
   $('ptzPresetModal').hidden = true;
+  if (activeView === 'live') stopLive();
   $('cameraFeed').removeAttribute('src');
   $('cameraFeed').classList.remove('ready');
   $('feedState').classList.remove('hidden');
@@ -870,8 +910,9 @@ function selectCamera(id) {
   ['camSub','v-onvif','m-onvif','v-rtsp','m-rtsp','v-image','m-image','v-checks','m-checks','availValue','l-event','l-url','l-image','l-reboot','l-disc','l-scan','l-mail'].forEach(key => { $(key).textContent = '—'; });
   updateCameraSelector();
   setMutationControlsEnabled(false);
-  if (activeView === 'settings' || activeView === 'actions' || activeView === 'feed') loadSettings(true);
+  if (activeView === 'settings' || activeView === 'actions' || activeView === 'feed' || activeView === 'live') loadSettings(true);
   refresh(true);
+  if (activeView === 'live') startLive();
 }
 
 function stepCamera(direction) {
@@ -1108,6 +1149,7 @@ function viewFromHash() {
   if (location.hash === '#diagnostics') return 'diagnostics';
   if (location.hash === '#resources') return 'resources';
   if (location.hash === '#feed') return 'feed';
+  if (location.hash === '#live') return 'live';
   if (location.hash === '#camera') return 'camera';
   return 'overview';
 }
@@ -1985,6 +2027,10 @@ function setPtzActionStatus(message, tone) {
   target.hidden = !isProblem;
   target.textContent = isProblem ? localizeTimestampText(message) : '';
   target.className = 'form-result' + (isProblem ? ' bad' : '');
+  const liveTarget = $('liveActionStatus');
+  liveTarget.hidden = !isProblem;
+  liveTarget.textContent = target.textContent;
+  liveTarget.className = target.className;
 }
 
 function setMutationControlsEnabled(enabled) {
@@ -2081,7 +2127,7 @@ function populateSettings(payload) {
   setMutationControlsEnabled(true);
   if (activeView === 'actions') {
     if (!factoryResetResult) setAdminActionStatus('Autorização carregada. Escolha uma ação administrativa.', 'ok');
-  } else if (activeView === 'feed') {
+  } else if (activeView === 'feed' || activeView === 'live') {
     if (!ptzCatalog.command || Number(ptzCatalog.command.attempts) === 0) {
       setPtzActionStatus('Controle PTZ autorizado. Abra a lista para escolher uma posição.', 'ok');
     }
@@ -2436,6 +2482,7 @@ function renderPtzPresetList() {
 function openPtzPresetModal() {
   if ($('ptzMenuButton').disabled) return;
   pauseFeedForPtz();
+  $('ptzPauseNote').hidden = activeView === 'live';
   $('ptzPresetFilter').value = '';
   renderPtzPresetList();
   $('ptzPresetModal').hidden = false;
@@ -2539,6 +2586,10 @@ function renderPtz(d) {
       ? 'Abrir ' + plural(usableCount, 'posição PTZ', 'posições PTZ')
       : 'Posições PTZ indisponíveis'
   );
+
+  $('livePtzButton').disabled = menuButton.disabled;
+  $('livePtzCount').textContent = $('ptzPresetCount').textContent;
+  $('livePtzButton').setAttribute('aria-label', menuButton.getAttribute('aria-label'));
 
   $('ptzMeta').textContent = !ptzCatalog.available
     ? ptzCatalog.unavailableReason
@@ -2719,7 +2770,8 @@ async function refresh(force) {
       updateFactoryResetState(payload, resetEpoch);
       render(payload);
     }
-    if ((activeView === 'settings' || activeView === 'actions' || activeView === 'feed') && !settingsDirty) loadSettings(false);
+    if ((activeView === 'settings' || activeView === 'actions' || activeView === 'feed' || activeView === 'live') && !settingsDirty) loadSettings(false);
+    if (activeView === 'live') startLive();
     lastOk = Date.now();
     $('deviceStatus').classList.remove('stale');
     $('deviceStatusText').textContent = 'atualizado agora';
@@ -2743,8 +2795,713 @@ setInterval(() => {
   $('deviceStatusText').textContent = ago < 2 ? 'atualizado agora' : 'atualizado há ' + ago + 's';
 }, 1000);
 
+// ===== Ao vivo: relé WebSocket do ESP32 -> H.264 -> fMP4 -> Media Source Extensions =====
+// O ESP32 repassa pacotes RTP de vídeo. Aqui eles são depacotados em NALs H.264, empacotados
+// em fragmentos fMP4 (1 quadro por fragmento) e entregues ao <video> por MSE, que decodifica
+// por hardware. WebCodecs não serve: exige contexto seguro (HTTPS) e o painel roda em HTTP.
+const LivePlayer = (() => {
+  'use strict';
+
+  const CLOCK = 90000;
+  const MIN_DELTA = 1500;
+  const MAX_DELTA = 22500;
+  const ERROR_TEXT = {
+    live_in_use: 'Outro espectador está usando o ao vivo de outra câmera ou qualidade. Feche-o e tente novamente.',
+    busy: 'O ESP32 está ocupado verificando a câmera. Tentando novamente…',
+    camera_unavailable: 'A câmera não está disponível no momento.',
+    onvif_unavailable: 'A câmera não respondeu ao serviço ONVIF.',
+    onvif_media_unavailable: 'A câmera não respondeu ao serviço de mídia ONVIF.',
+    onvif_stream_uri_failed: 'A câmera não informou o endereço do vídeo.',
+    no_h264_profile: 'A câmera não oferece um perfil de vídeo H.264.',
+    invalid_stream_uri: 'A câmera anunciou um endereço de vídeo inválido.',
+    relay_unavailable: 'O ESP32 não conseguiu iniciar o relé de vídeo.',
+    camera_unreachable: 'Não foi possível conectar ao vídeo (RTSP) da câmera.',
+    rtsp_describe_failed: 'A câmera recusou a descrição do vídeo (RTSP).',
+    rtsp_setup_failed: 'A câmera recusou a preparação do vídeo (RTSP).',
+    rtsp_play_failed: 'A câmera recusou iniciar o vídeo (RTSP).',
+    rtsp_auth_required: 'A câmera exige usuário e senha para o vídeo. Configure as credenciais da câmera.',
+    rtsp_auth_rejected: 'A câmera recusou as credenciais usadas para o vídeo.',
+    rtsp_transport_unsupported: 'A câmera não aceita vídeo RTSP sobre TCP.',
+    camera_codec_not_h264: 'A câmera não está enviando H.264 neste perfil.',
+    camera_stream_closed: 'A câmera encerrou o vídeo.',
+    camera_stream_stalled: 'A câmera parou de enviar vídeo.',
+    low_memory: 'O ESP32 está com pouca memória livre para o vídeo.',
+    device_unreachable: 'Sem resposta do ESP32.',
+    unsupported: 'Este navegador não oferece Media Source Extensions com H.264.',
+    stalled: 'O vídeo parou de chegar; reconectando…'
+  };
+  const NO_RETRY = new Set(['unsupported', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_auth_required', 'rtsp_auth_rejected', 'invalid_stream_uri']);
+
+  // ---------- MP4 ----------
+  const concat = chunks => {
+    let size = 0;
+    for (const chunk of chunks) size += chunk.length;
+    const out = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length; }
+    return out;
+  };
+  const u32 = value => Uint8Array.of((value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
+  const u16 = value => Uint8Array.of((value >>> 8) & 255, value & 255);
+  const ascii = text => Uint8Array.from(text, ch => ch.charCodeAt(0));
+  const zeros = count => new Uint8Array(count);
+  const box = (type, ...parts) => {
+    const body = concat(parts);
+    return concat([u32(body.length + 8), ascii(type), body]);
+  };
+  const fullBox = (type, version, flags, ...parts) => box(type, Uint8Array.of(version, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255), ...parts);
+  const MATRIX = concat([u32(0x10000), u32(0), u32(0), u32(0), u32(0x10000), u32(0), u32(0), u32(0), u32(0x40000000)]);
+
+  class BitReader {
+    constructor(bytes) { this.bytes = bytes; this.position = 0; }
+    bit() {
+      const byte = this.bytes[this.position >> 3];
+      if (byte === undefined) throw new Error('sps_truncated');
+      const value = (byte >> (7 - (this.position & 7))) & 1;
+      this.position++;
+      return value;
+    }
+    bits(count) { let value = 0; for (let i = 0; i < count; i++) value = (value << 1) | this.bit(); return value >>> 0; }
+    ue() {
+      let zerosCount = 0;
+      while (this.bit() === 0) { if (++zerosCount > 31) throw new Error('sps_invalid'); }
+      return zerosCount === 0 ? 0 : (((1 << zerosCount) >>> 0) - 1 + this.bits(zerosCount)) >>> 0;
+    }
+    se() { const value = this.ue(); return value & 1 ? (value + 1) / 2 : -(value / 2); }
+  }
+
+  const unescapeRbsp = nal => {
+    const out = [];
+    for (let i = 0; i < nal.length; i++) {
+      if (i >= 2 && nal[i] === 3 && nal[i - 1] === 0 && nal[i - 2] === 0) continue;
+      out.push(nal[i]);
+    }
+    return Uint8Array.from(out);
+  };
+
+  // Largura, altura e formato de croma a partir do SPS (NAL completo, com o cabeçalho de 1 byte).
+  const parseSps = nal => {
+    const reader = new BitReader(unescapeRbsp(nal.subarray(1)));
+    const profile = reader.bits(8);
+    reader.bits(8);
+    reader.bits(8);
+    reader.ue();
+    let chroma = 1;
+    let lumaDepth = 8;
+    let chromaDepth = 8;
+    if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].includes(profile)) {
+      chroma = reader.ue();
+      if (chroma === 3) reader.bit();
+      lumaDepth = 8 + reader.ue();
+      chromaDepth = 8 + reader.ue();
+      reader.bit();
+      if (reader.bit()) {
+        const lists = chroma !== 3 ? 8 : 12;
+        for (let list = 0; list < lists; list++) {
+          if (!reader.bit()) continue;
+          const size = list < 6 ? 16 : 64;
+          let last = 8;
+          let next = 8;
+          for (let i = 0; i < size; i++) {
+            if (next !== 0) { next = (last + reader.se() + 256) % 256; }
+            last = next === 0 ? last : next;
+          }
+        }
+      }
+    }
+    reader.ue();
+    const pocType = reader.ue();
+    if (pocType === 0) {
+      reader.ue();
+    } else if (pocType === 1) {
+      reader.bit(); reader.se(); reader.se();
+      const cycle = reader.ue();
+      for (let i = 0; i < cycle; i++) reader.se();
+    }
+    reader.ue();
+    reader.bit();
+    const widthMbs = reader.ue() + 1;
+    const heightUnits = reader.ue() + 1;
+    const frameMbsOnly = reader.bit();
+    if (!frameMbsOnly) reader.bit();
+    reader.bit();
+    let cropLeft = 0, cropRight = 0, cropTop = 0, cropBottom = 0;
+    if (reader.bit()) { cropLeft = reader.ue(); cropRight = reader.ue(); cropTop = reader.ue(); cropBottom = reader.ue(); }
+    const unitX = chroma === 0 || chroma === 3 ? 1 : 2;
+    const unitY = (chroma === 1 ? 2 : 1) * (2 - frameMbsOnly);
+    return {
+      width: widthMbs * 16 - (cropLeft + cropRight) * unitX,
+      height: (2 - frameMbsOnly) * heightUnits * 16 - (cropTop + cropBottom) * unitY,
+      profile, chroma, lumaDepth, chromaDepth
+    };
+  };
+
+  const hex2 = value => value.toString(16).padStart(2, '0');
+
+  const buildInit = (sps, pps, info) => {
+    const high = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].includes(info.profile);
+    const avcC = box('avcC',
+      Uint8Array.of(1, sps[1], sps[2], sps[3], 0xFF, 0xE1), u16(sps.length), sps,
+      Uint8Array.of(1), u16(pps.length), pps,
+      high ? Uint8Array.of(0xFC | info.chroma, 0xF8 | (info.lumaDepth - 8), 0xF8 | (info.chromaDepth - 8), 0) : new Uint8Array(0));
+    const avc1 = box('avc1', zeros(6), u16(1), zeros(16), u16(info.width), u16(info.height),
+      u32(0x00480000), u32(0x00480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xFFFF), avcC);
+    const track = box('trak',
+      fullBox('tkhd', 0, 7, u32(0), u32(0), u32(1), u32(0), u32(0), zeros(8), u16(0), u16(0), u16(0), u16(0), MATRIX, u32(info.width << 16), u32(info.height << 16)),
+      box('mdia',
+        fullBox('mdhd', 0, 0, u32(0), u32(0), u32(CLOCK), u32(0), u16(0x55C4), u16(0)),
+        fullBox('hdlr', 0, 0, u32(0), ascii('vide'), zeros(12), ascii('VideoHandler\0')),
+        box('minf',
+          fullBox('vmhd', 0, 1, u16(0), zeros(6)),
+          box('dinf', fullBox('dref', 0, 0, u32(1), fullBox('url ', 0, 1))),
+          box('stbl',
+            fullBox('stsd', 0, 0, u32(1), avc1),
+            fullBox('stts', 0, 0, u32(0)), fullBox('stsc', 0, 0, u32(0)),
+            fullBox('stsz', 0, 0, u32(0), u32(0)), fullBox('stco', 0, 0, u32(0))))));
+    return concat([
+      box('ftyp', ascii('isom'), u32(512), ascii('isom'), ascii('iso6'), ascii('avc1'), ascii('mp41')),
+      box('moov',
+        fullBox('mvhd', 0, 0, u32(0), u32(0), u32(1000), u32(0), u32(0x10000), u16(0x100), u16(0), zeros(8), MATRIX, zeros(24), u32(2)),
+        track,
+        box('mvex', fullBox('trex', 0, 0, u32(1), u32(1), u32(0), u32(0), u32(0))))
+    ]);
+  };
+
+  const buildFragment = (sequence, decodeTime, duration, sample, key) => {
+    const high = Math.floor(decodeTime / 4294967296);
+    const low = decodeTime % 4294967296;
+    const mfhd = fullBox('mfhd', 0, 0, u32(sequence));
+    const tfhd = fullBox('tfhd', 0, 0x020000, u32(1));
+    const tfdt = fullBox('tfdt', 1, 0, u32(high), u32(low));
+    const trun = offset => fullBox('trun', 0, 0x000701, u32(1), u32(offset), u32(duration), u32(sample.length), u32(key ? 0x02000000 : 0x01010000));
+    const sizeProbe = box('moof', mfhd, box('traf', tfhd, tfdt, trun(0)));
+    const moof = box('moof', mfhd, box('traf', tfhd, tfdt, trun(sizeProbe.length + 8)));
+    return concat([moof, box('mdat', sample)]);
+  };
+
+  // ---------- player ----------
+  class Player {
+    constructor(video, hooks) {
+      this.video = video;
+      this.hooks = hooks;
+      this.generation = 0;
+      this.retryTimer = null;
+      this.watchTimer = null;
+      this.retryDelay = 1000;
+      this.reset();
+      video.addEventListener('playing', () => {
+        if (!this.initialized) return;
+        this.playing = true;
+        this.retryDelay = 1000;
+        hooks.state('live', '');
+      });
+    }
+
+    reset() {
+      this.socket = null;
+      this.source = null;
+      this.buffer = null;
+      this.objectUrl = null;
+      this.queue = [];
+      this.initialized = false;
+      this.mediaReady = false;
+      this.sps = null;
+      this.pps = null;
+      this.spsKey = '';
+      this.info = null;
+      this.units = [];
+      this.fragment = null;
+      this.unitTimestamp = null;
+      this.waitingForKey = true;
+      this.sequence = 0;
+      this.decodeTime = 0;
+      this.lastTimestamp = null;
+      this.lastDelta = 7500;
+      this.frames = 0;
+      this.bytes = 0;
+      this.lastDataAt = 0;
+      this.statFrames = 0;
+      this.statBytes = 0;
+      this.statAt = performance.now();
+      this.fps = 0;
+      this.kbps = 0;
+      this.catchingUp = false;
+      this.lastTime = -1;
+      this.lastTimeAt = performance.now();
+      this.playing = false;
+    }
+
+    supported() {
+      return typeof window.MediaSource === 'function' && typeof window.WebSocket === 'function';
+    }
+
+    start(cameraId, quality, host) {
+      this.cameraId = cameraId;
+      this.quality = quality || 'fluid';
+      this.host = host || location.hostname;
+      this.retryDelay = 1000;
+      this.begin();
+    }
+
+    begin() {
+      this.stopInternal();
+      const generation = ++this.generation;
+      if (!this.supported()) { this.hooks.error('unsupported', ERROR_TEXT.unsupported, true); return; }
+      this.connect(generation);
+    }
+
+    stop() {
+      this.generation++;
+      this.stopInternal();
+      this.hooks.state('stopped', '');
+    }
+
+    stopInternal() {
+      clearTimeout(this.retryTimer);
+      clearInterval(this.watchTimer);
+      this.retryTimer = null;
+      this.watchTimer = null;
+      const socket = this.socket;
+      if (socket) {
+        socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+        try { socket.close(); } catch (error) { /* já fechado */ }
+      }
+      const video = this.video;
+      if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      this.reset();
+    }
+
+    async prepare(generation) {
+      const url = '/api/live/start?cameraId=' + encodeURIComponent(this.cameraId) + '&quality=' + encodeURIComponent(this.quality);
+      let last = { code: 'busy' };
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (generation !== this.generation) return null;
+        let response;
+        let data;
+        try {
+          response = await fetch(url, { cache: 'no-store' });
+          data = await response.json();
+        } catch (error) {
+          last = { code: 'device_unreachable' };
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        if (response.ok && data.ok) return data;
+        const code = (data && data.error) || ('http_' + response.status);
+        last = { code, detail: data && data.detail };
+        if (code === 'busy' || code === 'live_in_use') {
+          this.hooks.state('connecting', ERROR_TEXT[code]);
+          await new Promise(resolve => setTimeout(resolve, code === 'busy' ? 700 : 900));
+          continue;
+        }
+        break;
+      }
+      throw last;
+    }
+
+    async connect(generation) {
+      this.hooks.state('connecting', 'Conectando à câmera…');
+      let ready;
+      try {
+        ready = await this.prepare(generation);
+      } catch (error) {
+        if (generation === this.generation) this.fail(error.code, error.detail);
+        return;
+      }
+      if (generation !== this.generation || !ready) return;
+      this.hooks.state('connecting', 'Abrindo o canal de vídeo…');
+      let socket;
+      try {
+        socket = new WebSocket('ws://' + this.host + ':' + ready.port + '/live?camera=' + encodeURIComponent(this.cameraId));
+      } catch (error) {
+        this.fail('device_unreachable');
+        return;
+      }
+      socket.binaryType = 'arraybuffer';
+      this.socket = socket;
+      this.lastDataAt = performance.now();
+      socket.onmessage = event => {
+        if (generation !== this.generation) return;
+        if (typeof event.data === 'string') {
+          try { this.hello(JSON.parse(event.data)); } catch (error) { /* ignora texto inesperado */ }
+          return;
+        }
+        this.lastDataAt = performance.now();
+        this.bytes += event.data.byteLength;
+        this.statBytes += event.data.byteLength;
+        try {
+          this.packet(new Uint8Array(event.data));
+        } catch (error) {
+          this.restart('stalled');
+        }
+      };
+      socket.onclose = event => {
+        if (generation !== this.generation) return;
+        this.socket = null;
+        this.fail(event.reason || (this.frames ? 'camera_stream_closed' : 'device_unreachable'));
+      };
+      socket.onerror = () => { /* onclose trata */ };
+      this.watchTimer = setInterval(() => this.watch(generation), 250);
+    }
+
+    hello(message) {
+      if (message && message.type === 'hello') {
+        this.profile = message;
+        this.hooks.info(message);
+      }
+    }
+
+    fail(code, detail) {
+      const known = ERROR_TEXT[code] || detail || 'Falha ao transmitir o vídeo.';
+      const fatal = NO_RETRY.has(code);
+      this.stopInternal();
+      const generation = this.generation;
+      this.hooks.error(code, known, fatal);
+      if (fatal) return;
+      const delay = this.retryDelay;
+      this.retryDelay = Math.min(8000, this.retryDelay * 2);
+      this.retryTimer = setTimeout(() => { if (generation === this.generation) this.begin(); }, delay);
+    }
+
+    restart(code) {
+      this.fail(code);
+    }
+
+    // ----- depacotamento H.264 (RFC 6184) -----
+    packet(data) {
+      if (data.length < 6) return;
+      const flags = data[0];
+      const timestamp = ((data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4]) >>> 0;
+      const payload = data.subarray(5);
+      if (flags & 2) { this.fragment = null; this.units = []; this.unitTimestamp = null; this.waitingForKey = true; }
+      if (this.unitTimestamp !== null && timestamp !== this.unitTimestamp && this.units.length) this.finishUnit();
+      this.unitTimestamp = timestamp;
+      const type = payload[0] & 31;
+      if (type >= 1 && type <= 23) {
+        this.units.push(payload);
+      } else if (type === 24) {
+        let offset = 1;
+        while (offset + 2 <= payload.length) {
+          const size = (payload[offset] << 8) | payload[offset + 1];
+          offset += 2;
+          if (offset + size > payload.length) break;
+          this.units.push(payload.subarray(offset, offset + size));
+          offset += size;
+        }
+      } else if (type === 28 && payload.length > 2) {
+        const header = payload[1];
+        if (header & 0x80) this.fragment = [Uint8Array.of((payload[0] & 0xE0) | (header & 0x1F)), payload.subarray(2)];
+        else if (this.fragment) this.fragment.push(payload.subarray(2));
+        if ((header & 0x40) && this.fragment) { this.units.push(concat(this.fragment)); this.fragment = null; }
+      }
+      if (flags & 1) this.finishUnit();
+    }
+
+    finishUnit() {
+      const units = this.units;
+      const timestamp = this.unitTimestamp;
+      this.units = [];
+      this.unitTimestamp = null;
+      let idr = false;
+      const slices = [];
+      for (const unit of units) {
+        const type = unit[0] & 31;
+        if (type === 7) this.setParameter('sps', unit);
+        else if (type === 8) this.setParameter('pps', unit);
+        else if (type === 5) { idr = true; slices.push(unit); }
+        else if (type === 1) slices.push(unit);
+      }
+      if (!slices.length || timestamp === null) return;
+      if (!this.initialized) {
+        if (!idr || !this.sps || !this.pps) return;
+        this.initialize();
+      }
+      if (idr) this.waitingForKey = false;
+      if (this.waitingForKey) return;
+
+      let size = 0;
+      for (const slice of slices) size += slice.length + 4;
+      const sample = new Uint8Array(size);
+      let offset = 0;
+      for (const slice of slices) {
+        sample[offset] = slice.length >>> 24; sample[offset + 1] = slice.length >>> 16; sample[offset + 2] = slice.length >>> 8; sample[offset + 3] = slice.length;
+        sample.set(slice, offset + 4);
+        offset += slice.length + 4;
+      }
+
+      let delta = this.lastDelta;
+      if (this.lastTimestamp !== null) {
+        delta = (timestamp - this.lastTimestamp) >>> 0;
+        delta = delta < MIN_DELTA ? MIN_DELTA : delta > MAX_DELTA ? MAX_DELTA : delta;
+      }
+      this.lastTimestamp = timestamp;
+      const duration = this.lastDelta;
+      this.lastDelta = delta;
+      this.queue.push(buildFragment(++this.sequence, this.decodeTime, duration, sample, idr));
+      this.decodeTime += duration;
+      this.frames++;
+      this.statFrames++;
+      this.pump();
+    }
+
+    setParameter(kind, unit) {
+      const copy = unit.slice();
+      const key = Array.from(copy).join(',');
+      if (kind === 'pps') { this.pps = copy; return; }
+      if (this.spsKey && this.spsKey !== key && this.initialized) {
+        // Parâmetros mudaram no meio da sessão (ex.: troca de perfil): recomeça do zero.
+        this.sps = copy; this.spsKey = key;
+        this.restart('stalled');
+        return;
+      }
+      this.sps = copy;
+      this.spsKey = key;
+    }
+
+    // ----- MSE -----
+    initialize() {
+      let info;
+      try { info = parseSps(this.sps); } catch (error) { info = { width: (this.profile && this.profile.width) || 704, height: (this.profile && this.profile.height) || 576, profile: this.sps[1], chroma: 1, lumaDepth: 8, chromaDepth: 8 }; }
+      this.dimensions = info;
+      const codec = 'avc1.' + hex2(this.sps[1]) + hex2(this.sps[2]) + hex2(this.sps[3]);
+      const mime = 'video/mp4; codecs="' + codec + '"';
+      if (!MediaSource.isTypeSupported(mime)) { this.hooks.error('unsupported', ERROR_TEXT.unsupported, true); this.generation++; this.stopInternal(); return; }
+      this.initialized = true;
+      const source = new MediaSource();
+      this.source = source;
+      this.objectUrl = URL.createObjectURL(source);
+      this.video.src = this.objectUrl;
+      const init = buildInit(this.sps, this.pps, info);
+      const generation = this.generation;
+      source.addEventListener('sourceopen', () => {
+        if (generation !== this.generation || this.buffer) return;
+        try {
+          this.buffer = source.addSourceBuffer(mime);
+          this.buffer.mode = 'segments';
+          this.buffer.addEventListener('updateend', () => this.pump());
+          this.buffer.addEventListener('error', () => { if (generation === this.generation) this.restart('stalled'); });
+          this.buffer.appendBuffer(init);
+          this.mediaReady = true;
+        } catch (error) {
+          this.restart('stalled');
+        }
+      }, { once: true });
+      this.hooks.dimensions(info);
+    }
+
+    pump() {
+      const buffer = this.buffer;
+      if (!buffer || !this.mediaReady || buffer.updating || !this.queue.length || this.source.readyState !== 'open') return;
+      // Mantém ao máximo o atraso baixo: se acumulou fila, junta tudo numa só gravação.
+      const batch = this.queue.length > 1 ? concat(this.queue) : this.queue[0];
+      this.queue = [];
+      try {
+        buffer.appendBuffer(batch);
+      } catch (error) {
+        if (error && error.name === 'QuotaExceededError') {
+          this.trim(true);
+          this.queue.unshift(batch);
+        } else {
+          this.restart('stalled');
+        }
+      }
+    }
+
+    trim(force) {
+      const buffer = this.buffer;
+      if (!buffer || buffer.updating || !buffer.buffered.length) return;
+      const start = buffer.buffered.start(0);
+      const keepFrom = this.video.currentTime - (force ? 1 : 3);
+      if (keepFrom - start > (force ? 0.5 : 3)) {
+        try { buffer.remove(start, keepFrom); } catch (error) { /* tenta depois */ }
+      }
+    }
+
+    // ----- sincronismo com a borda ao vivo -----
+    watch(generation) {
+      if (generation !== this.generation) return;
+      const now = performance.now();
+      const video = this.video;
+
+      if (now - this.statAt >= 1000) {
+        const seconds = (now - this.statAt) / 1000;
+        this.fps = this.statFrames / seconds;
+        this.kbps = this.statBytes * 8 / seconds / 1000;
+        this.statFrames = 0;
+        this.statBytes = 0;
+        this.statAt = now;
+        this.trim(false);
+      }
+
+      if (this.socket && now - this.lastDataAt > 6000) { this.restart('stalled'); return; }
+
+      const buffered = video.buffered;
+      let lag = 0;
+      if (buffered.length) {
+        const end = buffered.end(buffered.length - 1);
+        lag = Math.max(0, end - video.currentTime);
+        if (video.paused && this.frames > 2 && !this.playing) video.play().catch(() => {});
+        if (lag > 1.5) {
+          video.currentTime = end - 0.12;
+          this.catchingUp = false;
+          video.playbackRate = 1;
+        } else if (lag > 0.5) {
+          this.catchingUp = true;
+        } else if (lag < 0.22) {
+          this.catchingUp = false;
+        }
+        const rate = this.catchingUp ? Math.min(1.5, 1 + (lag - 0.2) * 0.8) : 1;
+        if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
+
+        // Reprodução travada com dados à frente (ex.: após um buraco no buffer): salta para a borda.
+        if (video.currentTime !== this.lastTime) {
+          this.lastTime = video.currentTime;
+          this.lastTimeAt = now;
+        } else if (now - this.lastTimeAt > 2500 && lag > 0.3 && !video.paused) {
+          video.currentTime = Math.max(buffered.start(buffered.length - 1), end - 0.12);
+          this.lastTimeAt = now;
+        }
+      }
+      this.hooks.stats({ fps: this.fps, kbps: this.kbps, lag, width: this.dimensions && this.dimensions.width, height: this.dimensions && this.dimensions.height, frames: this.frames });
+    }
+  }
+
+  return { Player, ERROR_TEXT };
+})();
+
+// ===== Aba Ao vivo: ligação do player ao painel =====
+const liveVideo = $('liveVideo');
+const liveStage = $('liveStage');
+let liveStartedFor = 0;
+let liveStartedQuality = '';
+let liveQuality = 'fluid';
+let liveProfileText = '';
+
+function setLiveOverlay(text, showRetry) {
+  $('liveState').classList.toggle('hidden', !text);
+  $('liveStateText').textContent = text || '';
+  $('liveRetry').hidden = !showRetry;
+}
+
+function setLiveBadge(on) {
+  $('liveBadge').classList.toggle('on', on);
+  $('liveBadgeText').textContent = on ? 'AO VIVO' : 'SEM SINAL';
+}
+
+const livePlayer = new LivePlayer.Player(liveVideo, {
+  state(kind, text) {
+    if (kind === 'live') {
+      liveVideo.classList.add('ready');
+      setLiveOverlay('', false);
+      setLiveBadge(true);
+    } else if (kind === 'connecting') {
+      liveVideo.classList.remove('ready');
+      setLiveOverlay(text || 'Conectando à câmera…', false);
+      setLiveBadge(false);
+      $('liveStamp').textContent = 'conectando';
+    }
+  },
+  error(code, text, fatal) {
+    liveVideo.classList.remove('ready');
+    setLiveBadge(false);
+    setLiveOverlay(fatal ? text : text + ' Reconectando automaticamente…', fatal);
+    $('liveStamp').textContent = fatal ? 'transmissão interrompida' : 'reconectando';
+    if (fatal) liveStartedFor = 0;
+  },
+  info(message) {
+    liveProfileText = message.profile || 'da câmera';
+  },
+  dimensions() {},
+  stats(values) {
+    if (!values.width || !liveVideo.classList.contains('ready')) return;
+    $('liveStamp').textContent = values.width + '×' + values.height
+      + ' · ' + Math.round(values.fps) + ' fps · ' + Math.round(values.kbps) + ' kbps'
+      + ' · atraso ' + values.lag.toFixed(1).replace('.', ',') + ' s';
+    $('liveMeta').textContent = 'H.264 · perfil ' + liveProfileText + ' · ' + values.frames + ' quadros';
+  }
+});
+
+function startLive() {
+  if (activeView !== 'live' || document.hidden || !selectedCameraId) return;
+  if (liveStartedFor === selectedCameraId && liveStartedQuality === liveQuality) return;
+  liveStartedFor = selectedCameraId;
+  liveStartedQuality = liveQuality;
+  liveVideo.classList.remove('ready');
+  setLiveBadge(false);
+  setLiveOverlay('Conectando à câmera…', false);
+  $('liveStamp').textContent = 'conectando';
+  livePlayer.start(selectedCameraId, liveQuality);
+}
+
+function stopLive() {
+  if (liveStartedFor) livePlayer.stop();
+  liveStartedFor = 0;
+  liveStartedQuality = '';
+  liveVideo.classList.remove('ready');
+}
+
+function liveFullscreenActive() {
+  return document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage || liveStage.classList.contains('fs-fallback');
+}
+
+function updateLiveFsButton() {
+  const active = liveFullscreenActive();
+  const button = $('liveFsBtn');
+  button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  button.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Ver em tela cheia');
+  button.title = active ? 'Sair da tela cheia' : 'Tela cheia';
+  button.querySelector('.ic-expand').hidden = active;
+  button.querySelector('.ic-collapse').hidden = !active;
+}
+
+function exitLiveFullscreen() {
+  if (document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }
+  if (liveStage.classList.contains('fs-fallback')) {
+    liveStage.classList.remove('fs-fallback');
+    document.body.classList.remove('fs-locked');
+  }
+  updateLiveFsButton();
+}
+
+function toggleLiveFullscreen() {
+  if (liveFullscreenActive()) { exitLiveFullscreen(); return; }
+  const request = liveStage.requestFullscreen || liveStage.webkitRequestFullscreen;
+  if (!request) {
+    liveStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateLiveFsButton();
+    return;
+  }
+  Promise.resolve(request.call(liveStage)).catch(() => {
+    liveStage.classList.add('fs-fallback');
+    document.body.classList.add('fs-locked');
+    updateLiveFsButton();
+  });
+}
+
+$('liveFsBtn').addEventListener('click', toggleLiveFullscreen);
+liveVideo.addEventListener('dblclick', toggleLiveFullscreen);
+document.addEventListener('fullscreenchange', updateLiveFsButton);
+document.addEventListener('webkitfullscreenchange', updateLiveFsButton);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && liveStage.classList.contains('fs-fallback')) exitLiveFullscreen();
+});
+$('liveQuality').addEventListener('change', () => {
+  liveQuality = $('liveQuality').value === 'high' ? 'high' : 'fluid';
+  stopLive();
+  startLive();
+});
+$('liveRetry').addEventListener('click', () => { stopLive(); startLive(); });
+$('livePtzButton').addEventListener('click', openPtzPresetModal);
+window.addEventListener('pagehide', () => livePlayer.stop());
+
 function activateView(name, updateHash) {
-  const nextView = ['overview', 'camera', 'actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed'].includes(name)
+  const nextView = ['overview', 'camera', 'actions', 'settings', 'diagnostics', 'logs', 'resources', 'feed', 'live'].includes(name)
     ? name
     : 'overview';
   if (activeView === 'settings' && nextView !== activeView && settingsDirty) {
@@ -2804,6 +3561,14 @@ function activateView(name, updateHash) {
     const frame = $('cameraFeed');
     frame.classList.remove('ready');
     scheduleStatusRefresh(0);
+  }
+
+  if (nextView === 'live') {
+    loadSettings(false).then(() => refresh(true));
+    startLive();
+  } else {
+    stopLive();
+    exitLiveFullscreen();
   }
 
   const nextHash = '#' + nextView;
@@ -2894,6 +3659,7 @@ window.addEventListener('hashchange', () => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    if (activeView === 'live') stopLive();
     clearTimeout(feedTimer);
     clearTimeout(statusRefreshTimer);
     feedTimer = null;
@@ -2912,6 +3678,7 @@ document.addEventListener('visibilitychange', () => {
   }
 
   refresh();
+  if (activeView === 'live') startLive();
   if (activeView === 'feed') scheduleFeed(0);
   if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
   if (activeView === 'logs') loadPersistentLogs(true);
