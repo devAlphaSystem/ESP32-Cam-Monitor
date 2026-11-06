@@ -9,7 +9,7 @@ constexpr char LOCAL_HOSTNAME[] = "camera-watchdog";
 constexpr size_t LOCAL_HOSTNAME_MIN_LENGTH = 1;
 constexpr size_t LOCAL_HOSTNAME_MAX_LENGTH = 31;
 
-constexpr char CAMERA_NAME[] = "Camera de seguranca";
+constexpr char CAMERA_NAME[] = "Security camera";
 constexpr size_t CAMERA_NAME_MIN_LENGTH = 1;
 constexpr size_t CAMERA_NAME_MAX_LENGTH = 48;
 constexpr size_t CAMERA_USERNAME_MAX_LENGTH = 64;

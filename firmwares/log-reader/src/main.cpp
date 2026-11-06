@@ -41,20 +41,20 @@ void updateBlueLed()
 void printReaderStatus()
 {
     const LogReader::Status& status = LogReader::status();
-    Serial.printf("Particao logs: endereco 0x%06lX, tamanho %lu bytes.\n", static_cast<unsigned long>(status.partitionAddress), static_cast<unsigned long>(status.partitionSize));
+    Serial.printf("Logs partition: address 0x%06lX, size %lu bytes.\n", static_cast<unsigned long>(status.partitionAddress), static_cast<unsigned long>(status.partitionSize));
 
     if (status.mountSkippedAfterReset) {
-        Serial.println("Montagem ignorada: o reinicio anterior ocorreu durante a tentativa de montagem.");
+        Serial.println("Mount skipped: the previous restart happened during the mount attempt.");
     } else if (!status.mounted) {
-        Serial.printf("Montagem somente leitura indisponivel: %s (%ld).\n", esp_err_to_name(status.mountError), static_cast<long>(status.mountError));
+        Serial.printf("Read-only mount unavailable: %s (%ld).\n", esp_err_to_name(status.mountError), static_cast<long>(status.mountError));
     } else if (!status.fileFound) {
-        Serial.println("Particao montada, mas /events.bin nao foi encontrado.");
+        Serial.println("Partition mounted, but /events.bin was not found.");
     } else {
-        Serial.printf("Arquivo examinado: %lu slots, %lu validos, %lu invalidos, %lu com schema desconhecido.\n", static_cast<unsigned long>(status.slotCount), static_cast<unsigned long>(status.validCount), static_cast<unsigned long>(status.invalidCount), static_cast<unsigned long>(status.unknownSchemaCount));
+        Serial.printf("File examined: %lu slots, %lu valid, %lu invalid, %lu with unknown schema.\n", static_cast<unsigned long>(status.slotCount), static_cast<unsigned long>(status.validCount), static_cast<unsigned long>(status.invalidCount), static_cast<unsigned long>(status.unknownSchemaCount));
     }
 
     if (LogReader::partition() != nullptr) {
-        Serial.println("A exportacao RAW esta disponivel mesmo sem montagem do LittleFS.");
+        Serial.println("RAW export is available even without a LittleFS mount.");
     }
 }
 
@@ -82,14 +82,14 @@ void startFallbackAccessPoint()
     WiFi.mode(WIFI_AP_STA);
 
     if (!WiFi.softAP(accessPointName, accessPointPassword)) {
-        Serial.println("Nao foi possivel iniciar o ponto de acesso de recuperacao.");
+        Serial.println("Could not start the recovery access point.");
         return;
     }
 
     accessPointStarted = true;
-    Serial.printf("Ponto de acesso: %s\n", accessPointName);
-    Serial.printf("Senha do ponto de acesso: %s (Logs- seguido pelo sufixo do nome).\n", accessPointPassword);
-    Serial.printf("Servidor no ponto de acesso: http://%s/\n", WiFi.softAPIP().toString().c_str());
+    Serial.printf("Access point: %s\n", accessPointName);
+    Serial.printf("Access point password: %s (Logs- followed by the name suffix).\n", accessPointPassword);
+    Serial.printf("Server on the access point: http://%s/\n", WiFi.softAPIP().toString().c_str());
 }
 
 void startServer()
@@ -103,11 +103,11 @@ void startServer()
 
     if (MDNS.begin(HOSTNAME)) {
         MDNS.addService("http", "tcp", 80);
-        Serial.printf("Endereco local: http://%s.local/\n", HOSTNAME);
+        Serial.printf("Local address: http://%s.local/\n", HOSTNAME);
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("Servidor na rede local: http://%s/\n", WiFi.localIP().toString().c_str());
+        Serial.printf("Server on the local network: http://%s/\n", WiFi.localIP().toString().c_str());
     }
 }
 
@@ -153,7 +153,7 @@ void setup()
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Rede Wi-Fi configurada indisponivel; iniciando acesso de recuperacao.");
+        Serial.println("Configured Wi-Fi network unavailable. Starting recovery access.");
         startFallbackAccessPoint();
     }
 

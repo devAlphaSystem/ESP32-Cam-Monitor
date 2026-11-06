@@ -206,7 +206,7 @@ void closeAccessPoint(const char* reason)
     apActive = false;
     apCloseAtMs = 0;
     syncAutoReconnect();
-    Serial.printf("Rede de configuracao encerrada (%s).\n", reason);
+    Serial.printf("Setup network closed (%s).\n", reason);
     PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Info, "setup_ap_closed", IPAddress(), 0, 0, millis() - apOpenedAtMs, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
 }
 
@@ -218,7 +218,7 @@ void openAccessPoint()
     const bool secured = strlen(WIFI_SETUP_AP_PASSWORD) >= 8;
     const bool started = WiFi.softAP(apSsid, secured ? WIFI_SETUP_AP_PASSWORD : nullptr, WIFI_SETUP_AP_CHANNEL, 0, 4);
     if (!started) {
-        Serial.println("Falha ao abrir a rede de configuracao.");
+        Serial.println("Failed to open the setup network.");
         apNotBeforeMs = millis() + 30000UL;
         WiFi.mode(WIFI_STA);
         return;
@@ -233,7 +233,7 @@ void openAccessPoint()
     syncAutoReconnect();
     touchPortal();
     startHttpServer();
-    Serial.printf("Rede de configuracao aberta: \"%s\" (%s). Abra http://%s/\n", apSsid, secured ? "com senha" : "aberta", WiFi.softAPIP().toString().c_str());
+    Serial.printf("Setup network open: \"%s\" (%s). Open http://%s/\n", apSsid, secured ? "password protected" : "open", WiFi.softAPIP().toString().c_str());
     PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Started, "setup_ap_open", WiFi.softAPIP(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
 }
 
@@ -329,7 +329,7 @@ void finishTest(bool success, const char* code)
             strlcpy(testCode, "save_failed", sizeof(testCode));
         if (apActive)
             apCloseAtMs = testFinishedAtMs + AP_CLOSE_AFTER_SUCCESS_MS;
-        Serial.printf("Wi-Fi configurado: \"%s\" (%d dBm, IP %s)%s\n", testSsid, testRssi, testIp.toString().c_str(), testSaved ? "" : " - FALHA ao gravar na NVS");
+        Serial.printf("Wi-Fi configured: \"%s\" (%d dBm, IP %s)%s\n", testSsid, testRssi, testIp.toString().c_str(), testSaved ? "" : " - FAILED to save to NVS");
         PersistentLog::record(PersistentLog::Event::WifiConnect, testSaved ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, testSaved ? "setup_saved" : "setup_save_failed", testGateway, 0, testRssi, testFinishedAtMs - testStartedAtMs, 0, PersistentLog::FlagManual, testSaved ? PersistentLog::Level::Info : PersistentLog::Level::Error, true);
     } else {
         testState = TestState::Failed;
@@ -337,7 +337,7 @@ void finishTest(bool success, const char* code)
         WiFi.disconnect(false);
         if (!apActive)
             holdUntilMs = 0;
-        Serial.printf("Teste de Wi-Fi falhou (\"%s\"): %s\n", testSsid, testCode);
+        Serial.printf("Wi-Fi test failed (\"%s\"): %s\n", testSsid, testCode);
         PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Failure, testCode, IPAddress(), 0, lastDisconnectReason, testFinishedAtMs - testStartedAtMs, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
     }
     memset(testPassword, 0, sizeof(testPassword));
@@ -355,7 +355,7 @@ void tickTest(uint32_t now)
         delay(50);
         lastDisconnectReason = 0;
         WiFi.begin(testSsid, strlen(testPassword) > 0 ? testPassword : nullptr);
-        Serial.printf("Testando Wi-Fi \"%s\"...\n", testSsid);
+        Serial.printf("Testing Wi-Fi \"%s\"...\n", testSsid);
         PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Started, "setup_test", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Info, true);
         return;
     }
@@ -596,19 +596,19 @@ void handleConnect()
     const String ssid = httpServer.arg("ssid");
     const String password = httpServer.arg("password");
     if (ssid.isEmpty() || ssid.length() > WIFI_SSID_MAX_LENGTH || !validText(ssid)) {
-        sendApiError(400, "invalid_ssid", "O nome da rede precisa ter de 1 a 32 caracteres.");
+        sendApiError(400, "invalid_ssid", "The network name must be 1 to 32 characters long.");
         return;
     }
     if (password.length() > WIFI_PASSWORD_MAX_LENGTH || (!password.isEmpty() && password.length() < 8) || !validText(password)) {
-        sendApiError(400, "invalid_password", "A senha precisa ter de 8 a 63 caracteres.");
+        sendApiError(400, "invalid_password", "The password must be 8 to 63 characters long.");
         return;
     }
     if (factoryResetRequestedAtMs != 0) {
-        sendApiError(409, "busy", "Restauracao de fabrica em andamento.");
+        sendApiError(409, "busy", "Factory reset in progress.");
         return;
     }
     if (!beginTest(ssid.c_str(), password.c_str())) {
-        sendApiError(409, "busy", "Ja existe um teste em andamento.");
+        sendApiError(409, "busy", "A test is already in progress.");
         return;
     }
     sendJsonResponse(202, String("{\"ok\":true}"));
@@ -677,7 +677,7 @@ void wifiSetupBegin()
     stationTracked = true;
     stationConnected = false;
     stationChangedAtMs = millis();
-    Serial.printf("Wi-Fi: %s\n", storedValid ? "credenciais salvas no painel encontradas" : (strlen(WIFI_SSID) > 0 ? "usando credenciais do firmware" : "nenhuma credencial configurada"));
+    Serial.printf("Wi-Fi: %s\n", storedValid ? "credentials saved from the dashboard found" : (strlen(WIFI_SSID) > 0 ? "using firmware credentials" : "no credentials configured"));
 }
 
 size_t wifiCredentialCandidates(WifiCredential* candidates)
@@ -774,14 +774,14 @@ void wifiSetupLoop()
     }
 
     if (apCloseAtMs != 0 && timeReached(now, apCloseAtMs)) {
-        closeAccessPoint("configuracao concluida");
+        closeAccessPoint("setup complete");
     } else if (connected) {
         const uint32_t connectedFor = now - stationChangedAtMs;
         if (connectedFor >= AP_MAX_CONNECTED_MS || (connectedFor >= AP_CLOSE_AFTER_CONNECT_MS && stations == 0 && timeReached(now, holdUntilMs)))
-            closeAccessPoint("Wi-Fi conectado");
+            closeAccessPoint("Wi-Fi connected");
     } else if (hasAnyCredential() && now - apOpenedAtMs >= WIFI_SETUP_AP_WINDOW_MS && stations == 0 && timeReached(now, holdUntilMs)) {
         apNotBeforeMs = now + WIFI_SETUP_AP_REOPEN_MS;
-        closeAccessPoint("tempo esgotado");
+        closeAccessPoint("timed out");
     }
 }
 

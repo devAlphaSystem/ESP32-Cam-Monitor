@@ -557,7 +557,7 @@ void acceptClient()
     slot->joinedAtMs = millis();
     statClientsServed = statClientsServed + 1;
     statClientCount = static_cast<uint8_t>(clientCount());
-    Serial.printf("[live] espectador conectado (%u ativo(s))\n", static_cast<unsigned>(clientCount()));
+    Serial.printf("[live] viewer connected (%u active)\n", static_cast<unsigned>(clientCount()));
 }
 
 void readClient(Client& client)
@@ -806,7 +806,7 @@ void stopSession(LiveStreamState nextState, const char* error)
     statFps = 0;
     statKbps = 0;
     if (wasActive)
-        Serial.printf("[live] sessao RTSP encerrada (%s)\n", error != nullptr ? error : "ocioso");
+        Serial.printf("[live] RTSP session closed (%s)\n", error != nullptr ? error : "idle");
 }
 
 bool startSession()
@@ -925,7 +925,7 @@ bool startSession()
     rateWindowStartedAtMs = session.startedAtMs;
     rateFrames = 0;
     rateBytes = fromCameraTotal;
-    Serial.printf("[live] sessao RTSP ativa: camera %lu, perfil %s, %ux%u\n", static_cast<unsigned long>(target.cameraId), target.profileName, static_cast<unsigned>(target.width), static_cast<unsigned>(target.height));
+    Serial.printf("[live] RTSP session active: camera %lu, profile %s, %ux%u\n", static_cast<unsigned long>(target.cameraId), target.profileName, static_cast<unsigned>(target.width), static_cast<unsigned>(target.height));
     return true;
 }
 
@@ -1082,7 +1082,7 @@ void handleSessionFailure()
     const uint32_t backoff = min<uint32_t>(RETRY_MAX_MS, RETRY_BASE_MS << min<uint8_t>(consecutiveFailures - 1, 3));
     retryAtMs = millis() + backoff;
     const char* error = lastErrorText[0] != '\0' ? lastErrorText : "unknown";
-    Serial.printf("[live] falha na sessao RTSP: %s (tentativa %u)\n", error, static_cast<unsigned>(consecutiveFailures));
+    Serial.printf("[live] RTSP session failure: %s (attempt %u)\n", error, static_cast<unsigned>(consecutiveFailures));
     stopSession(LiveStreamState::Retrying, error);
     if (consecutiveFailures >= FAILURES_BEFORE_NOTIFYING_CLIENTS) {
         stateValue = LiveStreamState::Failed;
@@ -1114,10 +1114,10 @@ bool openListenSocket()
 void liveTask(void*)
 {
     while (!openListenSocket()) {
-        Serial.println("[live] nao foi possivel abrir a porta do relé; tentando novamente");
+        Serial.println("[live] could not open the relay port; trying again");
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
-    Serial.printf("[live] relé de video ouvindo na porta %u\n", static_cast<unsigned>(LIVE_STREAM_PORT));
+    Serial.printf("[live] video relay listening on port %u\n", static_cast<unsigned>(LIVE_STREAM_PORT));
 
     while (true) {
         const unsigned long now = millis();
@@ -1229,7 +1229,7 @@ bool liveStreamBegin()
     const BaseType_t created = xTaskCreatePinnedToCore(liveTask, "live-relay", TASK_STACK_BYTES, nullptr, 2, &taskHandle, 0);
     if (created != pdPASS) {
         taskHandle = nullptr;
-        Serial.println("[live] falha ao criar a task do relé de video");
+        Serial.println("[live] failed to create the video relay task");
         return false;
     }
     return true;

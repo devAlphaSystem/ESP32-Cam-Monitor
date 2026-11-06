@@ -904,7 +904,7 @@ bool loadCameraTarget(CameraContext& ctx)
     ctx.camera.endpointUuid = savedUuid;
     ctx.camera.scopes = savedScopes;
 
-    Serial.printf("Camera carregada da NVS: %s:%u\n", ctx.camera.ip.toString().c_str(), ctx.camera.onvifPort);
+    Serial.printf("Camera loaded from NVS: %s:%u\n", ctx.camera.ip.toString().c_str(), ctx.camera.onvifPort);
     PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Success, "nvs_target", ctx.camera.ip, ctx.camera.onvifPort, 1, 0, ctx.camera.rtspPort, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     return true;
 }
@@ -919,7 +919,7 @@ bool loadCameraIpHint(CameraContext& ctx)
     IPAddress hintedIp;
 
     if (!hintedIp.fromString(CAMERA_IP_HINT)) {
-        Serial.println("CAMERA_IP_HINT invalido.");
+        Serial.println("CAMERA_IP_HINT is invalid.");
         PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Failure, "ip_hint_invalid", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
         return false;
     }
@@ -931,7 +931,7 @@ bool loadCameraIpHint(CameraContext& ctx)
     ctx.camera.onvifPath = DEFAULT_ONVIF_PATH;
     ctx.camera.onvifUrl = makeOnvifUrl(ctx.camera.ip, ctx.camera.onvifPort, ctx.camera.onvifPath);
 
-    Serial.printf("Usando CAMERA_IP_HINT: %s\n", ctx.camera.ip.toString().c_str());
+    Serial.printf("Using CAMERA_IP_HINT: %s\n", ctx.camera.ip.toString().c_str());
     PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Success, "ip_hint", ctx.camera.ip, ctx.camera.onvifPort, 1, 0, ctx.camera.rtspPort, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     return true;
 }
@@ -999,7 +999,7 @@ void enqueueDiscoveryIdentityCandidate(const CameraTarget& target)
     if (discoveryIdentityQueueCount < DISCOVERY_IDENTITY_QUEUE_CAPACITY)
         discoveryIdentityQueue[discoveryIdentityQueueCount++] = target;
     else
-        lastRegistryResult = "Fila de identificacao cheia; candidato sera reavaliado na proxima descoberta";
+        lastRegistryResult = "Identification queue full; the candidate will be reevaluated in the next discovery";
 }
 
 void addDiscoveryResponse(const String& xml)
@@ -1094,7 +1094,7 @@ void maintainDiscoveryIdentityCandidates()
         discoveredCount++;
     }
     if (discoveryIdentityQueueCount == 0)
-        lastDiscoveryResult = currentTimestamp() + " - cameras identificadas=" + String(discoveredCount) + "; cadastradas=" + String(cameraCount);
+        lastDiscoveryResult = currentTimestamp() + " - cameras identified=" + String(discoveredCount) + "; registered=" + String(cameraCount);
 }
 
 bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
@@ -1118,14 +1118,14 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
     const uint8_t logFlags = manualRequest ? PersistentLog::FlagManual : PersistentLog::FlagScheduled;
     discoveryRuns++;
     lastRediscoveryAtMs = millis();
-    lastDiscoveryResult = currentTimestamp() + " - Executando ONVIF WS-Discovery";
+    lastDiscoveryResult = currentTimestamp() + " - Running ONVIF WS-Discovery";
     Serial.println(lastDiscoveryResult);
     discoveredCount = 0;
 
     discoveryUdp.stop();
 
     if (!discoveryUdp.begin(WS_DISCOVERY_LOCAL_PORT)) {
-        lastDiscoveryResult = "Falha ao abrir socket UDP de descoberta";
+        lastDiscoveryResult = "Failed to open the UDP discovery socket";
         PersistentLog::record(PersistentLog::Event::DiscoveryResult, PersistentLog::Outcome::Failure, "udp_socket_failed", WS_DISCOVERY_MULTICAST, WS_DISCOVERY_PORT, -1, millis() - startedAtMs, 0, logFlags, PersistentLog::Level::Error, true, logContextId);
         return false;
     }
@@ -1143,7 +1143,7 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
     const bool sentAny = sendDiscoveryProbe(nullptr, logContextId, logFlags);
 
     if (!sentDevice && !sentNvt && !sentAny) {
-        lastDiscoveryResult = "Nao foi possivel enviar o Probe multicast";
+        lastDiscoveryResult = "Could not send the multicast Probe";
         discoveryUdp.stop();
         PersistentLog::record(PersistentLog::Event::DiscoveryResult, PersistentLog::Outcome::Failure, "all_probes_failed", WS_DISCOVERY_MULTICAST, WS_DISCOVERY_PORT, 0, millis() - startedAtMs, 0, logFlags, PersistentLog::Level::Error, true, logContextId);
         return false;
@@ -1184,7 +1184,7 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
 
     discoveryUdp.stop();
 
-    lastDiscoveryResult = currentTimestamp() + " - candidatos=" + String(discoveryIdentityQueueCount) + "; cadastradas=" + String(cameraCount) + "; identificacao pendente";
+    lastDiscoveryResult = currentTimestamp() + " - candidates=" + String(discoveryIdentityQueueCount) + "; registered=" + String(cameraCount) + "; identification pending";
     PersistentLog::record(PersistentLog::Event::DiscoveryResult, discoveryIdentityQueueCount > 0 ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, discoveryIdentityQueueCount > 0 ? "identity_pending" : "no_camera_found", IPAddress(), 0, 0, millis() - startedAtMs, discoveryIdentityQueueCount, logFlags, discoveryIdentityQueueCount > 0 ? PersistentLog::Level::Info : PersistentLog::Level::Warning, true, logContextId);
     return discoveryIdentityQueueCount > 0;
 }
@@ -1356,7 +1356,7 @@ bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId)
         ctx.lastSnapshotResolveAttemptAtMs = 0;
         registryRevision++;
 
-        Serial.printf("Servico ONVIF confirmado na porta %u.\n", ctx.camera.onvifPort);
+        Serial.printf("ONVIF service confirmed on port %u.\n", ctx.camera.onvifPort);
         return true;
     }
 
@@ -1427,7 +1427,7 @@ bool switchToAlternateEndpoint(CameraContext& ctx)
     invalidateSnapshotTarget(ctx);
     invalidateOnvifServiceCatalog(ctx);
     resetCameraSnapshotHttpSession(ctx);
-    resetCameraCheckSequences(ctx, "Endereco alternativo validado; aguardando verificacao");
+    resetCameraCheckSequences(ctx, "Alternate address validated; waiting for a check");
     ctx.previousCameraIp = previous.ip.toString();
     ctx.pendingIpChangeEmail = previous.ip != target.ip;
     ctx.preferredFailureStreak = 0;
@@ -1649,7 +1649,7 @@ bool recordCameraClockResponse(CameraContext& ctx, const String& responseXml, in
     if (referenceUnixTimeMs <= 0 || roundTripMs > CAMERA_CLOCK_MAX_ROUND_TRIP_MS || !parseOnvifUtcDateTime(responseXml, cameraUnixTimeMs)) {
         ctx.cameraClockStatus.utcValid = false;
         ctx.cameraClockStatus.failures++;
-        ctx.cameraClockStatus.lastResult = roundTripMs > CAMERA_CLOCK_MAX_ROUND_TRIP_MS ? "Amostra de relogio descartada por latencia ONVIF alta" : "UTCDateTime ONVIF ausente ou invalido";
+        ctx.cameraClockStatus.lastResult = roundTripMs > CAMERA_CLOCK_MAX_ROUND_TRIP_MS ? "Clock sample discarded due to high ONVIF latency" : "ONVIF UTCDateTime missing or invalid";
         return false;
     }
 
@@ -1658,19 +1658,19 @@ bool recordCameraClockResponse(CameraContext& ctx, const String& responseXml, in
     if (rawDriftMs <= INT32_MIN || rawDriftMs > INT32_MAX) {
         ctx.cameraClockStatus.utcValid = false;
         ctx.cameraClockStatus.failures++;
-        ctx.cameraClockStatus.lastResult = "Desvio do relogio fora do intervalo mensuravel";
+        ctx.cameraClockStatus.lastResult = "Clock drift outside the measurable range";
         return false;
     }
 
     ctx.cameraClockStatus.utcValid = true;
     ctx.cameraClockStatus.driftMs = static_cast<int32_t>(rawDriftMs);
     const int32_t absoluteDriftMs = ctx.cameraClockStatus.driftMs >= 0 ? ctx.cameraClockStatus.driftMs : -ctx.cameraClockStatus.driftMs;
-    const String direction = ctx.cameraClockStatus.driftMs >= 0 ? " adiantada" : " atrasada";
+    const String direction = ctx.cameraClockStatus.driftMs >= 0 ? " ahead" : " behind";
 
     if (absoluteDriftMs <= CAMERA_CLOCK_HEALTHY_DRIFT_MS) {
-        ctx.cameraClockStatus.lastResult = "Relogio da camera alinhado ao NTP do ESP32; desvio " + String(ctx.cameraClockStatus.driftMs / 1000.0F, 1) + " s";
+        ctx.cameraClockStatus.lastResult = "Camera clock aligned with the ESP32 NTP; drift " + String(ctx.cameraClockStatus.driftMs / 1000.0F, 1) + " s";
     } else {
-        ctx.cameraClockStatus.lastResult = "Camera" + direction + " em " + String(absoluteDriftMs / 1000.0F, 1) + " s frente ao NTP do ESP32";
+        ctx.cameraClockStatus.lastResult = "Camera clock" + direction + " by " + String(absoluteDriftMs / 1000.0F, 1) + " s relative to the ESP32 NTP";
     }
 
     return true;
@@ -1712,12 +1712,12 @@ void maintainCameraClock(CameraContext& ctx)
     const uint32_t roundTripMs = millis() - requestStartedAtMonotonicMs;
 
     if (!succeeded || requestStartedAtMs <= 0 || requestFinishedAtMs < requestStartedAtMs) {
-        noteCameraClockFailure(ctx, String("GetSystemDateAndTime falhou; HTTP ") + statusCode);
+        noteCameraClockFailure(ctx, String("GetSystemDateAndTime failed; HTTP ") + statusCode);
         return;
     }
 
     if (referenceBefore.generation != referenceAfter.generation || !sntpReferenceFresh(referenceAfter)) {
-        noteCameraClockFailure(ctx, "Amostra descartada: referencia SNTP mudou durante a consulta");
+        noteCameraClockFailure(ctx, "Sample discarded: the SNTP reference changed during the query");
         return;
     }
 
@@ -1983,10 +1983,10 @@ bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t 
     ctx.onvifServices.catalogValid = catalogParsed;
     if (catalogParsed) {
         ctx.onvifServices.successes++;
-        ctx.onvifServices.lastResult = String("GetServices retornou ") + String(ctx.onvifServices.serviceCount) + " servicos validados; rejeitados=" + String(ctx.onvifServices.rejectedEndpoints);
+        ctx.onvifServices.lastResult = String("GetServices returned ") + String(ctx.onvifServices.serviceCount) + " validated services; rejected=" + String(ctx.onvifServices.rejectedEndpoints);
     } else {
         ctx.onvifServices.failures++;
-        ctx.onvifServices.lastResult = transportFailure ? "GetServices falhou no transporte" : statusCode == 401 || statusCode == 403 ? "GetServices requer outra autorizacao" : responseXml.indexOf("Fault") >= 0 ? "GetServices retornou SOAP Fault" : statusCode >= 400 ? String("GetServices HTTP ") + statusCode : "GetServices retornou resposta invalida";
+        ctx.onvifServices.lastResult = transportFailure ? "GetServices failed in transport" : statusCode == 401 || statusCode == 403 ? "GetServices requires different authorization" : responseXml.indexOf("Fault") >= 0 ? "GetServices returned a SOAP Fault" : statusCode >= 400 ? String("GetServices HTTP ") + statusCode : "GetServices returned an invalid response";
     }
     if ((!catalogParsed || (ctx.onvifServices.serviceCount == 0 && ctx.onvifServices.rejectedEndpoints > 0)) && previousCatalog.catalogValid && previousCatalog.serviceCount > 0) {
         const String failure = ctx.onvifServices.lastResult;
@@ -1999,7 +1999,7 @@ bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t 
         ctx.onvifServices.successes = successes;
         ctx.onvifServices.failures = failures;
         ctx.onvifServices.lastStatusCode = lastStatus;
-        ctx.onvifServices.lastResult = failure + "; catalogo anterior desatualizado";
+        ctx.onvifServices.lastResult = failure + "; previous catalog outdated";
         ctx.onvifServices.stale = true;
         ctx.onvifServices.resolvedAtMs = millis();
         return ctx.onvifServices.media1.available;
@@ -2082,7 +2082,7 @@ void completeOnvifMetadataRefresh(CameraContext& ctx)
     ctx.onvifMetadata.loadedAtMs = millis();
     ctx.onvifMetadataStageFailureStreak = 0;
     ctx.lastOnvifMetadataRequestFailed = false;
-    ctx.onvifMetadata.lastResult = String(ctx.onvifMetadata.requests - ctx.onvifMetadata.failures) + "/" + String(ctx.onvifMetadata.requests) + " consultas ONVIF de leitura concluidas";
+    ctx.onvifMetadata.lastResult = String(ctx.onvifMetadata.requests - ctx.onvifMetadata.failures) + "/" + String(ctx.onvifMetadata.requests) + " ONVIF read queries completed";
 }
 
 void advanceOnvifMetadataStage(CameraContext& ctx)
@@ -2123,7 +2123,7 @@ void noteOnvifMetadataFailure(CameraContext& ctx, const char* operation, int sta
     const bool retryLimitReached = ctx.onvifMetadataStageFailureStreak >= 3;
 
     if (permanentStatus || retryLimitReached) {
-        ctx.onvifMetadata.lastResult = String(operation) + " nao suportado ou indisponivel; etapa ignorada";
+        ctx.onvifMetadata.lastResult = String(operation) + " not supported or unavailable; step skipped";
         ctx.onvifMetadataStageFailureStreak = 0;
         ctx.lastOnvifMetadataRequestFailed = false;
         advanceOnvifMetadataStage(ctx);
@@ -2131,7 +2131,7 @@ void noteOnvifMetadataFailure(CameraContext& ctx, const char* operation, int sta
     }
 
     ctx.lastOnvifMetadataRequestFailed = true;
-    ctx.onvifMetadata.lastResult = String(operation) + " falhou; HTTP " + String(statusCode) + "; nova tentativa em 30 s";
+    ctx.onvifMetadata.lastResult = String(operation) + " failed; HTTP " + String(statusCode) + "; retrying in 30 s";
 }
 
 void suspendCameraOnIdentityConflict(CameraContext& ctx, const char* reason)
@@ -2183,7 +2183,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
     if (!resolveOnvifServiceCatalog(ctx)) {
         ctx.lastOnvifMetadataRequestAtMs = now;
         ctx.lastOnvifMetadataRequestFailed = true;
-        ctx.onvifMetadata.lastResult = "Catalogo ONVIF indisponivel; nova tentativa em 30 s";
+        ctx.onvifMetadata.lastResult = "ONVIF catalog unavailable; retrying in 30 s";
         return;
     }
 
@@ -2219,7 +2219,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             }
 
             if ((!ctx.camera.manufacturer.isEmpty() && !ctx.onvifMetadata.manufacturer.isEmpty() && !ctx.camera.manufacturer.equalsIgnoreCase(ctx.onvifMetadata.manufacturer)) || (!ctx.camera.model.isEmpty() && !ctx.onvifMetadata.model.isEmpty() && !ctx.camera.model.equalsIgnoreCase(ctx.onvifMetadata.model))) {
-                suspendCameraOnIdentityConflict(ctx, "Fabricante ou modelo mudou neste endereco; acesso suspenso");
+                suspendCameraOnIdentityConflict(ctx, "Manufacturer or model changed at this address; access suspended");
                 return;
             }
 
@@ -2227,7 +2227,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             if (extractLocalTag(responseXml, "SerialNumber", 0, value, ignored)) {
                 const String serial = normalizeCameraIdentifier(limitedOnvifText(value, 128));
                 if (!serial.isEmpty() && !ctx.camera.serialNumber.isEmpty() && ctx.camera.serialNumber != serial) {
-                    suspendCameraOnIdentityConflict(ctx, "Numero de serie mudou neste endereco; acesso suspenso");
+                    suspendCameraOnIdentityConflict(ctx, "Serial number changed at this address; access suspended");
                     return;
                 }
                 if (ctx.camera.serialNumber != serial && !serial.isEmpty()) {
@@ -2248,7 +2248,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
                     registryRevision++;
                 else {
                     ctx.camera = previousIdentity;
-                    ctx.onvifMetadata.lastResult = "NVS sem espaco para identidade; nova tentativa apos reinicio";
+                    ctx.onvifMetadata.lastResult = "NVS out of space for identity; retrying after restart";
                 }
             }
             ctx.onvifMetadata.loaded = true;
@@ -2268,7 +2268,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             if (extractLocalTag(responseXml, "GUID", 0, value, ignored)) {
                 const String uuid = normalizeCameraIdentifier(limitedOnvifText(value, 128));
                 if (!uuid.isEmpty() && !ctx.camera.endpointUuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
-                    suspendCameraOnIdentityConflict(ctx, "EPR mudou neste endereco; acesso suspenso");
+                    suspendCameraOnIdentityConflict(ctx, "EPR changed at this address; access suspended");
                     return;
                 }
                 if (!uuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
@@ -2277,7 +2277,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
                         registryRevision++;
                     else {
                         ctx.camera = previousIdentity;
-                        ctx.onvifMetadata.lastResult = "NVS sem espaco para EPR";
+                        ctx.onvifMetadata.lastResult = "NVS out of space for EPR";
                     }
                 }
             }
@@ -2313,7 +2313,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
                     registryRevision++;
                 else {
                     ctx.camera = previousIdentity;
-                    ctx.onvifMetadata.lastResult = "NVS sem espaco para interfaces";
+                    ctx.onvifMetadata.lastResult = "NVS out of space for interfaces";
                 }
             }
             ctx.onvifMetadataStage = OnvifMetadataStage::Scopes;
@@ -2388,7 +2388,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
 
     ctx.onvifMetadataStageFailureStreak = 0;
     ctx.lastOnvifMetadataRequestFailed = false;
-    ctx.onvifMetadata.lastResult = "Inventario ONVIF em andamento";
+    ctx.onvifMetadata.lastResult = "ONVIF inventory in progress";
 }
 
 struct SnapshotProfileCandidate {
@@ -2587,20 +2587,20 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     invalidateSnapshotTarget(ctx);
 
     if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED) {
-        ctx.lastSnapshotResult = "Camera ou Wi-Fi indisponivel";
+        ctx.lastSnapshotResult = "Camera or Wi-Fi unavailable";
         return false;
     }
 
     if (!ctx.lastOnvifProbe.protocolResponded && !resolveCameraOnvifEndpoint(ctx, logContextId)) {
         ctx.lastSnapshotResolveStatusCode = ctx.lastOnvifProbe.statusCode;
-        ctx.lastSnapshotResult = "Servico ONVIF nao localizado";
+        ctx.lastSnapshotResult = "ONVIF service not found";
         return false;
     }
 
     ctx.lastSnapshotResolveAttemptAtMs = millis();
 
     if (!resolveOnvifServiceCatalog(ctx, false, logContextId)) {
-        ctx.lastSnapshotResult = "Catalogo ONVIF sem servico Media1";
+        ctx.lastSnapshotResult = "ONVIF catalog without a Media1 service";
         return false;
     }
 
@@ -2619,14 +2619,14 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
         if (!postOnvifSoap(ctx, mediaUrl, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<trt:GetProfiles/>", profilesXml, true, &profilesStatusCode, &profilesTransportFailure, ctx.settings.serviceResponseTimeoutMs, logContextId)) {
             ctx.lastSnapshotResolveStatusCode = profilesStatusCode;
             ctx.lastSnapshotResolveTransportFailure = profilesTransportFailure;
-            ctx.lastSnapshotResult = "ONVIF nao retornou os perfis de midia";
+            ctx.lastSnapshotResult = "ONVIF did not return the media profiles";
             return false;
         }
 
         ctx.lastSnapshotResolveStatusCode = profilesStatusCode;
         ctx.onvifServices.media1.validated = true;
         if (!selectOnvifProfiles(ctx, profilesXml, profileToken, profileName, ptzProfileToken, ptzProfileName)) {
-            ctx.lastSnapshotResult = "Nenhum perfil ONVIF compativel";
+            ctx.lastSnapshotResult = "No compatible ONVIF profile";
             return false;
         }
 
@@ -2654,7 +2654,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     if (!postOnvifSoap(ctx, mediaUrl, "http://www.onvif.org/ver10/media/wsdl/GetSnapshotUri", snapshotRequest, snapshotXml, true, &snapshotStatusCode, &snapshotTransportFailure, ctx.settings.serviceResponseTimeoutMs, logContextId)) {
         ctx.lastSnapshotResolveStatusCode = snapshotStatusCode;
         ctx.lastSnapshotResolveTransportFailure = snapshotTransportFailure;
-        ctx.lastSnapshotResult = "ONVIF nao retornou o snapshot";
+        ctx.lastSnapshotResult = "ONVIF did not return the snapshot";
         return false;
     }
 
@@ -2664,7 +2664,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     int ignoredPosition = 0;
 
     if (!extractLocalTag(snapshotXml, "Uri", 0, snapshotUrl, ignoredPosition)) {
-        ctx.lastSnapshotResult = "Resposta ONVIF sem URI de snapshot";
+        ctx.lastSnapshotResult = "ONVIF response without a snapshot URI";
         return false;
     }
 
@@ -2673,16 +2673,16 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     ParsedHttpResource parsedSnapshot;
 
     if (!parseHttpResourceUrl(snapshotUrl, parsedSnapshot)) {
-        ctx.lastSnapshotResult = "Camera retornou um URI de snapshot invalido";
+        ctx.lastSnapshotResult = "Camera returned an invalid snapshot URI";
         return false;
     }
 
     if (parsedSnapshot.secure) {
-        ctx.lastSnapshotResult = "Snapshot HTTPS local ainda nao suportado";
+        ctx.lastSnapshotResult = "Local HTTPS snapshot not supported yet";
         return false;
     }
     if (!CameraPolicy::safeHttpPath(parsedSnapshot.path.c_str(), 512, true) || ctx.camera.ip == WiFi.localIP()) {
-        ctx.lastSnapshotResult = "URI de snapshot com destino ou caminho inseguro";
+        ctx.lastSnapshotResult = "Snapshot URI with an unsafe destination or path";
         return false;
     }
 
@@ -2752,7 +2752,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
 
         parsedSnapshot.path = authenticatedPath;
         if (!CameraPolicy::safeHttpPath(parsedSnapshot.path.c_str(), 512, true)) {
-            ctx.lastSnapshotResult = "URI de snapshot com destino ou caminho inseguro";
+            ctx.lastSnapshotResult = "Snapshot URI with an unsafe destination or path";
             return false;
         }
     }
@@ -2762,7 +2762,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     ctx.snapshotTarget.profileToken = profileToken;
     ctx.snapshotTarget.profileName = profileName;
     ctx.snapshotTargetFailureStreak = 0;
-    ctx.lastSnapshotResult = currentTimestamp() + " - perfil " + ctx.snapshotTarget.profileName;
+    ctx.lastSnapshotResult = currentTimestamp() + " - profile " + ctx.snapshotTarget.profileName;
 
     return true;
 }
@@ -2952,14 +2952,14 @@ bool onvifPtzPresetIsDaemon(const String& token)
 String onvifPtzPresetLabel(const OnvifPtzPreset& preset)
 {
     if (onvifPtzPresetIsDaemon(preset.token)) {
-        return "Ponto Daemon";
+        return "Daemon preset";
     }
 
     if (!preset.name.isEmpty() && preset.name != preset.token) {
         return preset.name;
     }
 
-    return String("Posição ") + preset.token;
+    return String("Preset ") + preset.token;
 }
 
 bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
@@ -2969,7 +2969,7 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
     }
 
     if (!ctx.onvifServices.media1.available || !ctx.onvifServices.ptz.available) {
-        ctx.onvifPtz.lastResult = "Servicos Media1 ou PTZ indisponiveis";
+        ctx.onvifPtz.lastResult = "Media1 or PTZ services unavailable";
         return false;
     }
 
@@ -2978,7 +2978,7 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
 
     if (!postOnvifSoap(ctx, ctx.onvifServices.media1.url, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<trt:GetProfiles/>", profilesXml, true, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, contextId)) {
         ctx.onvifPtz.lastRefreshStatusCode = statusCode;
-        ctx.onvifPtz.lastResult = String("GetProfiles para PTZ falhou; HTTP ") + statusCode;
+        ctx.onvifPtz.lastResult = String("GetProfiles for PTZ failed; HTTP ") + statusCode;
         return false;
     }
 
@@ -2989,7 +2989,7 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
     selectOnvifProfiles(ctx, profilesXml, ignoredSnapshotToken, ignoredSnapshotName, profileToken, profileName);
 
     if (profileToken.isEmpty()) {
-        ctx.onvifPtz.lastResult = "Nenhum perfil de midia possui configuracao PTZ";
+        ctx.onvifPtz.lastResult = "No media profile has a PTZ configuration";
         return false;
     }
 
@@ -3108,19 +3108,19 @@ bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
 
     if (!parsedPresets) {
         ctx.onvifPtz.refreshFailures++;
-        ctx.onvifPtz.lastResult = "GetPresets sem memoria para processar o catalogo";
+        ctx.onvifPtz.lastResult = "GetPresets without enough memory to process the catalog";
         return false;
     }
 
     if (!received || !parseOnvifPtzPresets(responseXml, parsedPresets.get(), parsedCount, reportedCount, truncated)) {
         ctx.onvifPtz.refreshFailures++;
-        ctx.onvifPtz.lastResult = transportFailure ? "GetPresets falhou no transporte" : String("GetPresets falhou; HTTP ") + statusCode;
+        ctx.onvifPtz.lastResult = transportFailure ? "GetPresets failed in transport" : String("GetPresets failed; HTTP ") + statusCode;
         return false;
     }
 
     std::unique_ptr<OnvifPtzPreset[]> presets(parsedCount == 0 ? nullptr : new (std::nothrow) OnvifPtzPreset[parsedCount]);
     if (parsedCount != 0 && !presets) {
-        ctx.onvifPtz.lastResult = "Memoria insuficiente para o catalogo PTZ";
+        ctx.onvifPtz.lastResult = "Not enough memory for the PTZ catalog";
         ctx.onvifPtz.refreshFailures++;
         return false;
     }
@@ -3135,10 +3135,10 @@ bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
     ctx.onvifPtz.reportedPresetCount = reportedCount;
     ctx.onvifPtz.refreshSuccesses++;
     ctx.onvifPtz.refreshedAtMs = millis();
-    ctx.onvifPtz.lastResult = currentTimestamp() + " - GetPresets retornou " + String(reportedCount) + " posicoes";
+    ctx.onvifPtz.lastResult = currentTimestamp() + " - GetPresets returned " + String(reportedCount) + " presets";
 
     if (truncated) {
-        ctx.onvifPtz.lastResult += "; exibindo as primeiras ";
+        ctx.onvifPtz.lastResult += "; showing the first ";
         ctx.onvifPtz.lastResult += ONVIF_PTZ_PRESET_CAPACITY;
     }
 
@@ -3175,24 +3175,24 @@ bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16
     CameraIoGuard cameraIoGuard;
 
     if (!cameraIoGuard.acquired()) {
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - canal da camera ocupado";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - camera channel busy";
         return false;
     }
 
     if (!ctx.camera.valid || !ctx.onvifServices.ptz.available || cameraRebootGraceActive(ctx)) {
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - servico PTZ indisponivel";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - PTZ service unavailable";
         return false;
     }
 
     if ((!ctx.onvifPtz.presetsLoaded || !ctx.onvifPtz.profileResolved) && !refreshOnvifPtzPresets(ctx, logContextId)) {
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - presets PTZ indisponiveis";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - PTZ presets unavailable";
         return false;
     }
 
     const int presetIndex = onvifPtzPresetIndex(ctx, presetToken);
 
     if (presetIndex < 0) {
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - preset nao encontrado";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - preset not found";
         return false;
     }
 
@@ -3218,10 +3218,10 @@ bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16
     if (accepted) {
         ctx.onvifPtz.commandAccepted++;
         ctx.lastBrowserSnapshotDeliveredAtMs = 0;
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - comando para " + onvifPtzPresetLabel(preset) + " aceito pela câmera";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - command for " + onvifPtzPresetLabel(preset) + " accepted by the camera";
     } else {
         ctx.onvifPtz.commandErrors++;
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - comando para " + onvifPtzPresetLabel(preset) + " rejeitado; HTTP " + statusCode;
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - command for " + onvifPtzPresetLabel(preset) + " rejected; HTTP " + statusCode;
     }
 
     Serial.println(ctx.onvifPtz.lastCommandResult);
@@ -3267,7 +3267,7 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
 
     if (!ctx.snapshotTarget.valid) {
         if (ctx.lastSnapshotResolveAttemptAtMs != 0 && millis() - ctx.lastSnapshotResolveAttemptAtMs < ctx.settings.snapshotResolveRetryIntervalMs) {
-            result.detail = "Aguardando nova tentativa de resolver o snapshot";
+            result.detail = "Waiting to retry resolving the snapshot";
         } else {
             resolutionAttempted = true;
 
@@ -3310,7 +3310,7 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
     result.httpResponded = statusCode >= 100;
 
     if (statusCode < 200 || statusCode >= 300) {
-        result.detail = statusCode < 0 ? String("Falha HTTP: ") + HTTPClient::errorToString(statusCode) : String("Camera retornou HTTP ") + String(statusCode);
+        result.detail = statusCode < 0 ? String("HTTP failure: ") + HTTPClient::errorToString(statusCode) : String("Camera returned HTTP ") + String(statusCode);
         finishCameraSnapshotGet(ctx, false);
         noteSnapshotRequestFailure(ctx, statusCode);
         ctx.snapshotProbeFailures++;
@@ -3322,7 +3322,7 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
     const int contentLength = request.getSize();
 
     if (contentLength == 0 || (contentLength > 0 && contentLength < static_cast<int>(MIN_VALID_SNAPSHOT_SIZE_BYTES)) || contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)) {
-        result.detail = "Tamanho de snapshot invalido";
+        result.detail = "Invalid snapshot size";
         finishCameraSnapshotGet(ctx, false);
         noteSnapshotRequestFailure(ctx, statusCode);
         ctx.snapshotProbeFailures++;
@@ -3334,7 +3334,7 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
     WiFiClient* source = request.getStreamPtr();
 
     if (source == nullptr) {
-        result.detail = "Fluxo HTTP do snapshot indisponivel";
+        result.detail = "Snapshot HTTP stream unavailable";
         finishCameraSnapshotGet(ctx, false);
         noteSnapshotRequestFailure(ctx, statusCode);
         ctx.snapshotProbeFailures++;
@@ -3425,22 +3425,22 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
     if (result.jpegValid) {
         ctx.snapshotTargetFailureStreak = 0;
         resetSnapshotProfileFailover(ctx);
-        result.detail = String("JPEG valido; ") + String(result.bytesRead) + " bytes";
-        ctx.lastSnapshotResult = currentTimestamp() + " - " + result.detail + "; perfil " + ctx.snapshotTarget.profileName;
+        result.detail = String("Valid JPEG; ") + String(result.bytesRead) + " bytes";
+        ctx.lastSnapshotResult = currentTimestamp() + " - " + result.detail + "; profile " + ctx.snapshotTarget.profileName;
         ctx.lastSnapshotProbe = result;
         return true;
     }
 
     if (!jpegStarted) {
-        result.detail = "Resposta nao iniciou com marcador JPEG FF D8";
+        result.detail = "Response did not start with the JPEG marker FF D8";
     } else if (!completeLength) {
-        result.detail = String("Transferencia incompleta; recebidos ") + String(result.bytesRead) + " de " + String(contentLength) + " bytes";
+        result.detail = String("Incomplete transfer; received ") + String(result.bytesRead) + " de " + String(contentLength) + " bytes";
     } else if (jpegEndOffset == 0) {
-        result.detail = "Snapshot incompleto; marcador FF D9 nao recebido";
+        result.detail = "Incomplete snapshot; marker FF D9 not received";
     } else if (!jpegEndNearTail) {
-        result.detail = "Marcador JPEG FF D9 apareceu antes do fim da resposta";
+        result.detail = "JPEG marker FF D9 appeared before the end of the response";
     } else {
-        result.detail = "Snapshot JPEG menor que o limite minimo";
+        result.detail = "JPEG snapshot smaller than the minimum limit";
     }
 
     noteSnapshotRequestFailure(ctx, statusCode);
@@ -3460,7 +3460,7 @@ bool snapshotFailureAllowsAutomaticReboot(CameraContext& ctx)
         return false;
     }
 
-    return !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "nenhum perfil") && !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "uri de snapshot invalido") && !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "https local ainda nao suportado");
+    return !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "no compatible onvif profile") && !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "invalid snapshot uri") && !containsIgnoreCase(ctx.lastSnapshotProbe.detail, "local https snapshot not supported yet");
 }
 
 void recordCameraRebootEvidence(CameraContext& ctx, bool manualRequest)
@@ -3494,19 +3494,19 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     CameraIoGuard cameraIoGuard;
 
     if (!cameraIoGuard.acquired()) {
-        ctx.lastCameraRebootResult = currentTimestamp() + " - canal da camera ocupado";
+        ctx.lastCameraRebootResult = currentTimestamp() + " - camera channel busy";
         recordReboot(PersistentLog::Outcome::Skipped, "camera_io_busy", 0, PersistentLog::Level::Warning, false);
         return false;
     }
 
     if (!ctx.camera.valid) {
-        ctx.lastCameraRebootResult = currentTimestamp() + " - camera ainda nao localizada";
+        ctx.lastCameraRebootResult = currentTimestamp() + " - camera not found yet";
         recordReboot(PersistentLog::Outcome::Skipped, "camera_not_found", 0, PersistentLog::Level::Warning, false);
         return false;
     }
 
     if (!manualRequest && !ctx.settings.enableOnvifAutoReboot) {
-        ctx.lastCameraRebootResult = currentTimestamp() + " - reboot automatico desativado";
+        ctx.lastCameraRebootResult = currentTimestamp() + " - automatic reboot disabled";
         recordReboot(PersistentLog::Outcome::Skipped, "automatic_disabled", 0, PersistentLog::Level::Info, false);
         return false;
     }
@@ -3516,7 +3516,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
 
     if (!manualRequest && now - ctx.registeredAtMs < ctx.settings.startupGraceMs) {
         const unsigned long remainingMs = ctx.settings.startupGraceMs - (now - ctx.registeredAtMs);
-        ctx.lastCameraRebootResult = currentTimestamp() + " - reboot aguardando a tolerancia inicial; faltam " + durationText(remainingMs);
+        ctx.lastCameraRebootResult = currentTimestamp() + " - reboot waiting for the startup grace period; remaining " + durationText(remainingMs);
         recordReboot(PersistentLog::Outcome::Skipped, "startup_grace", 0, PersistentLog::Level::Info, false);
         return false;
     }
@@ -3528,7 +3528,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
 
     if (ctx.lastCameraRebootAttemptAtMs != 0 && now - ctx.lastCameraRebootAttemptAtMs < ctx.settings.onvifRebootCooldownMs) {
         const unsigned long remainingMs = ctx.settings.onvifRebootCooldownMs - (now - ctx.lastCameraRebootAttemptAtMs);
-        ctx.lastCameraRebootResult = currentTimestamp() + " - novo reboot bloqueado por cooldown; faltam " + durationText(remainingMs);
+        ctx.lastCameraRebootResult = currentTimestamp() + " - new reboot blocked by cooldown; remaining " + durationText(remainingMs);
         recordReboot(PersistentLog::Outcome::Skipped, "cooldown", 0, PersistentLog::Level::Warning, false);
         return false;
     }
@@ -3536,7 +3536,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     if (ctx.cameraRebootAttemptsInWindow >= ctx.settings.maxOnvifRebootAttemptsPerWindow) {
         const unsigned long elapsedMs = now - ctx.cameraRebootWindowStartedAtMs;
         const unsigned long remainingMs = elapsedMs < ctx.settings.onvifRebootWindowMs ? ctx.settings.onvifRebootWindowMs - elapsedMs : 0;
-        ctx.lastCameraRebootResult = currentTimestamp() + " - limite de tentativas atingido; nova janela em " + durationText(remainingMs);
+        ctx.lastCameraRebootResult = currentTimestamp() + " - attempt limit reached; new window in " + durationText(remainingMs);
         recordReboot(PersistentLog::Outcome::Skipped, "window_limit", 0, PersistentLog::Level::Warning, true);
         return false;
     }
@@ -3557,7 +3557,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     if (!persistRebootLimiter(ctx)) {
         ctx.cameraRebootAttemptsInWindow--;
         ctx.cameraRebootAcceptedAtMs[ctx.cameraRebootAttemptsInWindow] = 0;
-        ctx.lastCameraRebootResult = currentTimestamp() + " - NVS indisponivel; reboot bloqueado para preservar limite";
+        ctx.lastCameraRebootResult = currentTimestamp() + " - NVS unavailable; reboot blocked to preserve the limit";
         recordReboot(PersistentLog::Outcome::Skipped, "reboot_ledger_failed", 0, PersistentLog::Level::Error, true);
         return false;
     }
@@ -3573,8 +3573,8 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
         }
 
         ctx.lastCameraRebootResult = currentTimestamp() + " - ";
-        ctx.lastCameraRebootResult += manualRequest ? "manual" : "automatico";
-        ctx.lastCameraRebootResult += " rejeitado; ";
+        ctx.lastCameraRebootResult += manualRequest ? "manual" : "automatic";
+        ctx.lastCameraRebootResult += " rejected; ";
 
         if (statusCode < 0) {
             ctx.lastCameraRebootResult += HTTPClient::errorToString(statusCode);
@@ -3593,7 +3593,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
         }
 
         if (statusCode == 401 && !cameraCredentialsConfigured(ctx)) {
-            ctx.lastCameraRebootResult += "; configure a autenticacao da camera no painel";
+            ctx.lastCameraRebootResult += "; set up the camera authentication in the dashboard";
         }
 
         Serial.println(ctx.lastCameraRebootResult);
@@ -3609,19 +3609,19 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
         ctx.automaticCameraRebootAccepted++;
     }
 
-    ctx.lastCameraRebootEvidence = currentTimestamp() + " - origem ";
-    ctx.lastCameraRebootEvidence += manualRequest ? "manual" : "automatica";
+    ctx.lastCameraRebootEvidence = currentTimestamp() + " - origin ";
+    ctx.lastCameraRebootEvidence += manualRequest ? "manual" : "automatic";
     ctx.lastCameraRebootEvidence += "; JPEG HTTP ";
     ctx.lastCameraRebootEvidence += ctx.lastSnapshotProbe.statusCode;
     ctx.lastCameraRebootEvidence += ", ";
     ctx.lastCameraRebootEvidence += ctx.lastSnapshotProbe.bytesRead;
-    ctx.lastCameraRebootEvidence += " bytes em ";
+    ctx.lastCameraRebootEvidence += " bytes in ";
     ctx.lastCameraRebootEvidence += ctx.lastSnapshotProbe.latencyMs;
-    ctx.lastCameraRebootEvidence += " ms; falhas JPEG ";
+    ctx.lastCameraRebootEvidence += " ms; JPEG failures ";
     ctx.lastCameraRebootEvidence += ctx.consecutiveFailures;
     ctx.lastCameraRebootEvidence += "; Wi-Fi ESP32 ";
     ctx.lastCameraRebootEvidence += WiFi.RSSI();
-    ctx.lastCameraRebootEvidence += " dBm; heap livre ";
+    ctx.lastCameraRebootEvidence += " dBm; free heap ";
     ctx.lastCameraRebootEvidence += ESP.getFreeHeap();
     ctx.lastCameraRebootEvidence += " bytes";
     recordCameraRebootEvidence(ctx, manualRequest);
@@ -3643,15 +3643,15 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     ctx.lastSnapshotResolveTransportFailure = false;
     ctx.lastSnapshotProbe = SnapshotProbe{};
     ctx.lastSnapshotProbe.attempted = true;
-    ctx.lastSnapshotProbe.detail = "Aguardando a camera reiniciar";
+    ctx.lastSnapshotProbe.detail = "Waiting for the camera to restart";
 
     String rebootMessage;
     int ignoredPosition = 0;
     extractLocalTag(responseBody, "Message", 0, rebootMessage, ignoredPosition);
 
     ctx.lastCameraRebootResult = currentTimestamp() + " - ";
-    ctx.lastCameraRebootResult += manualRequest ? "manual" : "automatico";
-    ctx.lastCameraRebootResult += " comando aceito; reinicio ainda nao confirmado; HTTP ";
+    ctx.lastCameraRebootResult += manualRequest ? "manual" : "automatic";
+    ctx.lastCameraRebootResult += " command accepted; restart not confirmed yet; HTTP ";
     ctx.lastCameraRebootResult += statusCode;
 
     if (!rebootMessage.isEmpty()) {
@@ -3659,7 +3659,7 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
         ctx.lastCameraRebootResult += rebootMessage;
     }
 
-    setState(ctx, CameraState::Recovering, "Reinicializacao ONVIF solicitada; aguardando a camera");
+    setState(ctx, CameraState::Recovering, "ONVIF restart requested; waiting for the camera");
     Serial.println(ctx.lastCameraRebootResult);
     recordReboot(PersistentLog::Outcome::Success, "SystemReboot", statusCode, PersistentLog::Level::Info, true);
     return true;
@@ -3714,7 +3714,7 @@ void serveCameraSnapshot(CameraContext& ctx)
 
     if (statusCode < 200 || statusCode >= 300 || contentLength == 0 || (contentLength > 0 && contentLength < static_cast<int>(MIN_VALID_SNAPSHOT_SIZE_BYTES)) || contentLength > static_cast<int>(MAX_SNAPSHOT_SIZE_BYTES)) {
         finishCameraSnapshotGet(ctx, false);
-        ctx.lastSnapshotResult = statusCode < 0 ? currentTimestamp() + " - " + HTTPClient::errorToString(statusCode) : currentTimestamp() + " - falha HTTP " + String(statusCode);
+        ctx.lastSnapshotResult = statusCode < 0 ? currentTimestamp() + " - " + HTTPClient::errorToString(statusCode) : currentTimestamp() + " - HTTP failure " + String(statusCode);
         sendSnapshotError(ctx, 502, "invalid_camera_response");
         return;
     }
@@ -3756,7 +3756,7 @@ void serveCameraSnapshot(CameraContext& ctx)
 
     if (prefixLength != sizeof(prefix) || prefix[0] != 0xFF || prefix[1] != 0xD8) {
         finishCameraSnapshotGet(ctx, false);
-        ctx.lastSnapshotResult = "Resposta da camera nao e um JPEG valido";
+        ctx.lastSnapshotResult = "The camera response is not a valid JPEG";
         sendSnapshotError(ctx, 502, "invalid_jpeg_header");
         return;
     }
@@ -3861,12 +3861,12 @@ void serveCameraSnapshot(CameraContext& ctx)
         ctx.lastBrowserSnapshotDeliveredAtMs = millis();
         ctx.lastBrowserSnapshotBytes = bytesTransferred;
         ctx.lastBrowserSnapshotLatencyMs = ctx.lastBrowserSnapshotDeliveredAtMs - snapshotStartedAtMs;
-        ctx.lastSnapshotResult = currentTimestamp() + " - quadro entregue; " + String(bytesTransferred) + " bytes; perfil " + ctx.snapshotTarget.profileName;
+        ctx.lastSnapshotResult = currentTimestamp() + " - frame delivered; " + String(bytesTransferred) + " bytes; profile " + ctx.snapshotTarget.profileName;
     } else if (browserDisconnected) {
         ctx.previewClientAborts++;
     } else {
         ctx.snapshotErrors++;
-        ctx.lastSnapshotResult = "Transferencia do snapshot JPEG incompleta";
+        ctx.lastSnapshotResult = "JPEG snapshot transfer incomplete";
     }
 
     const unsigned long transferFinishedAtMs = millis();
@@ -3990,14 +3990,14 @@ void maintainSubnetScan()
         subnetScanRequested = false;
         lastSubnetScanAtMs = millis();
         if (broadcast <= network + 1 || broadcast - network - 1 > MAX_SCAN_HOSTS) {
-            lastScanResult = "Sub-rede fora do limite de hosts da varredura";
+            lastScanResult = "Subnet outside the scan host limit";
             return;
         }
         cursor = network + 1;
         startedAtMs = millis();
         contextId = allocateLogContextId();
         subnetScanRuns++;
-        lastScanResult = "Varredura incremental em andamento";
+        lastScanResult = "Incremental scan in progress";
     }
     lastStepAtMs = millis();
     CameraIoGuard ioGuard;
@@ -4006,7 +4006,7 @@ void maintainSubnetScan()
     if (!checkingOnvif) {
         if (cursor >= broadcast) {
             cursor = 0;
-            lastScanResult = currentTimestamp() + " - varredura concluida";
+            lastScanResult = currentTimestamp() + " - scan complete";
             return;
         }
         candidateIp = uint32ToIp(cursor++);
@@ -4022,7 +4022,7 @@ void maintainSubnetScan()
         portIndex = 0;
     }
     if (ESP.getFreeHeap() < sizeof(CameraContext) + CAMERA_OPERATION_HEAP_RESERVE) {
-        lastScanResult = "Varredura adiada por memoria insuficiente";
+        lastScanResult = "Scan deferred due to insufficient memory";
         return;
     }
     std::unique_ptr<CameraContext> candidate(new (std::nothrow) CameraContext());

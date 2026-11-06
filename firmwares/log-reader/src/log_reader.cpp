@@ -24,8 +24,8 @@ struct __attribute__((packed)) RecordIndex {
     uint16_t slot;
 };
 
-static_assert(sizeof(RecordIndex) == 6, "O indice deve preservar heap");
-static_assert(sizeof(PersistentLogFormat::StoredRecord) == 80, "Formato persistente inesperado");
+static_assert(sizeof(RecordIndex) == 6, "The index must conserve heap");
+static_assert(sizeof(PersistentLogFormat::StoredRecord) == 80, "Unexpected persistent format");
 
 RTC_NOINIT_ATTR volatile MountOperationMarker mountOperationMarker;
 

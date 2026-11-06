@@ -336,7 +336,7 @@ bool begin()
     clearStorageOperationMarker();
 
     if (storageFormatted) {
-        Serial.println("Particao de logs reinicializada para recuperar o armazenamento.");
+        Serial.println("Logs partition reinitialized to recover the storage.");
     }
 
     return true;

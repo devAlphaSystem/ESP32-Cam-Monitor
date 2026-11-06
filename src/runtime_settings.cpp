@@ -11,8 +11,8 @@
 
 namespace CameraWatchdog {
 
-static_assert(sizeof(CAMERA_ONVIF_USERNAME_VALUE) - 1 <= CAMERA_USERNAME_MAX_LENGTH, "Usuario inicial da camera excede o limite");
-static_assert(sizeof(CAMERA_ONVIF_PASSWORD_VALUE) - 1 <= CAMERA_PASSWORD_MAX_LENGTH, "Senha inicial da camera excede o limite");
+static_assert(sizeof(CAMERA_ONVIF_USERNAME_VALUE) - 1 <= CAMERA_USERNAME_MAX_LENGTH, "Initial camera username exceeds the limit");
+static_assert(sizeof(CAMERA_ONVIF_PASSWORD_VALUE) - 1 <= CAMERA_PASSWORD_MAX_LENGTH, "Initial camera password exceeds the limit");
 
 GlobalSettings makeDefaultGlobalSettings()
 {

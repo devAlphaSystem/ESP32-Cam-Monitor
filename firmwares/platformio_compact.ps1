@@ -78,7 +78,7 @@ function Write-UploadProgress([int]$Percent) {
     $boundedPercent = [Math]::Max(0, [Math]::Min(100, $Percent))
     $filled = [Math]::Floor($boundedPercent * $width / 100)
     $bar = ("#" * $filled) + ("-" * ($width - $filled))
-    Write-Host ("`r    Gravando: [{0}] {1,3}%" -f $bar, $boundedPercent) -NoNewline
+    Write-Host ("`r    Writing: [{0}] {1,3}%" -f $bar, $boundedPercent) -NoNewline
     $script:progressActive = $true
 }
 
@@ -86,15 +86,15 @@ try {
     $env:PYTHONUNBUFFERED = "1"
 
     if ($Action -eq "build") {
-        Write-CompactLine "    Preparando compilacao..."
+        Write-CompactLine "    Preparing build..."
     } elseif ($Action -eq "backup-logs") {
-        Write-CompactLine "    Preparando backup forense..."
+        Write-CompactLine "    Preparing forensic backup..."
     } elseif ($Action -eq "erase-except-logs") {
-        Write-CompactLine "    Preparando apagamento seletivo..."
+        Write-CompactLine "    Preparing selective erase..."
     } elseif ($Action -like "verify-logs-*") {
-        Write-CompactLine "    Preparando conferencia binaria..."
+        Write-CompactLine "    Preparing binary verification..."
     } else {
-        Write-CompactLine "    Preparando comunicacao serial..."
+        Write-CompactLine "    Preparing serial communication..."
     }
 
     & $PlatformIo @pioArguments 2>&1 | ForEach-Object {
@@ -104,7 +104,7 @@ try {
 
         if ($cleanLine -eq "LOG_LAYOUT_OK=0x310000:0x0F0000:0x400000") {
             if (-not $layoutShown) {
-                Write-CompactLine "    Layout confirmado: logs em 0x310000-0x3FFFFF (960 KiB)."
+                Write-CompactLine "    Layout confirmed: logs at 0x310000-0x3FFFFF (960 KiB)."
                 $layoutShown = $true
             }
             return
@@ -112,7 +112,7 @@ try {
 
         if ($cleanLine -match "^LOG_DEVICE_OK=(.+)$") {
             if (-not $deviceShown) {
-                Write-CompactLine ("    ESP32 confirmado: " + $Matches[1])
+                Write-CompactLine ("    ESP32 confirmed: " + $Matches[1])
                 $deviceShown = $true
             }
             return
@@ -120,19 +120,19 @@ try {
 
         if ($cleanLine -match "^LOG_FLASH_SIZE_OK=(.+)$") {
             if (-not $flashSizeShown) {
-                Write-CompactLine ("    Flash confirmada: " + $Matches[1])
+                Write-CompactLine ("    Flash confirmed: " + $Matches[1])
                 $flashSizeShown = $true
             }
             return
         }
 
         if ($cleanLine -eq "LOG_BACKUP_STARTED") {
-            Write-CompactLine "    Lendo integralmente a particao de logs..."
+            Write-CompactLine "    Reading the entire logs partition..."
             return
         }
 
         if ($cleanLine -match "^LOG_BACKUP_SAVED=(.+)$") {
-            Write-CompactLine ("    Backup salvo em: " + $Matches[1])
+            Write-CompactLine ("    Backup saved to: " + $Matches[1])
             return
         }
 
@@ -142,39 +142,39 @@ try {
         }
 
         if ($cleanLine -eq "LOG_PRESERVE_ERASE_START") {
-            Write-CompactLine "    Apagando do endereco 0x000000 ate 0x30FFFF..."
+            Write-CompactLine "    Erasing from address 0x000000 to 0x30FFFF..."
             return
         }
 
         if ($cleanLine -eq "LOG_PRESERVE_ERASE_DONE") {
-            Write-CompactLine "    Apagamento seletivo concluido."
+            Write-CompactLine "    Selective erase complete."
             return
         }
 
         if ($cleanLine -match "^LOG_VERIFY_STARTED=(after-erase|after-upload)$") {
-            Write-CompactLine "    Relendo os 960 KiB da particao de logs..."
+            Write-CompactLine "    Rereading the 960 KiB of the logs partition..."
             return
         }
 
         if ($cleanLine -match "^LOG_VERIFY_OK=(after-erase|after-upload)$") {
-            Write-CompactLine "    SHA256 e comparacao binaria confirmados."
+            Write-CompactLine "    SHA256 and binary comparison confirmed."
             return
         }
 
         if ($cleanLine -match "^LOG_ERROR=(.+)$") {
-            Write-CompactLine ("    ERRO: " + $Matches[1])
+            Write-CompactLine ("    ERROR: " + $Matches[1])
             return
         }
 
         if ($Action -eq "build") {
             if (-not $buildCompileShown -and $cleanLine -match "^Compiling ") {
-                Write-CompactLine "    Compilando arquivos..."
+                Write-CompactLine "    Compiling files..."
                 $buildCompileShown = $true
             } elseif (-not $buildLinkShown -and $cleanLine -match "^Linking ") {
-                Write-CompactLine "    Montando o firmware..."
+                Write-CompactLine "    Linking the firmware..."
                 $buildLinkShown = $true
             } elseif (-not $buildPackageShown -and $cleanLine -match "^Building .*firmware\.bin") {
-                Write-CompactLine "    Gerando a imagem final..."
+                Write-CompactLine "    Building the final image..."
                 $buildPackageShown = $true
             }
 
@@ -182,23 +182,23 @@ try {
         }
 
         if (-not $connectionShown -and $cleanLine -match "^Connecting") {
-            Write-CompactLine "    Conectando ao ESP32..."
+            Write-CompactLine "    Connecting to the ESP32..."
             $connectionShown = $true
             return
         }
 
         if (-not $chipShown -and $cleanLine -match "^Chip is (.+)$") {
-            Write-CompactLine ("    Chip detectado: " + $Matches[1])
+            Write-CompactLine ("    Chip detected: " + $Matches[1])
             $chipShown = $true
             return
         }
 
         if ($Action -eq "erase") {
             if (-not $eraseShown -and $cleanLine -match "^Erasing flash") {
-                Write-CompactLine "    Apagando a flash completa..."
+                Write-CompactLine "    Erasing the entire flash..."
                 $eraseShown = $true
             } elseif (-not $eraseCompletedShown -and $cleanLine -match "^Chip erase completed successfully in (.+)$") {
-                Write-CompactLine ("    Flash apagada com sucesso em " + $Matches[1])
+                Write-CompactLine ("    Flash erased successfully in " + $Matches[1])
                 $eraseCompletedShown = $true
             }
 
@@ -217,14 +217,14 @@ try {
         }
 
         if ($trackApplicationWrite -and $applicationProgressSeen -and -not $verificationShown -and $cleanLine -match "^Hash of data verified") {
-            Write-CompactLine "    Gravacao verificada."
+            Write-CompactLine "    Write verified."
             $verificationShown = $true
             $trackApplicationWrite = $false
             return
         }
 
         if (-not $resetShown -and $cleanLine -match "^Hard resetting") {
-            Write-CompactLine "    Reiniciando o ESP32..."
+            Write-CompactLine "    Resetting the ESP32..."
             $resetShown = $true
         }
     }
@@ -232,7 +232,7 @@ try {
     $processExitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
 } catch {
     Complete-ProgressLine
-    Write-Host ("    Erro ao iniciar o PlatformIO: " + $_.Exception.Message)
+    Write-Host ("    Failed to start PlatformIO: " + $_.Exception.Message)
     exit 1
 }
 
@@ -240,12 +240,12 @@ Complete-ProgressLine
 
 if ($processExitCode -ne 0) {
     Write-Host ""
-    Write-Host "    Detalhes do erro:"
+    Write-Host "    Error details:"
     $serialOpenFailure = @($capturedOutput | Where-Object { $_ -match "(?i)Could not open COM[0-9]+" })
 
     if ($serialOpenFailure.Count -gt 0) {
-        Write-Host ("      Nao foi possivel abrir " + $Port + ". A porta nao existe ou esta ocupada.")
-        Write-Host "      Confira o cabo USB e feche programas que estejam usando a serial."
+        Write-Host ("      Could not open " + $Port + ". The port does not exist or is in use.")
+        Write-Host "      Check the USB cable and close programs that are using the serial port."
         exit ([int]$processExitCode)
     }
 

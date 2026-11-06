@@ -159,7 +159,7 @@ struct OnvifServiceCatalog {
     uint32_t lastLatencyMs = 0;
     unsigned long resolvedAtMs = 0;
     int lastStatusCode = 0;
-    String lastResult = "Ainda nao consultado";
+    String lastResult = "Not queried yet";
     OnvifServiceEndpoint device;
     OnvifServiceEndpoint media1;
     OnvifServiceEndpoint media2;
@@ -196,9 +196,9 @@ struct OnvifPtzStatus {
     int lastCommandStatusCode = 0;
     String profileToken;
     String profileName;
-    String lastResult = "Ainda nao consultado";
+    String lastResult = "Not queried yet";
     String lastCommandToken;
-    String lastCommandResult = "Nenhum movimento solicitado";
+    String lastCommandResult = "No movement requested";
     std::unique_ptr<OnvifPtzPreset[]> presets;
 };
 
@@ -223,7 +223,7 @@ struct OnvifDeviceMetadata {
     String firmware;
     String dateTimeType;
     String timeZone;
-    String lastResult = "Ainda nao consultado";
+    String lastResult = "Not queried yet";
 };
 
 struct CameraClockStatus {
@@ -237,7 +237,7 @@ struct CameraClockStatus {
     unsigned long lastCheckAtMs = 0;
     String dateTimeType;
     String timeZone;
-    String lastResult = "Ainda nao verificado";
+    String lastResult = "Not checked yet";
 };
 
 struct SntpReferenceSnapshot {
@@ -273,7 +273,7 @@ struct SnapshotProbe {
     int statusCode = 0;
     uint32_t latencyMs = 0;
     size_t bytesRead = 0;
-    String detail = "Ainda nao executado";
+    String detail = "Not run yet";
 };
 
 constexpr size_t CAMERA_REBOOT_HISTORY_CAPACITY = 8;
@@ -393,12 +393,12 @@ struct CameraContext {
     bool incidentAlertSent = false;
     bool pendingIncidentEmail = false;
     bool pendingRecoveryEmail = false;
-    String lastEvent = "Inicializando";
-    String lastEmailResult = "Nenhum e-mail enviado";
+    String lastEvent = "Starting up";
+    String lastEmailResult = "No email sent";
     String previousCameraIp = {};
-    String lastSnapshotResult = "Ainda nao solicitada";
-    String lastCameraRebootResult = "Ainda nao solicitado";
-    String lastCameraRebootEvidence = "Nenhum reboot aceito nesta inicializacao";
+    String lastSnapshotResult = "Not requested yet";
+    String lastCameraRebootResult = "Not requested yet";
+    String lastCameraRebootEvidence = "No reboot accepted in this boot";
     String snapshotProfileTokenToSkip = {};
     unsigned long lastSnapshotResolveAttemptAtMs = 0;
     unsigned long lastBrowserSnapshotDeliveredAtMs = 0;

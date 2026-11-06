@@ -34,7 +34,7 @@ def state_path():
 def validate_partition_layout():
     partition_path = project_dir() / "partitions.csv"
     if not partition_path.is_file():
-        raise PreservationError("partitions.csv nao foi encontrado")
+        raise PreservationError("partitions.csv was not found")
 
     log_rows = []
     parsed_partitions = []
@@ -45,14 +45,14 @@ def validate_partition_layout():
                     continue
                 fields = [field.strip() for field in row]
                 if len(fields) < 5:
-                    raise PreservationError("linha incompleta em partitions.csv")
+                    raise PreservationError("incomplete row in partitions.csv")
 
                 try:
                     offset = int(fields[3], 0)
                     size = int(fields[4], 0)
                 except ValueError:
                     raise PreservationError(
-                        "offset ou tamanho invalido em partitions.csv"
+                        "invalid offset or size in partitions.csv"
                     )
 
                 partition = {
@@ -67,12 +67,12 @@ def validate_partition_layout():
                     log_rows.append(partition)
     except (OSError, UnicodeError, csv.Error) as error:
         raise PreservationError(
-            "nao foi possivel ler partitions.csv: {0}".format(error)
+            "could not read partitions.csv: {0}".format(error)
         )
 
     if len(log_rows) != 1:
         raise PreservationError(
-            "partitions.csv deve conter exatamente uma particao chamada logs"
+            "partitions.csv must contain exactly one partition named logs"
         )
 
     log_partition = log_rows[0]
@@ -84,7 +84,7 @@ def validate_partition_layout():
         or log_partition["offset"] + log_partition["size"] != 0x400000
     ):
         raise PreservationError(
-            "particao logs deve ser data/spiffs em 0x310000, tamanho 0xF0000, terminando em 0x400000"
+            "the logs partition must be data/spiffs at 0x310000, size 0xF0000, ending at 0x400000"
         )
 
     for partition in parsed_partitions:
@@ -93,7 +93,7 @@ def validate_partition_layout():
         partition_end = partition["offset"] + partition["size"]
         if partition["offset"] < 0x400000 and partition_end > LOG_OFFSET:
             raise PreservationError(
-                "a particao {0} invade a faixa reservada aos logs".format(
+                "partition {0} overlaps the range reserved for logs".format(
                     partition["name"]
                 )
             )
@@ -107,7 +107,7 @@ def selected_port():
     port = str(env.subst("$UPLOAD_PORT")).strip().upper()
     if not re.fullmatch(r"COM[1-9][0-9]*", port):
         raise PreservationError(
-            "porta serial ausente ou invalida; informe a porta com --upload-port"
+            "serial port missing or invalid. Pass the port with --upload-port"
         )
     return port
 
@@ -120,11 +120,11 @@ def upload_speed():
 def esptool_path():
     package_dir = env.PioPlatform().get_package_dir("tool-esptoolpy")
     if not package_dir:
-        raise PreservationError("pacote tool-esptoolpy nao encontrado")
+        raise PreservationError("tool-esptoolpy package not found")
 
     path = Path(package_dir) / "esptool.py"
     if not path.is_file():
-        raise PreservationError("esptool.py nao encontrado no PlatformIO")
+        raise PreservationError("esptool.py not found in PlatformIO")
     return path
 
 
@@ -158,7 +158,7 @@ def run_esptool(arguments, after="no_reset"):
         if output:
             print(output)
         raise PreservationError(
-            "esptool terminou com o codigo {0}".format(result.returncode)
+            "esptool exited with code {0}".format(result.returncode)
         )
 
     return result.stdout
@@ -176,23 +176,23 @@ def probe_device(expected_mac=None):
     )
 
     if not size_match:
-        raise PreservationError("nao foi possivel confirmar o tamanho da flash")
+        raise PreservationError("could not confirm the flash size")
 
     flash_size = size_match.group(1).upper()
     if flash_size != EXPECTED_FLASH_SIZE.upper():
         raise PreservationError(
-            "flash incompativel: esperado {0}, detectado {1}".format(
+            "incompatible flash: expected {0}, detected {1}".format(
                 EXPECTED_FLASH_SIZE, flash_size
             )
         )
 
     if not mac_match:
-        raise PreservationError("nao foi possivel identificar o MAC do ESP32")
+        raise PreservationError("could not identify the ESP32 MAC address")
 
     mac = mac_match.group(1).upper()
     if expected_mac and mac != expected_mac.upper():
         raise PreservationError(
-            "o ESP32 conectado mudou durante a instalacao: esperado {0}, detectado {1}".format(
+            "the connected ESP32 changed during installation: expected {0}, detected {1}".format(
                 expected_mac.upper(), mac
             )
         )
@@ -236,7 +236,7 @@ def unique_backup_path(port):
         candidate = backup_dir / "watchdog-logs-{0}-{1}.bin".format(port, suffix)
         if not candidate.exists() and not candidate.with_suffix(".partial").exists():
             return candidate
-    raise PreservationError("nao foi possivel criar um nome exclusivo para o backup")
+    raise PreservationError("could not create a unique name for the backup")
 
 
 def write_state(state):
@@ -253,17 +253,17 @@ def load_state(expected_stage, layout_sha256):
     path = state_path()
     if not path.is_file():
         raise PreservationError(
-            "estado do backup nao encontrado; reinicie o instalador desde o inicio"
+            "backup state not found. Restart the installer from the beginning"
         )
 
     try:
         with path.open("r", encoding="utf-8") as source:
             state = json.load(source)
     except (OSError, ValueError) as error:
-        raise PreservationError("estado do backup invalido: {0}".format(error))
+        raise PreservationError("invalid backup state: {0}".format(error))
 
     if not isinstance(state, dict):
-        raise PreservationError("estado do backup deve ser um objeto JSON")
+        raise PreservationError("backup state must be a JSON object")
 
     required_values = {
         "version": STATE_VERSION,
@@ -276,32 +276,32 @@ def load_state(expected_stage, layout_sha256):
     for key, expected_value in required_values.items():
         if state.get(key) != expected_value:
             raise PreservationError(
-                "estado do backup incompativel em {0}; reinicie o instalador".format(
+                "backup state mismatch in {0}. Restart the installer".format(
                     key
                 )
             )
 
     mac = str(state.get("mac", "")).upper()
     if not re.fullmatch(r"[0-9A-F]{2}(?::[0-9A-F]{2}){5}", mac):
-        raise PreservationError("MAC salvo no estado do backup e invalido")
+        raise PreservationError("MAC saved in the backup state is invalid")
 
     saved_sha256 = str(state.get("sha256", "")).lower()
     if not re.fullmatch(r"[0-9a-f]{64}", saved_sha256):
-        raise PreservationError("SHA256 salvo no estado do backup e invalido")
+        raise PreservationError("SHA256 saved in the backup state is invalid")
 
     backup_path = Path(str(state.get("backup", "")))
     if not backup_path.is_absolute():
-        raise PreservationError("caminho do backup invalido")
+        raise PreservationError("invalid backup path")
     if backup_path.parent.resolve() != (project_dir() / "backups").resolve():
-        raise PreservationError("o backup informado esta fora da pasta protegida")
+        raise PreservationError("the given backup is outside the protected folder")
     if not backup_path.is_file():
-        raise PreservationError("arquivo de backup nao encontrado: {0}".format(backup_path))
+        raise PreservationError("backup file not found: {0}".format(backup_path))
     if backup_path.stat().st_size != LOG_SIZE:
-        raise PreservationError("o backup nao possui o tamanho esperado")
+        raise PreservationError("the backup does not have the expected size")
 
     backup_sha256 = sha256_file(backup_path)
     if backup_sha256.lower() != saved_sha256:
-        raise PreservationError("o arquivo de backup foi alterado ou corrompido")
+        raise PreservationError("the backup file was changed or corrupted")
 
     return state, backup_path
 
@@ -319,7 +319,7 @@ def read_log_partition(destination, after):
     )
 
     if not destination.is_file() or destination.stat().st_size != LOG_SIZE:
-        raise PreservationError("a leitura da particao de logs ficou incompleta")
+        raise PreservationError("reading the logs partition did not complete")
 
 
 def backup_logs(source, target, env):
@@ -345,7 +345,7 @@ def backup_logs(source, target, env):
         print("LOG_BACKUP_STARTED")
         read_log_partition(partial_path, after="no_reset")
         if backup_path.exists():
-            raise PreservationError("o destino exclusivo do backup ja existe")
+            raise PreservationError("the unique backup destination already exists")
         partial_path.rename(backup_path)
         partial_path = None
 
@@ -415,11 +415,11 @@ def verify_logs(expected_stage, next_stage, marker_stage, final_reset):
         verification_sha256 = sha256_file(verification_path)
         if verification_sha256.lower() != state["sha256"].lower():
             raise PreservationError(
-                "o SHA256 da particao difere do backup preservado"
+                "the partition SHA256 differs from the preserved backup"
             )
         if not files_are_identical(backup_path, verification_path):
             raise PreservationError(
-                "a comparacao binaria da particao difere do backup preservado"
+                "the binary comparison of the partition differs from the preserved backup"
             )
 
         state["stage"] = next_stage
@@ -464,8 +464,8 @@ env.AddCustomTarget(
     name="backup_logs",
     dependencies=None,
     actions=[backup_logs],
-    title="Backup forense dos logs",
-    description="Le a particao de logs sem altera-la e salva uma copia RAW",
+    title="Forensic log backup",
+    description="Reads the logs partition without changing it and saves a RAW copy",
     always_build=True,
 )
 
@@ -473,8 +473,8 @@ env.AddCustomTarget(
     name="erase_except_logs",
     dependencies=None,
     actions=[erase_except_logs],
-    title="Apagar exceto logs",
-    description="Apaga somente a faixa anterior a particao de logs",
+    title="Erase except logs",
+    description="Erases only the range before the logs partition",
     always_build=True,
 )
 
@@ -482,8 +482,8 @@ env.AddCustomTarget(
     name="verify_logs_after_erase",
     dependencies=None,
     actions=[verify_logs_after_erase],
-    title="Verificar logs depois do apagamento",
-    description="Compara a particao preservada com o backup RAW",
+    title="Verify logs after erase",
+    description="Compares the preserved partition with the RAW backup",
     always_build=True,
 )
 
@@ -491,7 +491,7 @@ env.AddCustomTarget(
     name="verify_logs_after_upload",
     dependencies=None,
     actions=[verify_logs_after_upload],
-    title="Verificar logs depois da gravacao",
-    description="Confirma que a gravacao do leitor nao alterou os logs",
+    title="Verify logs after upload",
+    description="Confirms that flashing the reader did not change the logs",
     always_build=True,
 )

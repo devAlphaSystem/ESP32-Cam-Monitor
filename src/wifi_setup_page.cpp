@@ -3,7 +3,7 @@
 namespace CameraWatchdog {
 
 extern const char WIFI_SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -101,38 +101,38 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
 <main>
   <div class="brand">
     <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#242a31"/><path d="m32 12 19 8v13c0 8-10 15-19 19-9-4-19-11-19-19V20Z" fill="none" stroke="#8ab0dc" stroke-width="4" stroke-linejoin="round"/><path d="M22 31a14 14 0 0 1 20 0M26 36a8 8 0 0 1 12 0" fill="none" stroke="#8ab0dc" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="2.6" fill="#8ab0dc"/></svg>
-    <div><h1>Camera Watchdog</h1><p>Configuração do Wi-Fi</p></div>
+    <div><h1>Camera Watchdog</h1><p>Wi-Fi setup</p></div>
   </div>
 
   <section class="card" id="statusCard" aria-live="polite">
-    <div class="status" id="statusRow"><span class="dot"></span><div><b id="statusTitle">Verificando…</b><small id="statusSub"></small></div><span class="bars" id="statusBars" hidden><i></i><i></i><i></i><i></i></span></div>
+    <div class="status" id="statusRow"><span class="dot"></span><div><b id="statusTitle">Checking…</b><small id="statusSub"></small></div><span class="bars" id="statusBars" hidden><i></i><i></i><i></i><i></i></span></div>
     <div class="notice" id="viaNotice" hidden></div>
-    <div class="notice warn" id="savedRow" hidden><span id="savedText"></span> <button class="btn link" type="button" id="forgetBtn">Esquecer rede salva</button></div>
+    <div class="notice warn" id="savedRow" hidden><span id="savedText"></span> <button class="btn link" type="button" id="forgetBtn">Forget saved network</button></div>
   </section>
 
   <section class="card" id="pickCard">
-    <div class="head-row"><h2>1. Escolha a rede</h2><button class="btn small" type="button" id="rescanBtn"><span class="spin" id="scanSpin" hidden></span><span id="rescanText">Buscar de novo</span></button></div>
-    <ul class="networks" id="netList" aria-label="Redes Wi-Fi encontradas"></ul>
-    <div class="empty" id="netEmpty">Procurando redes ao redor…</div>
-    <button class="btn link" type="button" id="manualBtn">Digitar o nome da rede</button>
+    <div class="head-row"><h2>1. Choose the network</h2><button class="btn small" type="button" id="rescanBtn"><span class="spin" id="scanSpin" hidden></span><span id="rescanText">Scan again</span></button></div>
+    <ul class="networks" id="netList" aria-label="Wi-Fi networks found"></ul>
+    <div class="empty" id="netEmpty">Looking for nearby networks…</div>
+    <button class="btn link" type="button" id="manualBtn">Enter the network name</button>
   </section>
 
   <section class="card" id="formCard" hidden>
-    <h2>2. Senha da rede</h2>
+    <h2>2. Network password</h2>
     <div class="sel-name" id="selName"></div>
     <p class="hint" id="selHint"></p>
     <form id="connectForm" autocomplete="off">
-      <div class="field" id="ssidField" hidden><label for="ssidInput">Nome da rede</label><input id="ssidInput" type="text" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
-      <div class="field" id="pwField"><label for="pwInput">Senha do Wi-Fi</label><div class="pw"><input id="pwInput" type="password" maxlength="63" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="new-password"><button type="button" id="pwToggle" aria-pressed="false">Mostrar</button></div></div>
-      <div class="field" id="adminField" hidden><label for="adminInput">Senha administrativa do painel</label><input id="adminInput" type="password" maxlength="64" autocomplete="off"></div>
+      <div class="field" id="ssidField" hidden><label for="ssidInput">Network name</label><input id="ssidInput" type="text" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
+      <div class="field" id="pwField"><label for="pwInput">Wi-Fi password</label><div class="pw"><input id="pwInput" type="password" maxlength="63" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="new-password"><button type="button" id="pwToggle" aria-pressed="false">Show</button></div></div>
+      <div class="field" id="adminField" hidden><label for="adminInput">Dashboard admin password</label><input id="adminInput" type="password" maxlength="64" autocomplete="off"></div>
       <div class="notice bad" id="formError" role="alert" hidden></div>
-      <div class="actions"><button class="btn primary" type="submit" id="connectBtn">Testar e conectar</button></div>
-      <p class="hint" style="margin-top:10px">O ESP32 testa a conexão e o sinal antes de salvar e só grava uma rede que funcionar.</p>
+      <div class="actions"><button class="btn primary" type="submit" id="connectBtn">Test and connect</button></div>
+      <p class="hint" style="margin-top:10px">The ESP32 tests the connection and signal before saving, and it only stores a network that works.</p>
     </form>
   </section>
 
   <section class="card" id="progressCard" hidden aria-live="polite">
-    <h2 id="progressTitle">Testando a conexão…</h2>
+    <h2 id="progressTitle">Testing the connection…</h2>
     <div class="progress" aria-hidden="true"><i></i></div>
     <p class="hint" id="progressText"></p>
   </section>
@@ -143,14 +143,14 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
     <div id="resultDetails" hidden>
       <div class="meter" id="resultMeter"><i id="resultMeterFill"></i></div>
       <dl>
-        <dt>Sinal</dt><dd id="rSignal"></dd>
-        <dt>Endereço IP</dt><dd class="mono" id="rIp"></dd>
-        <dt>Canal</dt><dd id="rChannel"></dd>
+        <dt>Signal</dt><dd id="rSignal"></dd>
+        <dt>IP address</dt><dd class="mono" id="rIp"></dd>
+        <dt>Channel</dt><dd id="rChannel"></dd>
       </dl>
     </div>
     <div class="notice warn" id="resultWarn" hidden></div>
     <div class="notice" id="resultNext" hidden></div>
-    <div class="actions"><button class="btn primary" type="button" id="resultAgain" hidden>Tentar novamente</button><a class="btn" id="resultOpen" href="/" hidden>Abrir o painel</a></div>
+    <div class="actions"><button class="btn primary" type="button" id="resultAgain" hidden>Try again</button><a class="btn" id="resultOpen" href="/" hidden>Open the dashboard</a></div>
   </section>
 
   <p class="foot" id="foot"></p>
@@ -159,18 +159,18 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
 'use strict';
 const $ = id => document.getElementById(id);
 const FLAG = 'wd_wifi_test';
-const QUALITY = { excellent: 'Excelente', good: 'Boa', fair: 'Razoável', weak: 'Fraca', very_weak: 'Muito fraca' };
+const QUALITY = { excellent: 'Excellent', good: 'Good', fair: 'Fair', weak: 'Weak', very_weak: 'Very weak' };
 const MESSAGES = {
-  network_not_found: 'Não encontramos essa rede. Confira o nome e aproxime o ESP32 do roteador.',
-  wrong_password: 'A senha está incorreta. Confira e tente novamente.',
-  association_refused: 'O roteador recusou a conexão. Ele pode ter atingido o limite de aparelhos ou usar filtro de MAC.',
-  timeout: 'A conexão demorou demais. Verifique a senha e o sinal e tente de novo.',
-  dhcp_failed: 'Conectou ao roteador, mas ele não entregou um endereço IP.',
-  connect_failed: 'Não foi possível conectar a essa rede.',
-  save_failed: 'O ESP32 conectou, mas não conseguiu gravar a rede na memória.',
-  invalid_ssid: 'O nome da rede precisa ter de 1 a 32 caracteres.',
-  invalid_password: 'A senha precisa ter de 8 a 63 caracteres.',
-  busy: 'O ESP32 está ocupado com outro teste. Aguarde um instante.'
+  network_not_found: 'We could not find that network. Check the name and move the ESP32 closer to the router.',
+  wrong_password: 'The password is incorrect. Check it and try again.',
+  association_refused: 'The router refused the connection. It may have reached its device limit or use a MAC filter.',
+  timeout: 'The connection took too long. Check the password and the signal, and try again.',
+  dhcp_failed: 'Connected to the router, but it did not assign an IP address.',
+  connect_failed: 'Could not connect to that network.',
+  save_failed: 'The ESP32 connected, but it could not save the network to memory.',
+  invalid_ssid: 'The network name must be 1 to 32 characters long.',
+  invalid_password: 'The password must be 8 to 63 characters long.',
+  busy: 'The ESP32 is busy with another test. Wait a moment.'
 };
 const app = { token: '', passwordRequired: false, networks: [], selected: null, manual: false, status: null, scanTimer: 0, pollTimer: 0, testing: false, failures: 0 };
 
@@ -196,26 +196,26 @@ function renderStatus(status) {
   const row = $('statusRow');
   row.classList.toggle('on', status.connected);
   if (status.connected) {
-    $('statusTitle').textContent = 'Conectado a ' + status.ssid;
-    $('statusSub').textContent = 'IP ' + status.ip + ' · ' + status.rssi + ' dBm · canal ' + status.channel;
+    $('statusTitle').textContent = 'Connected to ' + status.ssid;
+    $('statusSub').textContent = 'IP ' + status.ip + ' · ' + status.rssi + ' dBm · channel ' + status.channel;
     setBars($('statusBars'), Math.max(0, Math.min(100, 2 * (status.rssi + 100))));
     show('statusBars', true);
   } else {
-    $('statusTitle').textContent = 'Sem conexão com o Wi-Fi';
-    $('statusSub').textContent = status.saved.stored || status.saved.builtin ? 'O ESP32 continua tentando as redes conhecidas.' : 'Nenhuma rede configurada ainda.';
+    $('statusTitle').textContent = 'No Wi-Fi connection';
+    $('statusSub').textContent = status.saved.stored || status.saved.builtin ? 'The ESP32 keeps trying the known networks.' : 'No network configured yet.';
     show('statusBars', false);
   }
   const via = $('viaNotice');
   if (status.viaAccessPoint) {
     via.hidden = false;
-    via.textContent = 'Você está na rede de configuração do ESP32, ' + status.accessPoint.ssid + '. Ela fecha sozinha depois que você configurar o Wi-Fi.';
+    via.textContent = 'You are on the ESP32 setup network, ' + status.accessPoint.ssid + '. It closes by itself after you set up the Wi-Fi.';
   } else if (status.connected) {
     via.hidden = false;
-    via.textContent = 'Você está acessando pela rede atual. Ao trocar de rede, esta página deixa de responder. Depois, abra http://' + status.hostname + '.local/ na nova rede.';
+    via.textContent = 'You are connected through the current network. When you switch networks, this page stops responding. Then open http://' + status.hostname + '.local/ on the new network.';
   } else { via.hidden = true; }
   const saved = $('savedRow');
   saved.hidden = !status.saved.stored;
-  if (status.saved.stored) $('savedText').textContent = 'Este ESP32 guarda a rede ' + status.saved.ssid + '.';
+  if (status.saved.stored) $('savedText').textContent = 'This ESP32 has the network ' + status.saved.ssid + ' saved.';
   $('foot').textContent = 'Firmware ' + status.firmware;
 }
 
@@ -244,9 +244,9 @@ function renderNetworks() {
     name.textContent = network.ssid;
     const meta = document.createElement('span');
     meta.className = 'net-meta';
-    if (network.current) { const tag = document.createElement('span'); tag.className = 'tag ok'; tag.textContent = 'conectada'; meta.appendChild(tag); }
-    else if (network.saved) { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'salva'; meta.appendChild(tag); }
-    if (network.secure) meta.insertAdjacentHTML('beforeend', '<svg class="lock" viewBox="0 0 24 24" aria-label="protegida por senha"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>');
+    if (network.current) { const tag = document.createElement('span'); tag.className = 'tag ok'; tag.textContent = 'connected'; meta.appendChild(tag); }
+    else if (network.saved) { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'saved'; meta.appendChild(tag); }
+    if (network.secure) meta.insertAdjacentHTML('beforeend', '<svg class="lock" viewBox="0 0 24 24" aria-label="password protected"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>');
     button.append(bars, name, meta);
     button.addEventListener('click', () => selectNetwork(network));
     item.appendChild(button);
@@ -258,22 +258,22 @@ function renderNetworks() {
 function setScanning(on) {
   show('scanSpin', on);
   $('rescanBtn').disabled = on;
-  $('rescanText').textContent = on ? 'Buscando…' : 'Buscar de novo';
+  $('rescanText').textContent = on ? 'Scanning…' : 'Scan again';
 }
 
 async function scan(refresh) {
   clearTimeout(app.scanTimer);
   if (app.testing) return;
   setScanning(true);
-  if (!app.networks.length) $('netEmpty').textContent = 'Procurando redes ao redor…';
+  if (!app.networks.length) $('netEmpty').textContent = 'Looking for nearby networks…';
   try {
     const result = await api('/api/wifi/scan' + (refresh ? '?refresh=1' : ''), null, 8000);
     if (result.ok) {
       const data = result.data;
       if (data.state === 'scanning') { app.scanTimer = setTimeout(() => scan(false), 1200); return; }
       if (data.state === 'done') { app.networks = data.networks; renderNetworks(); }
-      else if (data.state === 'failed') { $('netEmpty').textContent = 'Não foi possível buscar redes agora. Toque em "Buscar de novo".'; }
-      if (!app.networks.length && data.state === 'done') $('netEmpty').textContent = 'Nenhuma rede encontrada. Toque em "Buscar de novo".';
+      else if (data.state === 'failed') { $('netEmpty').textContent = 'Could not scan for networks right now. Tap "Scan again".'; }
+      if (!app.networks.length && data.state === 'done') $('netEmpty').textContent = 'No networks found. Tap "Scan again".';
     }
   } catch (error) {
     app.scanTimer = setTimeout(() => scan(false), 2500);
@@ -288,9 +288,9 @@ function openForm(ssid, secure, manual) {
   show('formCard', true);
   show('ssidField', manual);
   show('pwField', manual || secure);
-  $('selName').textContent = manual ? 'Rede digitada manualmente' : ssid;
-  $('selHint').textContent = manual ? 'Informe o nome exato da rede, respeitando maiúsculas e minúsculas, e a senha. Deixe a senha em branco se a rede for aberta.'
-    : secure ? 'Digite a senha desta rede.' : 'Rede aberta, sem senha. Toque em Testar e conectar.';
+  $('selName').textContent = manual ? 'Network entered manually' : ssid;
+  $('selHint').textContent = manual ? 'Enter the exact network name, respecting uppercase and lowercase, and the password. Leave the password blank if the network is open.'
+    : secure ? 'Enter the password for this network.' : 'Open network, no password. Tap Test and connect.';
   $('formError').hidden = true;
   $('pwInput').value = '';
   renderNetworks();
@@ -304,16 +304,16 @@ $('pwToggle').addEventListener('click', () => {
   const input = $('pwInput');
   const reveal = input.type === 'password';
   input.type = reveal ? 'text' : 'password';
-  $('pwToggle').textContent = reveal ? 'Ocultar' : 'Mostrar';
+  $('pwToggle').textContent = reveal ? 'Hide' : 'Show';
   $('pwToggle').setAttribute('aria-pressed', reveal ? 'true' : 'false');
 });
 
-function describe(code, detail) { return MESSAGES[code] || detail || 'Não foi possível concluir. Tente novamente.'; }
+function describe(code, detail) { return MESSAGES[code] || detail || 'Could not complete. Try again.'; }
 
 function showProgress(ssid) {
   show('pickCard', false); show('formCard', false); show('resultCard', false); show('progressCard', true);
-  $('progressTitle').textContent = 'Testando "' + ssid + '"…';
-  $('progressText').textContent = 'Procurando a rede…';
+  $('progressTitle').textContent = 'Testing "' + ssid + '"…';
+  $('progressText').textContent = 'Looking for the network…';
 }
 
 function showResult(test) {
@@ -325,7 +325,7 @@ function showResult(test) {
   const ok = test.state === 'success' && test.saved;
   head.className = 'result-icon ' + (ok ? 'ok' : 'bad');
   head.innerHTML = ok ? '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-  head.appendChild(document.createTextNode(ok ? 'Conectado e salvo!' : 'Não foi possível conectar'));
+  head.appendChild(document.createTextNode(ok ? 'Connected and saved!' : 'Could not connect'));
   show('resultDetails', test.state === 'success');
   show('resultAgain', !ok);
   show('resultWarn', false);
@@ -333,7 +333,7 @@ function showResult(test) {
   const via = app.status && app.status.viaAccessPoint;
   const host = app.status ? app.status.hostname : 'camera-watchdog';
   if (test.state === 'success') {
-    $('resultText').textContent = ok ? 'O ESP32 testou e gravou a rede "' + test.ssid + '". Ele continua usando essa rede depois de reiniciar ou de ficar sem energia.' : describe(test.code);
+    $('resultText').textContent = ok ? 'The ESP32 tested and saved the network "' + test.ssid + '". It keeps using that network after a restart or a power loss.' : describe(test.code);
     $('rSignal').textContent = (QUALITY[test.quality] || '') + ' (' + test.rssi + ' dBm)';
     $('rIp').textContent = test.ip;
     $('rChannel').textContent = test.channel;
@@ -341,12 +341,12 @@ function showResult(test) {
     fill.style.width = test.percent + '%';
     fill.className = test.quality;
     if (test.quality === 'weak' || test.quality === 'very_weak') {
-      $('resultWarn').textContent = 'O sinal está ' + (test.quality === 'weak' ? 'fraco' : 'muito fraco') + '. Aproxime o ESP32 do roteador ou use um repetidor para manter o monitoramento estável.';
+      $('resultWarn').textContent = 'The signal is ' + (test.quality === 'weak' ? 'weak' : 'very weak') + '. Move the ESP32 closer to the router or use a repeater to keep the monitoring stable.';
       show('resultWarn', true);
     }
     if (ok) {
       $('resultNext').innerHTML = '';
-      $('resultNext').append(document.createTextNode((via ? 'A rede de configuração vai fechar. Reconecte seu aparelho ao Wi-Fi normal e abra ' : 'Abra ') + 'http://' + host + '.local/ ou http://' + test.ip + '/ para acessar o painel.'));
+      $('resultNext').append(document.createTextNode((via ? 'The setup network will close. Reconnect your device to your normal Wi-Fi and open ' : 'Open ') + 'http://' + host + '.local/ or http://' + test.ip + '/ to reach the dashboard.'));
       show('resultNext', true);
       $('resultOpen').href = 'http://' + test.ip + '/';
       show('resultOpen', !via);
@@ -366,13 +366,13 @@ async function poll() {
       const test = status.test;
       if (test.state === 'running') {
         const seconds = (test.elapsedMs || 0) / 1000;
-        $('progressText').textContent = test.phase === 'measuring' ? 'Conectado! Medindo a qualidade do sinal…' : seconds < 4 ? 'Procurando a rede…' : seconds < 9 ? 'Autenticando com o roteador…' : 'Aguardando o roteador entregar um endereço IP…';
+        $('progressText').textContent = test.phase === 'measuring' ? 'Connected! Measuring the signal quality…' : seconds < 4 ? 'Looking for the network…' : seconds < 9 ? 'Authenticating with the router…' : 'Waiting for the router to assign an IP address…';
       } else if (test.state === 'success' || test.state === 'failed') {
         showResult(test);
         return;
       }
     } else if (Date.now() - started > 3000) {
-      $('progressText').textContent = 'O ESP32 pode ter trocado de canal. Se o seu aparelho saiu da rede de configuração, reconecte a ela. Esta página continua de onde parou.';
+      $('progressText').textContent = 'The ESP32 may have changed channel. If your device left the setup network, reconnect to it. This page picks up where it stopped.';
     }
     if (Date.now() - started > 150000) {
       showResult({ state: 'failed', code: 'timeout' });
@@ -391,7 +391,7 @@ $('connectForm').addEventListener('submit', async event => {
   error.hidden = true;
   if (!ssid) { error.textContent = describe('invalid_ssid'); error.hidden = false; return; }
   if (password && password.length < 8) { error.textContent = describe('invalid_password'); error.hidden = false; return; }
-  if (!app.manual && app.selected.secure && !password) { error.textContent = 'Digite a senha da rede.'; error.hidden = false; return; }
+  if (!app.manual && app.selected.secure && !password) { error.textContent = 'Enter the network password.'; error.hidden = false; return; }
   const body = new URLSearchParams({ ssid, password, writeToken: app.token, adminPassword: $('adminInput').value });
   $('connectBtn').disabled = true;
   try {
@@ -402,7 +402,7 @@ $('connectForm').addEventListener('submit', async event => {
     showProgress(ssid);
     poll();
   } catch (failure) {
-    error.textContent = 'Sem resposta do ESP32. Verifique se ainda está conectado e tente de novo.';
+    error.textContent = 'No response from the ESP32. Check that it is still connected and try again.';
     error.hidden = false;
   } finally { $('connectBtn').disabled = false; }
 });
@@ -413,12 +413,12 @@ $('resultAgain').addEventListener('click', () => {
 });
 
 $('forgetBtn').addEventListener('click', async () => {
-  if (!confirm('Esquecer a rede salva neste ESP32? Ele voltará a usar a rede gravada no firmware, se houver.')) return;
+  if (!confirm('Forget the network saved on this ESP32? It will go back to the network stored in the firmware, if there is one.')) return;
   const body = new URLSearchParams({ writeToken: app.token, adminPassword: $('adminInput').value });
   try {
     const result = await api('/api/wifi/forget', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: body.toString() });
     if (!result.ok) { alert(describe(result.data.error, result.data.detail)); return; }
-  } catch (error) { alert('Sem resposta do ESP32.'); return; }
+  } catch (error) { alert('No response from the ESP32.'); return; }
   loadStatus(); scan(true);
 });
 

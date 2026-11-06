@@ -1,185 +1,185 @@
 # ESP32 Camera Watchdog
 
-O Camera Watchdog roda em um ESP32 ligado à sua rede local e vigia câmeras IP com ONVIF. Ele verifica a câmera a cada poucos segundos, avisa por e-mail quando ela falha e reinicia a câmera sozinho quando ela trava. Tudo é acompanhado por um painel web servido pelo próprio ESP32.
+Camera Watchdog runs on an ESP32 connected to your local network and watches IP cameras that support ONVIF. It checks the camera every few seconds, sends an email when the camera fails, and restarts the camera by itself when it hangs. A web dashboard served by the ESP32 itself shows everything.
 
-## O que o firmware faz
+## What the firmware does
 
-- Encontra câmeras ONVIF na rede por WS-Discovery e guarda o cadastro na memória do ESP32.
-- Testa ONVIF, RTSP e a captura de imagem JPEG de cada câmera e classifica o estado como online, instável, recuperando ou offline.
-- Reinicia a câmera pelo comando ONVIF SystemReboot depois de falhas confirmadas. O intervalo mínimo entre reinícios e o limite por hora são configuráveis.
-- Envia alertas por e-mail pelo serviço Resend quando a câmera cai, volta ou muda de IP.
-- Mostra o vídeo ao vivo em H.264 no navegador, com até dois espectadores ao mesmo tempo.
-- Comanda posições PTZ salvas na câmera.
-- Guarda um histórico de até 7.500 avisos e erros em uma partição própria. O histórico sobrevive a reinícios e pode ser exportado em CSV.
-- Abre uma rede Wi-Fi própria para configuração quando não tem Wi-Fi configurado ou perde a conexão por mais de 2 minutos.
-- Pisca o LED azul da placa, no GPIO 2, enquanto a câmera não está online.
+- Finds ONVIF cameras on the network through WS-Discovery and stores the registry in the ESP32 memory.
+- Tests ONVIF, RTSP, and the JPEG image capture of each camera, and classifies the state as online, unstable, recovering, or offline.
+- Restarts the camera with the ONVIF SystemReboot command after confirmed failures. The minimum interval between restarts and the hourly limit are configurable.
+- Sends email alerts through the Resend service when the camera goes down, comes back, or changes IP.
+- Shows live H.264 video in the browser, with up to two viewers at the same time.
+- Moves the camera to PTZ presets saved on the camera.
+- Keeps a history of up to 7,500 warnings and errors in a dedicated partition. The history survives restarts and can be exported as CSV.
+- Opens its own Wi-Fi network for setup when no Wi-Fi is configured or when it loses the connection for more than 2 minutes.
+- Blinks the blue LED of the board, on GPIO 2, while the camera is not online.
 
-## O que você precisa
+## What you need
 
-- Uma placa ESP32 com 4 MB de flash, como um ESP32 DevKit. Não precisa de PSRAM.
-- Um cabo USB que transmita dados.
-- Uma rede Wi-Fi de 2,4 GHz. O ESP32 não usa 5 GHz.
-- Uma câmera IP com ONVIF ligado, na mesma rede.
-- O PlatformIO, em um computador com Windows, Linux ou macOS. Para instalar, use a extensão PlatformIO IDE do Visual Studio Code ou o PlatformIO Core.
+- An ESP32 board with 4 MB of flash, such as an ESP32 DevKit. It does not need PSRAM.
+- A USB cable that carries data.
+- A 2.4 GHz Wi-Fi network. The ESP32 does not use 5 GHz.
+- An IP camera with ONVIF turned on, on the same network.
+- PlatformIO on a computer running Windows, Linux, or macOS. To install it, use the PlatformIO IDE extension for Visual Studio Code or PlatformIO Core.
 
-O e-mail, o horário por NTP e as mensagens com data exigem acesso à internet. O monitoramento, o painel e o vídeo funcionam só na rede local.
+Email, NTP time, and dated messages need internet access. Monitoring, the dashboard, and the video work on the local network only.
 
-## Instalação do firmware principal
+## Installing the main firmware
 
-1. Baixe o projeto do GitHub e abra a pasta no Visual Studio Code, ou use um terminal dentro da pasta.
+1. Download the project from GitHub and open the folder in Visual Studio Code, or use a terminal inside the folder.
 
-2. Copie `include/secrets.example.h` para `include/secrets.h`.
+2. Copy `include/secrets.example.h` to `include/secrets.h`.
 
-3. Preencha o `include/secrets.h`.
+3. Fill in `include/secrets.h`.
 
-   | Campo | Para que serve |
-   | --- | --- |
-   | `WIFI_SSID` e `WIFI_PASSWORD` | Nome e senha do Wi-Fi. Pode ficar vazio, porque dá para configurar o Wi-Fi pelo celular depois. |
-   | `CAMERA_ONVIF_USERNAME_VALUE` e `CAMERA_ONVIF_PASSWORD_VALUE` | Usuário e senha ONVIF da câmera, usados como padrão para as câmeras novas. Deixe vazio se a câmera não pede senha. |
-   | `DASHBOARD_ADMIN_PASSWORD_VALUE` | Senha pedida no painel para salvar configurações e executar ações. Recomendamos definir uma. |
-   | `RESEND_API_KEY`, `RESEND_FROM` e `ALERT_EMAIL` | Chave do Resend, remetente e destinatário dos alertas. A chave começa com `re_`. Sem ela, o painel funciona e só os e-mails ficam desligados. |
+   | Field                                                           | What it is for                                                                                                                              |
+   | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `WIFI_SSID` and `WIFI_PASSWORD`                                 | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later.                                  |
+   | `CAMERA_ONVIF_USERNAME_VALUE` and `CAMERA_ONVIF_PASSWORD_VALUE` | ONVIF username and password of the camera, used as the default for new cameras. Leave them empty if the camera does not ask for a password. |
+   | `DASHBOARD_ADMIN_PASSWORD_VALUE`                                | Password the dashboard asks for before saving settings and running actions. We recommend setting one.                                       |
+   | `RESEND_API_KEY`, `RESEND_FROM`, and `ALERT_EMAIL`              | Resend key, sender, and recipient of the alerts. The key starts with `re_`. Without it, the dashboard works and only the emails stay off.   |
 
-4. No `platformio.ini`, troque `upload_port = COM5` pela porta do seu ESP32, ou apague a linha para o PlatformIO detectar a porta.
+4. In `platformio.ini`, replace `upload_port = COM5` with the port of your ESP32, or delete the line so PlatformIO detects the port.
 
-5. Conecte o ESP32 por USB e grave o firmware.
+5. Connect the ESP32 by USB and upload the firmware.
 
    ```
    pio run -t upload
    ```
 
-   No Visual Studio Code, o mesmo comando é o botão Upload da barra inferior do PlatformIO. Se a gravação falhar, segure o botão BOOT da placa enquanto o PlatformIO conecta e solte quando a gravação começar.
+   In Visual Studio Code, the same command is the Upload button in the PlatformIO bottom bar. If the upload fails, hold the BOOT button on the board while PlatformIO connects, and release it when the upload starts.
 
-6. Abra o monitor serial para ver o endereço do painel.
+6. Open the serial monitor to see the dashboard address.
 
    ```
    pio device monitor
    ```
 
-   O ESP32 imprime o IP e o endereço `http://camera-watchdog.local/` assim que conecta ao Wi-Fi.
+   The ESP32 prints the IP and the address `http://camera-watchdog.local/` as soon as it connects to Wi-Fi.
 
-Para atualizar o firmware depois, rode `pio run -t upload` de novo. O script `scripts/preserve_nvs_upload.py` impede que a gravação apague as configurações salvas.
+To update the firmware later, run `pio run -t upload` again. The script `scripts/preserve_nvs_upload.py` stops the upload from erasing the saved settings.
 
-## Configurar o Wi-Fi pelo celular
+## Setting up Wi-Fi from your phone
 
-Se o `secrets.h` estiver sem Wi-Fi, ou se a rede não responder por 2 minutos, o ESP32 abre a rede `Camera-Watchdog-XXXX`, sem senha. Os quatro caracteres finais mudam de placa para placa.
+If `secrets.h` has no Wi-Fi, or if the network does not respond for 2 minutes, the ESP32 opens the network `Camera-Watchdog-XXXX`, without a password. The last four characters differ from board to board.
 
-1. Conecte o celular a essa rede. Na maioria dos aparelhos a página de configuração abre sozinha. Se não abrir, acesse `http://192.168.4.1/`.
-2. Escolha a sua rede na lista, ordenada por intensidade de sinal. Para uma rede oculta, toque em Digitar o nome da rede.
-3. Digite a senha e toque em Testar e conectar.
-4. O ESP32 testa a senha, o endereço IP e a qualidade do sinal. Só se o teste passar ele grava a rede.
-5. Volte o celular para o seu Wi-Fi normal e abra `http://camera-watchdog.local/`.
+1. Connect your phone to that network. On most devices the setup page opens by itself. If it does not, go to `http://192.168.4.1/`.
+2. Choose your network from the list, sorted by signal strength. For a hidden network, tap Enter the network name.
+3. Type the password and tap Test and connect.
+4. The ESP32 tests the password, the IP address, and the signal quality. It saves the network only if the test passes.
+5. Switch your phone back to your normal Wi-Fi and open `http://camera-watchdog.local/`.
 
-A rede salva fica na memória do ESP32 e sobrevive a reinícios e a quedas de energia. Ela tem prioridade sobre a rede do `secrets.h`, que continua como reserva. Com o ESP32 já conectado, a mesma página abre em `http://camera-watchdog.local/wifi`, ou em Configurações, Global, Escolher outra rede Wi-Fi.
+The saved network stays in the ESP32 memory and survives restarts and power loss. It takes priority over the `secrets.h` network, which stays as a fallback. With the ESP32 already connected, the same page opens at `http://camera-watchdog.local/wifi`, or under Settings, Global, Choose another Wi-Fi network.
 
-Para proteger a rede de configuração com senha, defina `WIFI_SETUP_AP_PASSWORD` em `include/app_config.h` com 8 a 63 caracteres. Sem senha, os celulares mostram o aviso de entrar na rede automaticamente, e a senha administrativa do painel continua exigida para gravar.
+To protect the setup network with a password, set `WIFI_SETUP_AP_PASSWORD` in `include/app_config.h` to 8 to 63 characters. Without a password, phones show the notification to sign in to the network automatically, and the dashboard admin password is still required to save.
 
-## Configurar o painel
+## Setting up the dashboard
 
-Abra `http://camera-watchdog.local/`, ou o IP mostrado no monitor serial. A aba Visão geral lista todas as câmeras. Se você não vir nenhuma, aguarde a descoberta, que roda a cada 30 segundos por padrão, ou abra Ações e use Redescobrir câmeras.
+Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab lists all cameras. If you see none, wait for discovery, which runs every 30 seconds by default, or open Actions and use Rediscover cameras.
 
-Se a câmera não aparecer, confira se ela e o ESP32 estão na mesma sub-rede e se o ONVIF está ligado no aplicativo da câmera. Como alternativa, informe o IP em `CAMERA_IP_HINT`, no arquivo `include/app_config.h`, e grave o firmware de novo.
+If the camera does not appear, check that it and the ESP32 are on the same subnet and that ONVIF is turned on in the camera app. As an alternative, enter the IP in `CAMERA_IP_HINT` in the file `include/app_config.h` and upload the firmware again.
 
-As abas do painel.
+The dashboard tabs.
 
-| Aba | O que mostra |
-| --- | --- |
-| Visão geral | Estado de todas as câmeras. |
-| Câmera | Resultado dos testes de ONVIF, RTSP e imagem da câmera selecionada. |
-| Ao vivo | Vídeo H.264 da câmera selecionada e as posições PTZ. |
-| Prévia | Imagens JPEG, usadas para diagnóstico. |
-| Ações | Verificar agora, reiniciar a câmera, redescobrir câmeras, zerar logs e zerar os dados do ESP32. |
-| Recursos | Memória, flash e sinal Wi-Fi do ESP32. |
-| Configurações | Todos os ajustes, em seções. |
+| Tab       | What it shows                                                                            |
+| --------- | ---------------------------------------------------------------------------------------- |
+| Overview  | State of all cameras.                                                                    |
+| Camera    | Results of the ONVIF, RTSP, and image tests of the selected camera.                      |
+| Live      | H.264 video from the selected camera and the PTZ presets.                                |
+| Preview   | JPEG images, used for diagnosis.                                                         |
+| Actions   | Check now, restart the camera, rediscover cameras, clear logs, and erase the ESP32 data. |
+| Resources | Memory, flash, and Wi-Fi signal of the ESP32.                                            |
+| Settings  | All the settings, in sections.                                                           |
 
-As seções de Configurações.
+The Settings sections.
 
-- Global. Nome local do ESP32, tempos do Wi-Fi e da descoberta, e o link para trocar de rede Wi-Fi.
-- Identificação. Nome da câmera, perfil ONVIF preferido para a imagem e porta RTSP.
-- Autenticação da câmera. Usuário e senha da câmera, usados pelo watchdog. Não alteram a conta dentro da câmera. A senha salva nunca volta para o navegador.
-- Monitoramento. Intervalo entre verificações e quantas falhas levam a cada estado.
-- Recuperação. Reinício automático por ONVIF, tempo de espera, intervalo mínimo e limite por hora.
-- Rede e notificações. Liga os alertas por e-mail e o aviso de troca de IP.
-- Comunicação. Tempos limite de conexão e de resposta.
-- Diagnóstico. O estado completo em JSON, com botão para copiar.
-- Logs. O histórico persistente, com filtros e exportação em CSV.
+- Global. Local name of the ESP32, Wi-Fi and discovery times, and the link to switch Wi-Fi network.
+- Identification. Camera name, preferred ONVIF profile for the image, and RTSP port.
+- Camera authentication. Camera username and password, used by the watchdog. They do not change the account inside the camera. The saved password never goes back to the browser.
+- Monitoring. Interval between checks and how many failures lead to each state.
+- Recovery. Automatic ONVIF restart, wait time, minimum interval, and hourly limit.
+- Network and notifications. Turns on the email alerts and the IP change notice.
+- Communication. Connection and response timeouts.
+- Diagnostics. The full state as JSON, with a copy button.
+- Logs. The persistent history, with filters and CSV export.
 
-Para começar, siga esta ordem.
+To start, follow this order.
 
-1. Em Configurações, Autenticação da câmera, informe o usuário e a senha da câmera, se ela pedir.
-2. Em Configurações, Rede e notificações, ligue os alertas por e-mail.
-3. Em Ações, rode Verificar agora e confira a aba Câmera.
+1. Under Settings, Camera authentication, enter the camera username and password, if it asks for them.
+2. Under Settings, Network and notifications, turn on the email alerts.
+3. Under Actions, run Check now and check the Camera tab.
 
-Os valores padrão são verificação a cada 15 segundos, tolerância de 90 segundos depois de ligar, três falhas para declarar a câmera offline e no máximo três reinícios por hora, com 5 minutos entre eles.
+The default values are a check every 15 seconds, a grace period of 90 seconds after power-on, three failures to declare the camera offline, and at most three restarts per hour, with 5 minutes between them.
 
-### Vídeo ao vivo
+### Live video
 
-A aba Ao vivo usa o fluxo H.264 da câmera por RTSP. O ESP32 repassa os pacotes ao navegador pela porta 81 sem decodificar nada, e o navegador toca o vídeo.
+The Live tab uses the H.264 stream of the camera over RTSP. The ESP32 relays the packets to the browser on port 81 without decoding anything, and the browser plays the video.
 
-- A qualidade Padrão usa o menor perfil H.264 da câmera com pelo menos 640 por 360 pixels. A qualidade Alta resolução usa o maior perfil e pode travar, porque a câmera envia esse fluxo em rajadas.
-- O ESP32 abre uma sessão por vez, então dois espectadores só assistem à mesma câmera na mesma qualidade.
-- Câmeras que enviam só H.265 não funcionam nessa aba.
-- O vídeo para sozinho quando você sai da aba, e a câmera fica livre.
+- The Standard quality uses the smallest H.264 profile of the camera with at least 640 by 360 pixels. The High resolution quality uses the largest profile and may stutter, because the camera sends that stream in bursts.
+- The ESP32 opens one session at a time, so two viewers can only watch the same camera at the same quality.
+- Cameras that send only H.265 do not work on this tab.
+- The video stops by itself when you leave the tab, and the camera is free again.
 
-### Segurança
+### Security
 
-O painel usa HTTP, sem criptografia, e foi feito para a rede local. Não abra a porta 80 nem a 81 do roteador para a internet. Defina `DASHBOARD_ADMIN_PASSWORD_VALUE` para que qualquer pessoa na sua rede não consiga mudar ajustes nem reiniciar câmeras.
+The dashboard uses HTTP, without encryption, and is meant for the local network. Do not open port 80 or 81 on the router to the internet. Set `DASHBOARD_ADMIN_PASSWORD_VALUE` so that no one on your network can change settings or restart cameras.
 
-## Firmwares de apoio
+## Support firmwares
 
-A pasta `firmwares/` tem três firmwares que ajudam a testar a placa, limpar a memória e recuperar o histórico. Os instaladores são scripts do Windows, e cada pasta tem um `instalar.bat`.
+The `firmwares/` folder has three firmwares that help you test the board, clear the memory, and recover the history. The installers are Windows scripts, and each folder has an `install.bat`.
 
-| Pasta | O que faz |
-| --- | --- |
-| `minimal` | Apaga toda a flash e grava um firmware de teste, com uma página que mostra os dados da placa. |
-| `zeroed` | Apaga toda a flash e não grava nada. |
-| `log-reader` | Salva uma cópia dos logs, apaga o resto e grava um leitor de logs. |
+| Folder       | What it does                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| `minimal`    | Erases the whole flash and uploads a test firmware, with a page that shows the board data. |
+| `zeroed`     | Erases the whole flash and uploads nothing.                                                |
+| `log-reader` | Saves a copy of the logs, erases the rest, and uploads a log reader.                       |
 
-### Antes de usar os instaladores
+### Before using the installers
 
-- Instale o PlatformIO Core. O instalador procura o `platformio.exe` em `%USERPROFILE%\.platformio\penv\Scripts`, depois no PATH. Para usar outro caminho, defina a variável de ambiente `ESP32_PLATFORMIO_EXE`.
-- Crie o `include/secrets.h` como descrito acima. Os firmwares `minimal` e `log-reader` usam o Wi-Fi desse arquivo.
-- Descubra a porta COM do ESP32 no Gerenciador de Dispositivos do Windows. Pode ser preciso instalar o driver USB da placa, como CP210x ou CH340.
+- Install PlatformIO Core. The installer looks for `platformio.exe` in `%USERPROFILE%\.platformio\penv\Scripts`, then in the PATH. To use another path, set the environment variable `ESP32_PLATFORMIO_EXE`.
+- Create `include/secrets.h` as described above. The `minimal` and `log-reader` firmwares use the Wi-Fi from that file.
+- Find the COM port of the ESP32 in the Windows Device Manager. You may need to install the USB driver of the board, such as CP210x or CH340.
 
-Para executar, dê dois cliques no `instalar.bat` da pasta, informe a porta, como `COM3`, e confirme com S. Responder N cancela sem alterar a placa.
+To run an installer, double-click the `install.bat` in the folder, enter the port, such as `COM3`, and confirm with Y. Answering N cancels without changing the board.
 
-Os modos `minimal` e `zeroed` apagam tudo, inclusive o firmware principal, as configurações, a rede Wi-Fi salva e os logs. Use esses dois só quando quiser mesmo limpar a placa. Para recuperar os logs antes de limpar, use o `log-reader`.
+The `minimal` and `zeroed` modes erase everything, including the main firmware, the settings, the saved Wi-Fi network, and the logs. Use these two only when you really want to wipe the board. To recover the logs before wiping, use `log-reader`.
 
 ### minimal
 
-Compila e grava um firmware de diagnóstico. Ele conecta ao Wi-Fi do `secrets.h` e mostra a página `http://esp32-recovery.local/` com modelo do chip, memória, tamanho da flash, motivo do último reset, tempo ligado, endereço IP, sinal e MAC. A página se atualiza a cada 3 segundos, e o LED azul pisca a cada meio segundo. Serve para confirmar que a placa, a antena e o Wi-Fi funcionam.
+Builds and uploads a diagnostic firmware. It connects to the Wi-Fi from `secrets.h` and shows the page `http://esp32-recovery.local/` with the chip model, memory, flash size, last reset reason, uptime, IP address, signal, and MAC. The page refreshes every 3 seconds, and the blue LED blinks every half second. Use it to confirm that the board, the antenna, and the Wi-Fi work.
 
 ### zeroed
 
-Apaga a flash inteira, incluindo bootloader, configurações, NVS e logs. A placa fica sem firmware até você gravar outro. Serve para devolver uma placa ao estado de fábrica antes de reutilizá-la.
+Erases the entire flash, including the bootloader, settings, NVS, and logs. The board stays without firmware until you upload another one. Use it to return a board to its factory state before reusing it.
 
 ### log-reader
 
-Recupera o histórico de logs de um watchdog sem perder nenhum registro. O instalador faz estas etapas.
+Recovers the log history of a watchdog without losing any record. The installer runs these steps.
 
-1. Compila o leitor.
-2. Salva uma cópia integral de 960 KiB da partição de logs na pasta `firmwares/log-reader/backups/` e confere o tamanho e o SHA-256.
-3. Apaga tudo, menos a partição de logs.
-4. Confere que a partição de logs continua idêntica ao backup.
-5. Grava o leitor e confere os logs outra vez.
+1. Builds the reader.
+2. Saves a full 960 KiB copy of the logs partition in the folder `firmwares/log-reader/backups/` and checks the size and the SHA-256.
+3. Erases everything except the logs partition.
+4. Checks that the logs partition is still identical to the backup.
+5. Uploads the reader and checks the logs again.
 
-O processo para antes de apagar qualquer coisa se não conseguir confirmar o backup, o tamanho da flash ou a identidade da placa. A pasta `backups` não vai para o Git e pode conter nomes e endereços da sua rede, então trate-a como material sensível.
+The process stops before erasing anything if it cannot confirm the backup, the flash size, or the identity of the board. Git ignores the `backups` folder, and it can contain names and addresses from your network, so treat it as sensitive material.
 
-Depois da instalação, abra o leitor por um destes caminhos.
+After the installation, open the reader in one of these ways.
 
-- Pelo Wi-Fi do `secrets.h`, em `http://esp32-log-reader.local/`.
-- Pela rede `ESP32-LogReader-XXXXXX`, com a senha `Logs-XXXXXX`, onde os seis caracteres finais são os mesmos nos dois nomes. O endereço é `http://192.168.4.1/`.
+- Through the Wi-Fi from `secrets.h`, at `http://esp32-log-reader.local/`.
+- Through the network `ESP32-LogReader-XXXXXX`, with the password `Logs-XXXXXX`, where the last six characters are the same in both names. The address is `http://192.168.4.1/`.
 
-O site filtra por nível, categoria, evento, resultado, Boot ID e Context ID. Ele exporta os registros válidos em CSV e JSONL, e exporta a partição inteira em RAW, mesmo se o sistema de arquivos estiver corrompido. Para voltar ao monitoramento, grave o firmware principal com `pio run -t upload` na pasta raiz.
+The site filters by level, category, event, result, Boot ID, and Context ID. It exports the valid records as CSV and JSONL, and exports the whole partition as RAW, even if the file system is corrupted. To go back to monitoring, upload the main firmware with `pio run -t upload` in the root folder.
 
-## Solução de problemas
+## Troubleshooting
 
-- O endereço `.local` não abre. Use o IP que o monitor serial mostra. No Windows, o endereço `.local` depende do serviço mDNS, que pode estar bloqueado por alguma VPN ou firewall.
-- O ESP32 não conecta ao Wi-Fi. Confirme que a rede é de 2,4 GHz e que a senha está certa. Depois de 2 minutos a rede `Camera-Watchdog-XXXX` abre para você corrigir.
-- A câmera não é encontrada. Veja a seção sobre configurar o painel, e confira se a câmera aceita ONVIF sem bloqueio de IP.
-- O vídeo ao vivo engasga. Troque a qualidade para Padrão e feche outras abas que estejam assistindo à câmera.
-- A gravação falha. Troque o cabo USB, confira a porta em `upload_port` e segure o botão BOOT durante a conexão.
-- Esqueci a senha administrativa. Troque `DASHBOARD_ADMIN_PASSWORD_VALUE` no `secrets.h` e grave o firmware de novo.
+- The `.local` address does not open. Use the IP that the serial monitor shows. On Windows, the `.local` address depends on the mDNS service, which a VPN or firewall may block.
+- The ESP32 does not connect to Wi-Fi. Confirm that the network is 2.4 GHz and that the password is right. After 2 minutes, the `Camera-Watchdog-XXXX` network opens so you can fix it.
+- The camera is not found. See the section on setting up the dashboard, and check that the camera accepts ONVIF without IP blocking.
+- The live video stutters. Switch the quality to Standard and close other tabs that are watching the camera.
+- The upload fails. Replace the USB cable, check the port in `upload_port`, and hold the BOOT button during the connection.
+- I forgot the admin password. Change `DASHBOARD_ADMIN_PASSWORD_VALUE` in `secrets.h` and upload the firmware again.
 
-## Licença
+## License
 
-O projeto usa a licença MIT. O texto completo está no arquivo `LICENSE`.
+The project uses the MIT license. The full text is in the `LICENSE` file.

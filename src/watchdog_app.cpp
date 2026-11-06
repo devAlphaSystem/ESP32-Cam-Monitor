@@ -82,7 +82,7 @@ void noteInconclusiveHealthCheck(CameraContext& ctx, const String& event)
 
     if (ctx.cameraState == CameraState::Online && ctx.activeIncident == IncidentKind::None) {
         ctx.lastEvent = currentTimestamp() + " - " + event;
-        Serial.printf("VERIFICACAO ADIADA: %s\n", event.c_str());
+        Serial.printf("CHECK DEFERRED: %s\n", event.c_str());
         return;
     }
 
@@ -168,8 +168,8 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
     if (WiFi.status() != WL_CONNECTED) {
         ctx.totalHealthChecks++;
         ctx.failedHealthChecks++;
-        resetCameraCheckSequences(ctx, "ESP32 sem conexao Wi-Fi");
-        setState(ctx, CameraState::Degraded, "ESP32 perdeu a conexao Wi-Fi");
+        resetCameraCheckSequences(ctx, "ESP32 without Wi-Fi connection");
+        setState(ctx, CameraState::Degraded, "ESP32 lost the Wi-Fi connection");
         return;
     }
 
@@ -177,12 +177,12 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.totalHealthChecks++;
         ctx.inconclusiveHealthChecks++;
         discoveryRequested = true;
-        setState(ctx, CameraState::Discovering, "Endereco suspenso; aguardando nova identificacao");
+        setState(ctx, CameraState::Discovering, "Address suspended; waiting for a new identification");
         return;
     }
 
     if (cameraRebootGraceActive(ctx)) {
-        setState(ctx, CameraState::Recovering, String("Aguardando reinicializacao da camera; faltam cerca de ") + String(cameraRebootGraceRemainingMs(ctx) / 1000UL) + "s");
+        setState(ctx, CameraState::Recovering, String("Waiting for the camera to restart; about ") + String(cameraRebootGraceRemainingMs(ctx) / 1000UL) + "s left");
         return;
     }
 
@@ -199,8 +199,8 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.lastSnapshotProbe.statusCode = 200;
         ctx.lastSnapshotProbe.latencyMs = 0;
         ctx.lastSnapshotProbe.bytesRead = 0;
-        ctx.lastSnapshotProbe.detail = String("Video H.264 ao vivo recebido da camera (") + liveFramesPerSecond + " quadros/s)";
-        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::LiveStream, "Video ao vivo retornou; confirmando estabilidade", "Camera validada pelo video ao vivo", "Camera recuperada e video ao vivo validado");
+        ctx.lastSnapshotProbe.detail = String("Live H.264 video received from the camera (") + liveFramesPerSecond + " frames/s)";
+        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::LiveStream, "Live video returned; confirming stability", "Camera validated by live video", "Camera recovered and live video validated");
         return;
     }
 
@@ -216,8 +216,8 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.lastSnapshotProbe.statusCode = 200;
         ctx.lastSnapshotProbe.latencyMs = ctx.lastBrowserSnapshotLatencyMs;
         ctx.lastSnapshotProbe.bytesRead = ctx.lastBrowserSnapshotBytes;
-        ctx.lastSnapshotProbe.detail = "JPEG validado pela Previa recente";
-        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::PreviewJpeg, "Previa retornou; confirmando estabilidade", "Camera validada pela Previa recente", "Camera recuperada e JPEG validado pela Previa");
+        ctx.lastSnapshotProbe.detail = "JPEG validated by a recent Preview";
+        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::PreviewJpeg, "Preview returned; confirming stability", "Camera validated by a recent Preview", "Camera recovered and JPEG validated by Preview");
         return;
     }
 
@@ -226,7 +226,7 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
     if (!cameraIoGuard.acquired()) {
         ctx.totalHealthChecks++;
         ctx.inconclusiveHealthChecks++;
-        noteInconclusiveHealthCheck(ctx, "Canal da camera ocupado; verificacao adiada");
+        noteInconclusiveHealthCheck(ctx, "Camera channel busy; check deferred");
         return;
     }
 
@@ -245,9 +245,9 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
     const bool videoAvailable = probeCameraSnapshotJpeg(ctx, logContextId);
 
     if (videoAvailable) {
-        Serial.printf("CAMERA OK: %s | JPEG=%u bytes %lums | " "ONVIF tcp=%d http=%d code=%d | " "RTSP tentado=%d tcp=%d protocolo=%d code=%d\n", ctx.camera.ip.toString().c_str(), static_cast<unsigned>(ctx.lastSnapshotProbe.bytesRead), static_cast<unsigned long>(ctx.lastSnapshotProbe.latencyMs), ctx.lastOnvifProbe.tcpConnected, ctx.lastOnvifProbe.protocolResponded, ctx.lastOnvifProbe.statusCode, ctx.lastRtspProbeAttempted, ctx.lastRtspProbe.tcpConnected, ctx.lastRtspProbe.protocolResponded, ctx.lastRtspProbe.statusCode);
+        Serial.printf("CAMERA OK: %s | JPEG=%u bytes %lums | " "ONVIF tcp=%d http=%d code=%d | " "RTSP attempted=%d tcp=%d protocol=%d code=%d\n", ctx.camera.ip.toString().c_str(), static_cast<unsigned>(ctx.lastSnapshotProbe.bytesRead), static_cast<unsigned long>(ctx.lastSnapshotProbe.latencyMs), ctx.lastOnvifProbe.tcpConnected, ctx.lastOnvifProbe.protocolResponded, ctx.lastOnvifProbe.statusCode, ctx.lastRtspProbeAttempted, ctx.lastRtspProbe.tcpConnected, ctx.lastRtspProbe.protocolResponded, ctx.lastRtspProbe.statusCode);
 
-        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::SnapshotJpeg, "Imagem retornou; confirmando estabilidade", "Camera e canal de imagem responderam ao teste", "Camera recuperada e JPEG validado");
+        recordSuccessfulHealthCheck(ctx, HealthEvidenceSource::SnapshotJpeg, "Image returned; confirming stability", "Camera and image channel responded to the test", "Camera recovered and JPEG validated");
         return;
     }
 
@@ -265,7 +265,7 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
 
         if (mediaServiceTransportFailure && ctx.consecutiveMediaServiceFailures >= ctx.settings.videoFailuresBeforeReboot) {
             ctx.lastSnapshotProbe.conclusive = true;
-            ctx.lastSnapshotProbe.detail = String("Servico de midia ONVIF falhou repetidamente: ") + ctx.lastSnapshotProbe.detail;
+            ctx.lastSnapshotProbe.detail = String("ONVIF media service failed repeatedly: ") + ctx.lastSnapshotProbe.detail;
             resetSnapshotProfileFailover(ctx);
         }
     }
@@ -279,7 +279,7 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
 
         ctx.inconclusiveHealthChecks++;
 
-        noteInconclusiveHealthCheck(ctx, String("Monitor de snapshot inconclusivo: ") + ctx.lastSnapshotProbe.detail);
+        noteInconclusiveHealthCheck(ctx, String("Inconclusive snapshot monitor: ") + ctx.lastSnapshotProbe.detail);
         return;
     }
 
@@ -304,11 +304,11 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.consecutiveControlFailures = 0;
 
         if (millis() - ctx.registeredAtMs < ctx.settings.startupGraceMs) {
-            setState(ctx, CameraState::Degraded, String("Camera em tolerancia inicial; imagem falhou: ") + ctx.lastSnapshotProbe.detail);
+            setState(ctx, CameraState::Degraded, String("Camera in startup grace period; image failed: ") + ctx.lastSnapshotProbe.detail);
             return;
         }
 
-        Serial.printf("SNAPSHOT FALHOU: tentativas=%u | IP=%s | HTTP=%d | %s\n", ctx.consecutiveFailures, ctx.camera.valid ? ctx.camera.ip.toString().c_str() : "desconhecido", ctx.lastSnapshotProbe.statusCode, ctx.lastSnapshotProbe.detail.c_str());
+        Serial.printf("SNAPSHOT FAILED: attempts=%u | IP=%s | HTTP=%d | %s\n", ctx.consecutiveFailures, ctx.camera.valid ? ctx.camera.ip.toString().c_str() : "unknown", ctx.lastSnapshotProbe.statusCode, ctx.lastSnapshotProbe.detail.c_str());
 
         if (ctx.consecutiveFailures >= ctx.settings.videoFailuresBeforeAlert) {
             beginOrEscalateIncident(ctx, IncidentKind::SnapshotUnavailable);
@@ -323,19 +323,19 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
             }
 
             if (ctx.settings.enableOnvifAutoReboot && !rebootEligible) {
-                ctx.lastCameraRebootResult = currentTimestamp() + " - nao solicitado: ";
+                ctx.lastCameraRebootResult = currentTimestamp() + " - not requested: ";
 
                 if (!ctx.lastOnvifProbe.protocolResponded) {
-                    ctx.lastCameraRebootResult += "servico ONVIF sem resposta para receber SystemReboot";
+                    ctx.lastCameraRebootResult += "ONVIF service not responding, so it cannot receive SystemReboot";
                 } else if (ctx.snapshotProfileFailoverPending) {
-                    ctx.lastCameraRebootResult += "perfil de snapshot alternativo ainda em teste";
+                    ctx.lastCameraRebootResult += "alternate snapshot profile still being tested";
                 } else {
-                    ctx.lastCameraRebootResult += "a falha indica autenticacao, recurso nao suportado ou configuracao";
+                    ctx.lastCameraRebootResult += "the failure points to authentication, an unsupported feature, or configuration";
                 }
             }
         }
 
-        setState(ctx, CameraState::Degraded, String("Camera responde, mas o snapshot falhou: ") + ctx.lastSnapshotProbe.detail);
+        setState(ctx, CameraState::Degraded, String("Camera responds, but the snapshot failed: ") + ctx.lastSnapshotProbe.detail);
         return;
     }
 
@@ -343,16 +343,16 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         ctx.consecutiveControlFailures++;
     }
 
-    Serial.printf("CAMERA SEM CONTROLE E SEM IMAGEM: video=%u controle=%u | IP=%s\n", ctx.consecutiveFailures, ctx.consecutiveControlFailures, ctx.camera.valid ? ctx.camera.ip.toString().c_str() : "desconhecido");
+    Serial.printf("CAMERA WITHOUT CONTROL AND WITHOUT IMAGE: video=%u control=%u | IP=%s\n", ctx.consecutiveFailures, ctx.consecutiveControlFailures, ctx.camera.valid ? ctx.camera.ip.toString().c_str() : "unknown");
 
     if (ctx.consecutiveControlFailures < ctx.settings.failuresBeforeOffline || millis() - ctx.registeredAtMs < ctx.settings.startupGraceMs) {
-        setState(ctx, CameraState::Degraded, "Camera nao respondeu; confirmando indisponibilidade");
+        setState(ctx, CameraState::Degraded, "Camera did not respond; confirming unavailability");
         return;
     }
 
     beginOrEscalateIncident(ctx, IncidentKind::CameraOffline);
     queueIncidentAlert(ctx);
-    setState(ctx, CameraState::Offline, "Camera confirmada como indisponivel e sem imagem");
+    setState(ctx, CameraState::Offline, "Camera confirmed unavailable and without image");
 }
 
 bool connectToWiFi()
@@ -367,14 +367,14 @@ bool connectToWiFi()
     WifiCredential candidates[WIFI_CREDENTIAL_CANDIDATES_MAX];
     const size_t candidateCount = wifiCredentialCandidates(candidates);
     if (candidateCount == 0) {
-        Serial.println("Nenhuma rede Wi-Fi configurada; a rede de configuracao do ESP32 sera aberta.");
+        Serial.println("No Wi-Fi network configured. The ESP32 setup network will open.");
         PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Skipped, "no_credentials", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
         return false;
     }
 
     for (size_t index = 0; index < candidateCount && WiFi.status() != WL_CONNECTED; index++) {
         const WifiCredential& candidate = candidates[index];
-        Serial.printf("Conectando a rede \"%s\"", candidate.ssid);
+        Serial.printf("Connecting to network \"%s\"", candidate.ssid);
         WiFi.begin(candidate.ssid, strlen(candidate.password) > 0 ? candidate.password : nullptr);
 
         const unsigned long startedAt = millis();
@@ -391,14 +391,14 @@ bool connectToWiFi()
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Falha ao conectar ao Wi-Fi.");
+        Serial.println("Failed to connect to Wi-Fi.");
         PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Failure, "station", IPAddress(), 0, static_cast<int>(WiFi.status()), millis() - connectStartedAtMs, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
         return false;
     }
 
-    Serial.printf("Wi-Fi conectado a \"%s\". IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+    Serial.printf("Wi-Fi connected to \"%s\". IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     Serial.printf("Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
-    Serial.printf("Mascara: %s\n", WiFi.subnetMask().toString().c_str());
+    Serial.printf("Subnet mask: %s\n", WiFi.subnetMask().toString().c_str());
     Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
     wifiWasConnected = true;
     PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Success, "station", WiFi.gatewayIP(), 0, static_cast<int>(WiFi.status()), millis() - connectStartedAtMs, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
@@ -411,7 +411,7 @@ bool startMdns()
     mdnsAvailable = MDNS.begin(globalSettings.localHostname);
 
     if (!mdnsAvailable) {
-        Serial.println("Falha ao iniciar mDNS; painel disponivel pelo IP.");
+        Serial.println("Failed to start mDNS. The dashboard is available by IP.");
         return false;
     }
 
@@ -433,7 +433,7 @@ void initializeConnectedServices()
     discoverOnvifCameras();
     if (cameraCount == 0)
         subnetScanRequested = true;
-    Serial.printf("Painel: http://%s | cameras=%u\n", WiFi.localIP().toString().c_str(), static_cast<unsigned>(cameraCount));
+    Serial.printf("Dashboard: http://%s | cameras=%u\n", WiFi.localIP().toString().c_str(), static_cast<unsigned>(cameraCount));
 }
 
 void processPendingEmails()
@@ -472,7 +472,7 @@ void processPendingAdminAction()
             }
         }
         if (next == nullptr) {
-            lastAdminActionResult = String("Reinicio coletivo concluido: ") + batchAccepted + " aceitos; " + batchFailed + " falharam ou foram bloqueados";
+            lastAdminActionResult = String("Bulk restart complete: ") + batchAccepted + " accepted; " + batchFailed + " failed or were blocked";
             activeAdminAction = AdminAction::None;
             activeAdminCameraId = 0;
             return;
@@ -485,7 +485,7 @@ void processPendingAdminAction()
         else
             batchFailed++;
         batchNextCameraId = next->id + 1;
-        lastAdminActionResult = String("Reinicio coletivo: ") + batchCompleted + " processadas; ultima camera: " + next->settings.cameraName + (accepted ? " - comando aceito" : " - falhou ou bloqueado");
+        lastAdminActionResult = String("Bulk restart: ") + batchCompleted + " processed; last camera: " + next->settings.cameraName + (accepted ? " - command accepted" : " - failed or blocked");
         return;
     }
     if (pendingAdminAction == AdminAction::None)
@@ -531,7 +531,7 @@ void processPendingAdminAction()
             for (CameraContext* item = cameras.get(); item != nullptr; item = item->next.get())
                 batchLastCameraId = item->id;
             pendingAdminActionContextId = contextId;
-            lastAdminActionResult = "Reinicio coletivo em andamento";
+            lastAdminActionResult = "Bulk restart in progress";
             return;
         case AdminAction::ResetRebootLimiter:
             if (ctx != nullptr) {
@@ -549,17 +549,17 @@ void processPendingAdminAction()
                     ctx->cameraRebootWindowStartedAtMs = previousWindow;
                     ctx->cameraRebootAttemptsInWindow = previousCount;
                     memcpy(ctx->cameraRebootAcceptedAtMs, previousAccepted, sizeof(previousAccepted));
-                    lastAdminActionResult = "Falha ao persistir redefinicao do limitador";
+                    lastAdminActionResult = "Failed to persist the limiter reset";
                     break;
                 }
-                ctx->lastCameraRebootResult = "Limitador de reboots reiniciado";
+                ctx->lastCameraRebootResult = "Reboot limiter reset";
                 lastAdminActionResult = String(ctx->settings.cameraName) + ": " + ctx->lastCameraRebootResult;
                 succeeded = true;
             }
             break;
         case AdminAction::RestartEsp32:
             espRestartRequestedAtMs = millis();
-            lastAdminActionResult = "Reinicializacao do ESP32 agendada";
+            lastAdminActionResult = "ESP32 restart scheduled";
             succeeded = true;
             break;
         case AdminAction::None:
@@ -578,7 +578,7 @@ void maintainWiFi()
         if (!wifiWasConnected) {
             wifiWasConnected = true;
             for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
-                resetCameraCheckSequences(*ctx, "Wi-Fi restabelecido; aguardando nova verificacao");
+                resetCameraCheckSequences(*ctx, "Wi-Fi restored; waiting for a new check");
                 ctx->lastHealthCheckAtMs = 0;
             }
         }
@@ -588,10 +588,10 @@ void maintainWiFi()
         wifiWasConnected = false;
         for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
             resetCameraSnapshotHttpSession(*ctx);
-            resetCameraCheckSequences(*ctx, "ESP32 perdeu a conexao Wi-Fi");
+            resetCameraCheckSequences(*ctx, "ESP32 lost the Wi-Fi connection");
             ctx->cameraState = CameraState::Degraded;
             ctx->lastStateChangeAtMs = millis();
-            ctx->lastEvent = "ESP32 sem conexao Wi-Fi; monitoramento suspenso";
+            ctx->lastEvent = "ESP32 without Wi-Fi connection; monitoring suspended";
         }
         PersistentLog::record(PersistentLog::Event::WifiDisconnect, PersistentLog::Outcome::Failure, "station", IPAddress(), 0, static_cast<int>(WiFi.status()), 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
     }
@@ -634,12 +634,12 @@ void setup()
         factoryResetFailureMarker.magic = 0;
         factoryResetFailureMarker.invertedMagic = 0;
         factoryResetFailed = true;
-        lastAdminActionResult = String("Falha ao apagar NVS: ") + esp_err_to_name(eraseError) + "; os dados podem ter sido apagados parcialmente";
+        lastAdminActionResult = String("Failed to erase NVS: ") + esp_err_to_name(eraseError) + "; the data may have been partially erased";
         Serial.println(lastAdminActionResult);
     }
 
     if (!PersistentLog::begin()) {
-        Serial.println("Particao persistente de logs indisponivel.");
+        Serial.println("Persistent logs partition unavailable.");
     }
 
     settingsWriteToken = makeSettingsWriteToken();
@@ -654,14 +654,14 @@ void setup()
     Serial.printf("Chip: %s rev. %u\n", ESP.getChipModel(), ESP.getChipRevision());
     Serial.printf("Flash: %u MB\n", ESP.getFlashChipSize() / 1024U / 1024U);
     releaseUnusedBluetoothMemory();
-    Serial.printf("Heap inicial disponivel: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("Initial free heap: %u bytes\n", ESP.getFreeHeap());
     PersistentLog::record(PersistentLog::Event::SystemBoot, PersistentLog::Outcome::Success, resetReasonName(esp_reset_reason()), IPAddress(), 0, static_cast<int>(esp_reset_reason()), 0, ESP.getFreeHeap(), PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     PersistentLog::record(PersistentLog::Event::RuntimeContext, PersistentLog::Outcome::Success, FIRMWARE_VERSION, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, RUNTIME_SETTINGS_DEFAULTS_REVISION, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
     recordRuntimeSettingsContext(settingsLoadedFromNvs ? "nvs" : "factory", PersistentLog::FlagScheduled);
 
     wifiSetupBegin();
     if (!connectToWiFi()) {
-        lastRegistryResult = "ESP32 sem Wi-Fi; monitoramento suspenso";
+        lastRegistryResult = "ESP32 without Wi-Fi; monitoring suspended";
     }
 
     initializeConnectedServices();
@@ -682,7 +682,7 @@ void loop()
         factoryResetRequestedAtMs = 0;
         if (!PersistentLog::clear()) {
             factoryResetFailed = true;
-            lastAdminActionResult = "Falha ao limpar os logs; dados de configuracao preservados";
+            lastAdminActionResult = "Failed to clear the logs; configuration data preserved";
             Serial.println(lastAdminActionResult);
             PersistentLog::begin();
             return;
@@ -690,7 +690,7 @@ void loop()
 
         const esp_err_t eraseResult = nvs_flash_erase();
         if (eraseResult != ESP_OK) {
-            lastAdminActionResult = String("Falha ao apagar NVS: ") + esp_err_to_name(eraseResult) + "; os dados podem ter sido apagados parcialmente";
+            lastAdminActionResult = String("Failed to erase NVS: ") + esp_err_to_name(eraseResult) + "; the data may have been partially erased";
             Serial.println(lastAdminActionResult);
             PersistentLog::record(PersistentLog::Event::AdminAction, PersistentLog::Outcome::Failure, "factory_reset", IPAddress(), 0, static_cast<int>(eraseResult), 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
             PersistentLog::flush();

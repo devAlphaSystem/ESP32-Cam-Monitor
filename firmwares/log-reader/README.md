@@ -1,33 +1,33 @@
-# Leitor forense de logs
+# Forensic log reader
 
-Este firmware substitui o watchdog e preserva somente a particao `logs`. Ele monta o LittleFS como somente leitura, nunca formata a particao e disponibiliza os registros em um site local.
+This firmware replaces the watchdog and preserves only the `logs` partition. It mounts LittleFS as read-only, never formats the partition, and serves the records on a local website.
 
-## Instalacao
+## Installation
 
-Execute `instalar.bat`, informe a porta COM e confirme a operacao. O instalador:
+Run `install.bat`, enter the COM port, and confirm the operation. The installer:
 
-1. compila o leitor;
-2. salva uma copia RAW de 960 KiB em `backups/`;
-3. confere o tamanho e o SHA-256 do backup;
-4. apaga apenas `0x000000` ate `0x30FFFF`;
-5. verifica que `0x310000` ate `0x3FFFFF` continua identico ao backup;
-6. grava o leitor e repete a verificacao.
+1. builds the reader;
+2. saves a RAW copy of 960 KiB in `backups/`;
+3. checks the size and SHA-256 of the backup;
+4. erases only `0x000000` through `0x30FFFF`;
+5. verifies that `0x310000` through `0x3FFFFF` is still identical to the backup;
+6. flashes the reader and repeats the verification.
 
-O processo para antes do apagamento se o backup, o layout, o tamanho da flash ou a identidade do ESP32 nao puderem ser confirmados.
+The process stops before the erase if it cannot confirm the backup, the layout, the flash size, or the identity of the ESP32.
 
-## Acesso
+## Access
 
-- Rede Wi-Fi configurada: `http://esp32-log-reader.local/`
-- Rede alternativa: `ESP32-LogReader-XXXXXX`
-- Senha da rede alternativa: `Logs-XXXXXX`, usando o mesmo sufixo de seis caracteres
-- Endereco na rede alternativa: `http://192.168.4.1/`
+- Configured Wi-Fi network: `http://esp32-log-reader.local/`
+- Fallback network: `ESP32-LogReader-XXXXXX`
+- Fallback network password: `Logs-XXXXXX`, with the same six-character suffix
+- Address on the fallback network: `http://192.168.4.1/`
 
-## Leitura e exportacao
+## Reading and exporting
 
-O site permite buscar e filtrar por nivel, categoria, evento, resultado, Boot ID e Context ID. Os filtros sao aplicados sobre todos os registros validos antes da paginacao.
+The website searches and filters by level, category, event, result, Boot ID, and Context ID. The filters apply to all valid records before pagination.
 
-- CSV e JSONL exportam todos os registros validos em ordem cronologica, independentemente dos filtros atuais.
-- RAW exporta os 960 KiB exatos da particao, incluindo metadados do LittleFS, registros invalidos e dados que o leitor nao conseguiu interpretar.
-- Se o LittleFS estiver corrompido, o site continua ativo e mantem a exportacao RAW disponivel.
+- CSV and JSONL export all valid records in chronological order, regardless of the current filters.
+- RAW exports the exact 960 KiB of the partition, including LittleFS metadata, invalid records, and data the reader could not interpret.
+- If LittleFS is corrupted, the website stays up and the RAW export remains available.
 
-Os backups podem conter enderecos, nomes e detalhes operacionais. A pasta e ignorada pelo Git e deve ser tratada como material sensivel.
+The backups can contain addresses, names, and operational details. Git ignores the folder, and you should treat it as sensitive material.

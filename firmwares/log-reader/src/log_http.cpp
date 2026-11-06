@@ -370,7 +370,7 @@ void handleLogs()
     const LogReader::Status& status = LogReader::status();
 
     if (!status.fileFound) {
-        sendApiError(503, "O arquivo de eventos nao esta disponivel; use a exportacao RAW.");
+        sendApiError(503, "The event file is not available. Use the RAW export.");
         return;
     }
 
@@ -438,12 +438,12 @@ void handleCsvExport()
     const LogReader::Status& status = LogReader::status();
 
     if (!status.fileFound) {
-        sendApiError(503, "O arquivo de eventos nao esta disponivel; use a exportacao RAW.");
+        sendApiError(503, "The event file is not available. Use the RAW export.");
         return;
     }
 
     httpServer->sendHeader("Cache-Control", "no-store");
-    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-completos.csv");
+    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-full.csv");
     httpServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
     httpServer->send(200, "text/csv; charset=utf-8", "");
     httpServer->sendContent("\xEF\xBB\xBF", 3);
@@ -467,12 +467,12 @@ void handleJsonlExport()
     const LogReader::Status& status = LogReader::status();
 
     if (!status.fileFound) {
-        sendApiError(503, "O arquivo de eventos nao esta disponivel; use a exportacao RAW.");
+        sendApiError(503, "The event file is not available. Use the RAW export.");
         return;
     }
 
     httpServer->sendHeader("Cache-Control", "no-store");
-    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-completos.jsonl");
+    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-full.jsonl");
     httpServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
     httpServer->send(200, "application/x-ndjson; charset=utf-8", "");
 
@@ -521,12 +521,12 @@ void handleRawExport()
     const esp_partition_t* partition = LogReader::partition();
 
     if (partition == nullptr) {
-        sendApiError(404, "A particao logs nao foi encontrada.");
+        sendApiError(404, "The logs partition was not found.");
         return;
     }
 
     httpServer->sendHeader("Cache-Control", "no-store");
-    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-particao.bin");
+    httpServer->sendHeader("Content-Disposition", "attachment; filename=watchdog-logs-partition.bin");
     httpServer->setContentLength(partition->size);
     httpServer->send(200, "application/octet-stream", "");
 
@@ -537,7 +537,7 @@ void handleRawExport()
         const size_t chunkSize = min(sizeof(buffer), static_cast<size_t>(partition->size - offset));
 
         if (esp_partition_read(partition, offset, buffer, chunkSize) != ESP_OK || !writeAll(client, buffer, chunkSize)) {
-            Serial.println("Exportacao RAW interrompida antes do fim.");
+            Serial.println("RAW export stopped before the end.");
             return;
         }
 
@@ -567,7 +567,7 @@ void configure(WebServer& server)
         httpServer->send(200, "text/plain; charset=utf-8", "OK");
     });
     server.onNotFound([]() {
-        sendApiError(404, "Rota nao encontrada.");
+        sendApiError(404, "Route not found.");
     });
 }
 

@@ -725,7 +725,7 @@ void appendPersistentLogJson(String& json, const PersistentLog::Entry& entry)
     json += entry.cameraId;
     json += ",\"cameraName\":\"";
     const CameraContext* sourceCamera = findCamera(entry.cameraId);
-    appendJsonEscaped(json, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("Historico sem identificacao") : entry.cameraId == 0 ? String("Sistema") : String("Camera ") + entry.cameraId);
+    appendJsonEscaped(json, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("History without identification") : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
     json += '"';
     json += ",\"timestamp\":\"";
     json += persistentLogTimestamp(entry);
@@ -911,7 +911,7 @@ void appendPersistentLogCsv(String& csv, const PersistentLog::Entry& entry)
     csv += entry.cameraId;
     csv += ';';
     const CameraContext* sourceCamera = findCamera(entry.cameraId);
-    appendCsvText(csv, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("Historico sem identificacao") : entry.cameraId == 0 ? String("Sistema") : String("Camera ") + entry.cameraId);
+    appendCsvText(csv, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("History without identification") : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
     csv += "\r\n";
 }
 
@@ -977,22 +977,22 @@ void sendApiError(int statusCode, const char* code, const String& detail)
 bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
 {
     if (blockDuringHealthCheck && (healthCheckInProgress || registryBusy || cameraIoDepth != 0)) {
-        error = "Verificacao de saude em andamento; tente novamente";
+        error = "Health check in progress; try again";
         return false;
     }
 
     if (!httpServer.hasArg("writeToken")) {
-        error = "Token de gravacao ausente; recarregue a aba Configuracoes";
+        error = "Write token missing; reload the Settings tab";
         return false;
     }
 
     if (httpServer.arg("writeToken") != settingsWriteToken) {
-        error = "Token de gravacao invalido; recarregue a pagina";
+        error = "Invalid write token; reload the page";
         return false;
     }
 
     if (adminPasswordConfigured() && (!httpServer.hasArg("adminPassword") || !secureTextEquals(httpServer.arg("adminPassword"), DASHBOARD_ADMIN_PASSWORD_VALUE))) {
-        error = "Senha administrativa incorreta";
+        error = "Incorrect admin password";
         return false;
     }
 
@@ -1006,12 +1006,12 @@ bool authorizeSettingsMutation(String& error)
     }
 
     if (factoryResetRequestedAtMs != 0) {
-        error = "Restauracao dos dados de fabrica em andamento";
+        error = "Factory data reset in progress";
         return false;
     }
 
     if (currentAdminAction() != AdminAction::None) {
-        error = "Aguarde a acao administrativa terminar antes de alterar as configuracoes";
+        error = "Wait for the admin action to finish before changing the settings";
         return false;
     }
 
@@ -1021,7 +1021,7 @@ bool authorizeSettingsMutation(String& error)
 bool readStringSettingArgument(const char* name, size_t minimumLength, size_t maximumLength, String& value, String& error, bool trim = true)
 {
     if (!httpServer.hasArg(name)) {
-        error = String("Campo ausente: ") + name;
+        error = String("Missing field: ") + name;
         return false;
     }
 
@@ -1031,7 +1031,7 @@ bool readStringSettingArgument(const char* name, size_t minimumLength, size_t ma
     }
 
     if (value.length() < minimumLength || value.length() > maximumLength) {
-        error = String("Campo fora do tamanho permitido: ") + name;
+        error = String("Field outside the allowed length: ") + name;
         return false;
     }
 
@@ -1039,7 +1039,7 @@ bool readStringSettingArgument(const char* name, size_t minimumLength, size_t ma
         const uint8_t byte = static_cast<uint8_t>(value.charAt(index));
 
         if (byte < 0x20 || byte == 0x7F) {
-            error = String("Campo contem caractere invalido: ") + name;
+            error = String("Field contains an invalid character: ") + name;
             return false;
         }
     }
@@ -1050,7 +1050,7 @@ bool readStringSettingArgument(const char* name, size_t minimumLength, size_t ma
 bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t maximum, uint32_t& value, String& error)
 {
     if (!httpServer.hasArg(name)) {
-        error = String("Campo ausente: ") + name;
+        error = String("Missing field: ") + name;
         return false;
     }
 
@@ -1058,7 +1058,7 @@ bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t ma
     textValue.trim();
 
     if (textValue.isEmpty()) {
-        error = String("Campo vazio: ") + name;
+        error = String("Empty field: ") + name;
         return false;
     }
 
@@ -1068,20 +1068,20 @@ bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t ma
         const char character = textValue.charAt(index);
 
         if (character < '0' || character > '9') {
-            error = String("Campo numerico invalido: ") + name;
+            error = String("Invalid numeric field: ") + name;
             return false;
         }
 
         parsed = parsed * 10ULL + static_cast<uint8_t>(character - '0');
 
         if (parsed > maximum) {
-            error = String("Campo acima do limite: ") + name;
+            error = String("Field above the limit: ") + name;
             return false;
         }
     }
 
     if (parsed < minimum) {
-        error = String("Campo abaixo do limite: ") + name;
+        error = String("Field below the limit: ") + name;
         return false;
     }
 
@@ -1092,7 +1092,7 @@ bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t ma
 bool readBooleanSettingArgument(const char* name, uint8_t& value, String& error)
 {
     if (!httpServer.hasArg(name)) {
-        error = String("Campo ausente: ") + name;
+        error = String("Missing field: ") + name;
         return false;
     }
 
@@ -1109,7 +1109,7 @@ bool readBooleanSettingArgument(const char* name, uint8_t& value, String& error)
         return true;
     }
 
-    error = String("Opcao booleana invalida: ") + name;
+    error = String("Invalid boolean option: ") + name;
     return false;
 }
 
@@ -1146,19 +1146,19 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
         copySettingText(candidate.cameraPassword, textValue);
     } else if (passwordAction == "keep" || passwordAction == "clear") {
         if (!textValue.isEmpty()) {
-            error = "Selecione substituir a senha para enviar uma nova senha";
+            error = "Select replace password to send a new password";
             return false;
         }
 
         if (passwordAction == "clear") {
             if (candidate.cameraUsername[0] != '\0') {
-                error = "A remocao das credenciais exige usuario vazio";
+                error = "Removing the credentials requires an empty username";
                 return false;
             }
             copySettingText(candidate.cameraPassword, "");
         }
     } else {
-        error = "Acao de senha da camera invalida";
+        error = "Invalid camera password action";
         return false;
     }
 
@@ -1380,7 +1380,7 @@ String buildSettingsJson(CameraContext* ctx)
 CameraContext* requestedCamera()
 {
     if (!httpServer.hasArg("cameraId")) {
-        sendApiError(400, "camera_required", "Identificador da camera ausente");
+        sendApiError(400, "camera_required", "Camera identifier missing");
         return nullptr;
     }
     uint32_t id = 0;
@@ -1393,9 +1393,9 @@ CameraContext* requestedCamera()
     if (ctx == nullptr) {
         uint32_t primaryId = 0;
         if (cameraIdWasMerged(id, &primaryId))
-            sendApiError(410, "camera_merged", String("Este ID foi associado ao cadastro ") + primaryId + "; atualize a selecao");
+            sendApiError(410, "camera_merged", String("This ID was merged into registration ") + primaryId + "; update the selection");
         else
-            sendApiError(404, "camera_not_found", "Camera nao cadastrada");
+            sendApiError(404, "camera_not_found", "Camera not registered");
     }
     return ctx;
 }
@@ -1404,7 +1404,7 @@ bool readSettingsScope(bool& globalScope)
 {
     const String scope = httpServer.arg("scope");
     if (scope != "global" && scope != "camera") {
-        sendApiError(422, "invalid_scope", "Informe o escopo global ou camera");
+        sendApiError(422, "invalid_scope", "Provide the global or camera scope");
         return false;
     }
     globalScope = scope == "global";
@@ -1525,7 +1525,7 @@ void handleSaveSettings()
             return;
         }
         if (!saveGlobalSettingsToNvs(candidate)) {
-            sendApiError(500, "nvs_write_failed", "Falha ao gravar configuracoes globais");
+            sendApiError(500, "nvs_write_failed", "Failed to write global settings");
             return;
         }
         const GlobalSettings previous = globalSettings;
@@ -1539,7 +1539,7 @@ void handleSaveSettings()
             return;
         }
         if (!saveRuntimeSettingsToNvs(*ctx, candidate)) {
-            sendApiError(500, "nvs_write_failed", "Falha ao gravar configuracoes da camera");
+            sendApiError(500, "nvs_write_failed", "Failed to write camera settings");
             return;
         }
         const RuntimeSettings previous = ctx->settings;
@@ -1549,7 +1549,7 @@ void handleSaveSettings()
     }
     settingsRevision++;
     settingsWriteCount++;
-    lastSettingsResult = currentTimestamp() + " - configuracoes salvas";
+    lastSettingsResult = currentTimestamp() + " - settings saved";
     sendJsonResponse(200, buildSettingsJson(ctx));
 }
 
@@ -1569,7 +1569,7 @@ void handleResetSettings()
     if (globalScope) {
         const GlobalSettings defaults = makeDefaultGlobalSettings();
         if (!saveGlobalSettingsToNvs(defaults)) {
-            sendApiError(500, "nvs_write_failed", "Falha ao restaurar padroes globais");
+            sendApiError(500, "nvs_write_failed", "Failed to restore global defaults");
             return;
         }
         const GlobalSettings previous = globalSettings;
@@ -1581,7 +1581,7 @@ void handleResetSettings()
         copySettingText(defaults.cameraUsername, ctx->settings.cameraUsername);
         copySettingText(defaults.cameraPassword, ctx->settings.cameraPassword);
         if (!saveRuntimeSettingsToNvs(*ctx, defaults)) {
-            sendApiError(500, "nvs_write_failed", "Falha ao restaurar padroes da camera");
+            sendApiError(500, "nvs_write_failed", "Failed to restore camera defaults");
             return;
         }
         const RuntimeSettings previous = ctx->settings;
@@ -1591,7 +1591,7 @@ void handleResetSettings()
     }
     settingsRevision++;
     settingsWriteCount++;
-    lastSettingsResult = currentTimestamp() + " - padroes restaurados; credenciais preservadas";
+    lastSettingsResult = currentTimestamp() + " - defaults restored; credentials preserved";
     PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, globalScope ? "global_defaults" : "camera_defaults", ctx != nullptr ? ctx->camera.ip : IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, ctx != nullptr ? ctx->id : 0);
     sendJsonResponse(200, buildSettingsJson(ctx));
 }
@@ -1599,13 +1599,13 @@ void handleResetSettings()
 bool queueAdminAction(AdminAction action, uint32_t cameraId, String& error)
 {
     if (currentAdminAction() != AdminAction::None) {
-        error = "Outra acao esta em andamento";
+        error = "Another action is in progress";
         return false;
     }
     pendingAdminCameraId = cameraId;
     pendingAdminActionContextId = allocateLogContextId();
     pendingAdminAction = action;
-    lastAdminActionResult = currentTimestamp() + " - acao enfileirada: " + adminActionName(action);
+    lastAdminActionResult = currentTimestamp() + " - action queued: " + adminActionName(action);
     return true;
 }
 
@@ -1623,12 +1623,12 @@ void handleMergeCameras()
         return;
     }
     if (httpServer.arg("confirmSettings") != "1") {
-        sendApiError(422, "settings_confirmation_required", "Confirme que as configuracoes do cadastro principal prevalecem; o registro original permanece na NVS");
+        sendApiError(422, "settings_confirmation_required", "Confirm that the settings of the primary registration prevail; the original record stays in NVS");
         return;
     }
     CameraIoGuard ioGuard;
     if (!ioGuard.acquired()) {
-        sendApiError(503, "camera_busy", "Acesso a camera ocupado");
+        sendApiError(503, "camera_busy", "Camera access busy");
         return;
     }
     if (!mergeCameraRecords(primaryId, secondaryId, true, error)) {
@@ -1640,7 +1640,7 @@ void handleMergeCameras()
     json += primaryId;
     json += ",\"secondaryId\":";
     json += secondaryId;
-    json += ",\"message\":\"Cadastros associados; configuracoes do principal preservadas\"}";
+    json += ",\"message\":\"Registrations merged; primary settings preserved\"}";
     sendJsonResponse(200, json);
 }
 
@@ -1657,17 +1657,17 @@ void handleForgetCamera()
         return;
     }
     if (httpServer.arg("confirmForget") != "1") {
-        sendApiError(422, "confirmation_required", "Confirme a remocao permanente do cadastro selecionado");
+        sendApiError(422, "confirmation_required", "Confirm the permanent removal of the selected registration");
         return;
     }
     CameraIoGuard ioGuard;
     if (!ioGuard.acquired()) {
-        sendApiError(503, "camera_busy", "Acesso a camera ocupado");
+        sendApiError(503, "camera_busy", "Camera access busy");
         return;
     }
     CameraContext* ctx = findCamera(cameraId);
     if (ctx == nullptr || !httpServer.hasArg("expectedIp") || httpServer.arg("expectedIp") != ctx->camera.ip.toString()) {
-        sendApiError(409, "camera_changed", "O cadastro mudou; atualize a lista antes de remover");
+        sendApiError(409, "camera_changed", "The registration changed; refresh the list before removing");
         return;
     }
     if (!forgetCameraRecord(cameraId, error)) {
@@ -1677,7 +1677,7 @@ void handleForgetCamera()
     PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, "camera_forget", IPAddress(), 0, 0, 0, cameraId, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, cameraId);
     String json = "{\"ok\":true,\"cameraId\":";
     json += cameraId;
-    json += ",\"message\":\"Cadastro removido; ID reservado para nao ser reutilizado\"}";
+    json += ",\"message\":\"Registration removed; ID reserved so it is not reused\"}";
     sendJsonResponse(200, json);
 }
 
@@ -1693,7 +1693,7 @@ void handleAdminAction(AdminAction action)
     if (individual && ctx == nullptr)
         return;
     if (action == AdminAction::RebootAllCameras && cameraCount == 0) {
-        sendApiError(409, "no_cameras", "Nenhuma camera cadastrada");
+        sendApiError(409, "no_cameras", "No camera registered");
         return;
     }
     if (!queueAdminAction(action, ctx != nullptr ? ctx->id : 0, error)) {
@@ -1704,7 +1704,7 @@ void handleAdminAction(AdminAction action)
     json += adminActionName(action);
     json += "\",\"cameraId\":";
     json += ctx != nullptr ? ctx->id : 0;
-    json += ",\"message\":\"Acao recebida e sera executada pelo loop principal\"}";
+    json += ",\"message\":\"Action received and will be run by the main loop\"}";
     sendJsonResponse(202, json);
 }
 
@@ -1720,7 +1720,7 @@ void handleClearPersistentLogs()
     const AdminAction busyAction = currentAdminAction();
 
     if (busyAction != AdminAction::None) {
-        sendApiError(409, "action_busy", String("Outra acao esta em andamento: ") + adminActionName(busyAction));
+        sendApiError(409, "action_busy", String("Another action is in progress: ") + adminActionName(busyAction));
         return;
     }
 
@@ -1729,15 +1729,15 @@ void handleClearPersistentLogs()
     const unsigned long clearStartedAtMs = millis();
 
     if (!PersistentLog::clear()) {
-        sendApiError(500, "log_clear_failed", "Nao foi possivel zerar o armazenamento persistente de logs");
+        sendApiError(500, "log_clear_failed", "Could not clear the persistent log storage");
         return;
     }
 
     PersistentLog::record(PersistentLog::Event::LogsCleared, PersistentLog::Outcome::Success, "manual_clear", IPAddress(), 0, 0, millis() - clearStartedAtMs, removedRecords, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, logContextId);
-    lastAdminActionResult = currentTimestamp() + " - historico persistente de logs zerado";
+    lastAdminActionResult = currentTimestamp() + " - persistent log history cleared";
     String json = "{\"ok\":true,\"remaining\":";
     json += PersistentLog::count();
-    json += ",\"message\":\"Historico anterior removido; marcador de auditoria preservado\"}";
+    json += ",\"message\":\"Previous history removed; audit marker preserved\"}";
     sendJsonResponse(200, json);
 }
 
@@ -1749,20 +1749,20 @@ void handleFactoryReset()
         return;
     }
 
-    if (httpServer.arg("confirmReset") != "APAGAR TUDO") {
-        sendApiError(422, "confirmation_required", "Digite APAGAR TUDO para confirmar a restauracao dos dados de fabrica");
+    if (httpServer.arg("confirmReset") != "ERASE EVERYTHING") {
+        sendApiError(422, "confirmation_required", "Type ERASE EVERYTHING to confirm the factory data reset");
         return;
     }
 
     if (!PersistentLog::ready() || espRestartRequestedAtMs != 0) {
-        sendApiError(409, "reset_unavailable", "Armazenamento de logs indisponivel ou reinicio ja agendado");
+        sendApiError(409, "reset_unavailable", "Log storage unavailable or restart already scheduled");
         return;
     }
 
     factoryResetRequestedAtMs = millis();
     factoryResetFailed = false;
-    lastAdminActionResult = "Restauracao dos dados de fabrica agendada";
-    sendJsonResponse(202, "{\"ok\":true,\"message\":\"Restauracao dos dados agendada; o ESP32 sera reiniciado\"}");
+    lastAdminActionResult = "Factory data reset scheduled";
+    sendJsonResponse(202, "{\"ok\":true,\"message\":\"Data reset scheduled; the ESP32 will restart\"}");
 }
 
 void handleGotoPtzPresetAction()
@@ -1779,7 +1779,7 @@ void handleGotoPtzPresetAction()
     }
 
     if (!httpServer.hasArg("presetToken")) {
-        sendApiError(422, "missing_preset", "Token do preset ausente");
+        sendApiError(422, "missing_preset", "Preset token missing");
         return;
     }
 
@@ -1787,12 +1787,12 @@ void handleGotoPtzPresetAction()
     presetToken.trim();
 
     if (presetToken.isEmpty() || presetToken.length() > 128) {
-        sendApiError(422, "invalid_preset", "Token do preset invalido");
+        sendApiError(422, "invalid_preset", "Invalid preset token");
         return;
     }
 
     if (!ctx.onvifPtz.presetsLoaded || onvifPtzPresetIndex(ctx, presetToken) < 0) {
-        sendApiError(404, "preset_not_found", "Preset nao encontrado no catalogo atual da camera");
+        sendApiError(404, "preset_not_found", "Preset not found in the current camera catalog");
         return;
     }
 
@@ -1807,21 +1807,21 @@ void handleGotoPtzPresetAction()
     String json = "{\"ok\":true,\"queued\":\"goto_ptz_preset\",";
     json += "\"presetToken\":\"";
     json += jsonEscape(presetToken);
-    json += "\",\"message\":\"Movimento PTZ recebido e sera executado pelo loop principal\"}";
+    json += "\",\"message\":\"PTZ movement received and will be run by the main loop\"}";
     sendJsonResponse(202, json);
 }
 
 const char* liveStreamErrorDetail(const char* code)
 {
     if (strcmp(code, "camera_unavailable") == 0)
-        return "A camera nao esta disponivel no momento";
+        return "The camera is not available right now";
     if (strcmp(code, "onvif_unavailable") == 0 || strcmp(code, "onvif_media_unavailable") == 0 || strcmp(code, "onvif_stream_uri_failed") == 0)
-        return "A camera nao respondeu ao servico de midia ONVIF";
+        return "The camera did not respond to the ONVIF media service";
     if (strcmp(code, "no_h264_profile") == 0)
-        return "A camera nao oferece um perfil de video H.264";
+        return "The camera does not offer an H.264 video profile";
     if (strcmp(code, "invalid_stream_uri") == 0)
-        return "A camera anunciou um endereco de video invalido";
-    return "Nao foi possivel preparar o video ao vivo";
+        return "The camera announced an invalid video address";
+    return "Could not prepare the live video";
 }
 
 void appendLiveStreamJson(String& json)
@@ -1886,16 +1886,16 @@ void handleLiveStart()
     if (!reusable) {
         const LiveStreamStats stats = liveStreamStats();
         if (haveTarget && stats.clients > 0 && stats.state != LiveStreamState::Idle) {
-            sendApiError(409, "live_in_use", "Outro espectador esta usando o video ao vivo de outra camera ou qualidade");
+            sendApiError(409, "live_in_use", "Another viewer is using the live video of another camera or quality");
             return;
         }
         if (healthCheckInProgress || registryBusy || cameraIoDepth != 0) {
-            sendApiError(503, "busy", "Verificacao da camera em andamento; tente novamente");
+            sendApiError(503, "busy", "Camera check in progress; try again");
             return;
         }
         CameraIoGuard cameraIoGuard;
         if (!cameraIoGuard.acquired()) {
-            sendApiError(503, "busy", "Canal da camera ocupado; tente novamente");
+            sendApiError(503, "busy", "Camera channel busy; try again");
             return;
         }
         LiveStreamTarget resolved;
@@ -1909,7 +1909,7 @@ void handleLiveStart()
     }
 
     if (!liveStreamBegin()) {
-        sendApiError(503, "relay_unavailable", "Nao foi possivel iniciar o rele de video");
+        sendApiError(503, "relay_unavailable", "Could not start the video relay");
         return;
     }
 
@@ -1947,7 +1947,7 @@ void startHttpServer()
         return;
     httpServer.begin();
     httpServerRunning = true;
-    Serial.printf("Painel HTTP iniciado na porta %u.\n", HTTP_SERVER_PORT);
+    Serial.printf("HTTP dashboard started on port %u.\n", HTTP_SERVER_PORT);
 }
 
 void configureHttpServer()

@@ -33,10 +33,10 @@ struct StoredRecord {
     uint32_t checksum;
 };
 
-static_assert(PersistentLog::DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "O payload persistente precisa reservar espaco para o detalhe");
-static_assert(sizeof(StoredRecord) == 80, "O registro persistente deve ocupar exatamente 80 bytes");
-static_assert(offsetof(StoredRecord, checksum) == 76, "O checksum deve permanecer no final do registro persistente");
-static_assert(PersistentLog::CAPACITY * sizeof(StoredRecord) == 600000, "O arquivo circular deve preservar folga para o LittleFS");
+static_assert(PersistentLog::DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "The persistent payload must reserve space for the detail");
+static_assert(sizeof(StoredRecord) == 80, "The persistent record must be exactly 80 bytes");
+static_assert(offsetof(StoredRecord, checksum) == 76, "The checksum must stay at the end of the persistent record");
+static_assert(PersistentLog::CAPACITY * sizeof(StoredRecord) == 600000, "The circular file must leave headroom for LittleFS");
 
 inline uint32_t checksumBytes(const void* values, size_t valueSize)
 {

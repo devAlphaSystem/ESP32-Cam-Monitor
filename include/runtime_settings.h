@@ -49,7 +49,7 @@ struct RuntimeSettings {
     char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
 };
 
-static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings excedeu o limite planejado");
+static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings exceeded the planned limit");
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)
