@@ -30,8 +30,7 @@ button{touch-action:manipulation}
 h1,h2,p{margin:0}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 main{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(32px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
-.brand{display:flex;align-items:center;gap:12px;margin-bottom:20px}
-.brand svg{width:36px;height:36px;flex:none}
+.brand{margin-bottom:20px}
 .brand h1{font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
 .brand p{color:var(--muted);font-size:13px}
 .card{margin-top:16px;padding:18px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
@@ -41,6 +40,7 @@ main{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) ma
 .dot{width:10px;height:10px;border-radius:50%;background:var(--bad);flex:none}
 .status.on .dot{background:var(--ok)}
 .status b{display:block;font-weight:600;overflow-wrap:anywhere}
+.status>div{flex:1;min-width:0}
 .status small{display:block;color:var(--muted);font-size:12px}
 .notice{margin-top:12px;padding:10px 12px;border-left:2px solid var(--info);background:var(--surface-alt);color:var(--muted);font-size:13px;line-height:1.55}
 .notice.warn{border-left-color:var(--warn)}
@@ -100,7 +100,6 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
 <body>
 <main>
   <div class="brand">
-    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#242a31"/><path d="m32 12 19 8v13c0 8-10 15-19 19-9-4-19-11-19-19V20Z" fill="none" stroke="#8ab0dc" stroke-width="4" stroke-linejoin="round"/><path d="M22 31a14 14 0 0 1 20 0M26 36a8 8 0 0 1 12 0" fill="none" stroke="#8ab0dc" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="2.6" fill="#8ab0dc"/></svg>
     <div><h1>Camera Watchdog</h1><p>Wi-Fi setup</p></div>
   </div>
 

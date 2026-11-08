@@ -8,113 +8,158 @@ extern const char DASHBOARD_PAGE[] PROGMEM = R"HTML(<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#24262a">
+<meta name="theme-color" content="#070708">
 <link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23242a31'/%3E%3Cpath d='m32 12 19 8v13c0 8-10 15-19 19-9-4-19-11-19-19V20Z' fill='none' stroke='%23e9edf2' stroke-width='3' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='29' r='7' fill='none' stroke='%23e9edf2' stroke-width='3'/%3E%3Cpath d='M32 36v7' stroke='%23e9edf2' stroke-width='3'/%3E%3C/svg%3E">
 <title>Camera Watchdog</title>
 <style>
 *,*::before,*::after{box-sizing:border-box}
 :root{
-  --bg:#18191b;--surface:#202225;--surface-alt:#24262a;--surface-hover:#2d3035;
-  --line:#34373d;--line-strong:#626973;--text:#e2e4e7;--muted:#b4bac3;--dim:#969ea9;
-  --ok:#80b99a;--warn:#d4b078;--bad:#dc949b;--info:#91b4d5;--accent:#8ab0dc;
-  --button-primary:#355b85;--button-primary-hover:#406b9c;--on-primary:#f0f3f7;
+  --bg:#0b0b0c;--header:#070708;--sidebar:#141415;--surface:#161617;--surface-alt:#1d1d1f;--surface-hover:#252527;
+  --line:#2a2a2d;--line-strong:#6b6b73;--text:#ececee;--muted:#a4a4ab;--dim:#8b8b93;
+  --ok:#80b99a;--warn:#d4b078;--bad:#dc949b;--info:#91b4d5;--accent:#4da3ff;
+  --button-primary:#1f66c7;--button-primary-hover:#2a74d6;--on-primary:#ffffff;
+  --stage:#050506;--radius:8px;--header-h:56px;--control-h:36px;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --sans:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
 }
-html{-webkit-text-size-adjust:100%;color-scheme:dark}
+html{-webkit-text-size-adjust:100%;color-scheme:dark;scrollbar-color:var(--line-strong) var(--bg)}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+::selection{background:#4da3ff4d;color:var(--text)}
 button,input,select{font:inherit}
+input,select{caret-color:var(--accent)}
 button,a,input,select{-webkit-tap-highlight-color:transparent}
 button,a{touch-action:manipulation}
 h1,h2,h3,p{margin:0}
-h1{font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-.025em}
-h2,h3{font-size:16px;font-weight:600;line-height:1.4}
+h1{font-size:20px;font-weight:600;line-height:1.3;letter-spacing:-.02em}
+h2,h3{font-size:14px;font-weight:600;line-height:1.4}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.skip-link{position:fixed;left:12px;top:-80px;z-index:1001;padding:12px 16px;border:1px solid var(--accent);border-radius:3px;background:var(--surface);color:var(--text)}
+.skip-link{position:fixed;left:12px;top:-80px;z-index:1001;padding:12px 16px;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--text)}
 .skip-link:focus{top:12px}
 
-/* Navigation */
-.navigation{border-bottom:1px solid var(--line);background:var(--surface-alt)}
-.navigation-inner{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,280px) minmax(0,1fr);align-items:center;gap:20px;max-width:1440px;margin:auto;padding:0 32px}
-.tabs{display:flex;flex:1 1 auto;min-width:0;gap:22px;overflow-x:auto;scrollbar-width:thin}
-.tab{flex:none;min-height:56px;padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font-size:14px;white-space:nowrap;cursor:pointer}
-.tab:hover{color:var(--text);border-bottom-color:var(--line-strong)}
-.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
-.tab-admin-start{margin-left:0}
-.tab-divided{position:relative}
-.tab-divided::before{content:"";position:absolute;left:-11px;top:50%;height:20px;border-left:1px solid var(--line);transform:translateY(-50%)}
-.navigation-actions{display:flex;align-items:center;justify-content:flex-end;gap:24px;min-width:0}
-.navigation-actions .tabs{flex:none}
-.camera-selector{display:grid;grid-template-columns:36px minmax(0,1fr) 36px;align-items:center;gap:8px;min-width:0}
-.camera-selector button{height:34px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
-.camera-selector button:disabled{opacity:.35;cursor:default}
-.camera-selector svg{width:16px;height:16px;vertical-align:middle}
-.camera-selector-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-weight:600;font-size:13px}
-.overview-table{width:100%;border-collapse:collapse}
-.overview-table th,.overview-table td{text-align:left;padding:14px 12px;border-bottom:1px solid var(--line)}
-.overview-table th{font-size:12px;color:var(--muted);font-weight:500}
-.camera-link{border:0;padding:0;background:none;color:var(--accent);font:inherit;cursor:pointer;text-align:left}
-.overview-note{margin:16px 0;color:var(--muted);font-size:12px}
-.overview-table .camera-state{font-weight:600;white-space:nowrap}
-.overview-table .check-stale{color:var(--warn)}
-@media(max-width:1250px){.navigation-inner{grid-template-columns:minmax(0,1fr) auto;gap:0 20px}.camera-selector{grid-row:2;grid-column:1/-1;width:280px;justify-self:center;margin:10px 0}.navigation-actions{grid-column:2;grid-row:1;gap:14px}.navigation-actions .connection{padding-left:14px}.tabs{gap:16px}.tab-divided::before{left:-9px}}
-.connection{display:flex;align-items:center;gap:12px;flex:none;padding-left:24px;border-left:1px solid var(--line);font-size:12px}
-.status-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+/* Shell: header, camera sidebar and content */
+.app-header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:28px;height:var(--header-h);padding:0 20px 0 18px;border-bottom:1px solid var(--line);background:var(--header)}
+.brand{display:flex;align-items:center;flex:none;color:var(--text);font-size:15px;font-weight:600;letter-spacing:-.01em;text-decoration:none}
+.tabs{display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.tab,.settings-tab{flex:none;min-height:var(--control-h);padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:14px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s,color .15s}
+.tab:hover,.settings-tab:hover:not(:disabled){color:var(--text);background:var(--surface)}
+.tab[aria-selected="true"],.settings-tab[aria-selected="true"]{color:var(--text);background:var(--surface-alt);font-weight:600}
+.tab:focus-visible,.settings-tab:focus-visible{outline-offset:-2px}
+.settings-tab:disabled{opacity:.45;cursor:not-allowed}
+.status-pill{display:flex;align-items:center;gap:8px;flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:12px;white-space:nowrap}
+.header-status{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
 .beat{width:6px;height:6px;background:var(--ok);border-radius:50%;flex:none}
 .status-pill.stale{color:var(--bad)}.status-pill.stale .beat{background:var(--bad)}
-main{max-width:1440px;margin:0 auto;padding:30px 32px 24px;min-width:0}
+.app-shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:calc(100vh - var(--header-h))}
+.app-sidebar{position:sticky;top:var(--header-h);display:flex;flex-direction:column;height:calc(100vh - var(--header-h));min-width:0;border-right:1px solid var(--line);background:var(--sidebar)}
+.sidebar-nav{display:flex;flex-direction:column;flex:1;min-height:0;padding:16px 10px 10px}
+.sidebar-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0 8px 10px}
+.sidebar-h h2{color:var(--muted);font-size:13px;font-weight:600}
+.sidebar-h span{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+.cam-list{display:flex;flex-direction:column;gap:2px;min-height:0;margin:0;padding:0;list-style:none;overflow-y:auto;overscroll-behavior:contain}
+.cam-item{display:grid;grid-template-columns:8px minmax(0,1fr);align-items:center;column-gap:10px;width:100%;min-height:44px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--text);text-align:left;cursor:pointer;transition:background-color .15s}
+.cam-item:hover{background:var(--surface-alt)}
+.cam-item[aria-current="true"]{background:var(--surface-hover)}
+.cam-item[aria-current="true"] .cam-item-name{font-weight:600}
+.cam-item:focus-visible{outline-offset:-2px}
+.state-dot{width:8px;height:8px;border-radius:50%;background:var(--sc,var(--dim));flex:none}
+.cam-item .state-dot{grid-row:1/3}
+.cam-item-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.35}
+.cam-item-state{color:var(--muted);font-size:11px;line-height:1.35}
+.cam-empty{padding:4px 8px;color:var(--dim);font-size:12px}
+.app-sidebar footer{padding:12px 18px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.6}
+main{min-width:0;padding:20px 24px 24px}
 [data-view-panel]{min-width:0}
-footer{margin-top:32px;padding-top:16px;color:var(--dim);font-size:12px}
+.overview-note{margin:14px 0 0;color:var(--muted);font-size:12px}
+.overview-note a{color:var(--accent)}
 
-/* Identification and availability */
-.device-header{display:flex;align-items:center;justify-content:space-between;gap:32px;padding:0 0 24px;border-bottom:1px solid var(--line)}
-.device-copy{min-width:0;flex:1}
-.device-name{margin:10px 0 8px;overflow-wrap:anywhere}
-.device-meta{color:var(--muted);font-size:13px;line-height:1.7;overflow-wrap:anywhere}
-.device-meta b{color:var(--text);font:500 12px/1.7 var(--mono)}
-.badge{display:inline-flex;align-items:center;gap:7px;padding:3px 7px;border:1px solid var(--sbd,var(--line));border-radius:3px;background:var(--sbg,var(--surface-alt));color:var(--sc,var(--muted));font-size:12px;line-height:1.4}
+/* Subheader band */
+.device-header{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:64px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.device-copy{flex:1;min-width:0}
+.device-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.device-name{overflow-wrap:anywhere}
+.device-meta{margin-top:2px;color:var(--muted);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.badge{display:inline-flex;align-items:center;gap:7px;padding:3px 8px;border:1px solid var(--sbd,var(--line));border-radius:4px;background:var(--sbg,var(--surface-alt));color:var(--sc,var(--muted));font-size:12px;line-height:1.4;white-space:nowrap}
 .badge i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.rate{width:220px;flex:none}
-.rate-label{display:flex;align-items:baseline;justify-content:space-between;gap:16px;color:var(--muted);font-size:13px}
-.rate-label b{font-size:24px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
-.rate-track{height:4px;margin-top:8px;background:var(--line);overflow:hidden}
+.rate{width:200px;flex:none}
+.rate-label{display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--muted);font-size:13px}
+.rate-label b{font-size:20px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.rate-track{height:4px;margin-top:6px;border-radius:2px;background:var(--line);overflow:hidden}
 .rate-track::before{content:"";display:block;width:clamp(0%,calc(var(--p,0)*1%),100%);height:100%;background:var(--sc,var(--dim))}
-.rate small{display:block;margin-top:7px;color:var(--dim);font-size:11px}
 
-/* Probes and last record */
-.probe-panel{margin-top:24px}
-.probe-table{width:100%;border-collapse:collapse;text-align:left;table-layout:fixed}
-.probe-table caption{text-align:left;padding-bottom:12px;font-size:16px;font-weight:600}
-.probe-table th,.probe-table td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
-.probe-table thead th{background:var(--surface-alt);color:var(--muted);font-size:12px;font-weight:500}
-.probe-table thead th:nth-child(1){width:18%}.probe-table thead th:nth-child(2){width:24%}
-.probe-table tbody th{font-size:13px;font-weight:600}
-.probe-table .card-v{margin:0;font-size:14px;font-weight:500}
-.probe-table .card-m{margin:0;font-size:13px}
+/* Overview counters and camera grid */
+.kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.kpi{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.kpi-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.kpi-value{font-size:24px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin:16px 0 0;padding:0;list-style:none}
+.camera-card{position:relative;isolation:isolate;display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;transition:border-color .15s}
+.camera-card:hover{border-color:var(--line-strong)}
+.camera-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:8px 16px}
+.camera-card-head h2{min-width:0}
+.camera-card-open{display:block;max-width:100%;padding:0;border:0;background:none;color:var(--text);font:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.camera-card-open::after{content:"";position:absolute;inset:0;z-index:1;border-radius:var(--radius)}
+.camera-card-open:focus-visible{outline:none}
+.camera-card-open:focus-visible::after{outline:2px solid var(--accent);outline-offset:-2px}
+.camera-card-media{position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:var(--stage);overflow:hidden}
+.camera-card-media img{grid-area:1/1;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .2s}
+.camera-card-media[data-preview="ready"] img,.camera-card-media[data-preview="refreshing"] img{opacity:1}
+.card-overlay{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;color:var(--muted);font-size:13px;text-align:center;pointer-events:none}
+.card-overlay .btn{position:relative;pointer-events:auto}
+.camera-card-media[data-preview="ready"] .card-overlay{display:none}
+.camera-card-media[data-preview="refreshing"] .card-overlay{inset:8px 8px auto auto;flex-direction:row;gap:7px;padding:4px 8px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px}
+.camera-card-media[data-preview="placeholder"] .spinner,.camera-card-media[data-preview="failed"] .spinner{display:none}
+.spinner{width:28px;height:28px;border:3px solid #ffffff26;border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
+.camera-card-media[data-preview="refreshing"] .spinner{width:12px;height:12px;border-width:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.card-stamp{position:absolute;z-index:2;left:8px;bottom:8px;padding:3px 7px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px;font-variant-numeric:tabular-nums;pointer-events:none}
+.card-stamp:empty,.camera-card-media[data-preview="placeholder"] .card-stamp,.camera-card-media[data-preview="failed"] .card-stamp{display:none}
+.camera-card-foot{display:flex;flex-direction:column;gap:2px;padding:12px 16px;color:var(--muted);font-size:12px;line-height:1.5}
+.camera-card-meta{display:flex;flex-wrap:wrap;gap:2px 12px}
+.camera-card-meta .mono{color:var(--text);font-size:12px}
+.check-stale{color:var(--warn)}
+.camera-card-event{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
+
+/* Camera: stage, information cards and collapsed diagnostics */
+.camera-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"stage side";align-items:stretch;gap:16px;margin-top:16px}
+.stage-card{grid-area:stage;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.stage-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:56px;padding:10px 16px}
+.stage-bar h2{margin-right:auto}
+.stage-card>.form-result{padding:8px 16px;border-top:1px solid var(--line)}
+.camera-side{grid-area:side;display:grid;grid-template-rows:repeat(3,auto) minmax(0,1fr);gap:16px;min-width:0}
+.card-text{margin-top:8px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.health-list{margin:4px 0 0;padding:0;list-style:none}
+.health-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.health-list li:first-child{border-top:0}
+.health-name{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.health-list .card-v{margin:0;font-size:13px;font-weight:500;text-align:right}
 .pip{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);flex:none}
-.probe-table .pip{margin-left:8px;vertical-align:2px}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.info{color:var(--info)}
 .pip.ok{background:var(--ok)}.pip.warn{background:var(--warn)}.pip.bad{background:var(--bad)}.pip.info{background:var(--info)}
-.sec{margin-top:28px}
-.sec-t{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:12px}
-.sec-t span{color:var(--dim);font-size:12px}
-.log{margin:0;border-top:1px solid var(--line)}
-.row{display:grid;grid-template-columns:190px minmax(0,1fr);gap:24px;padding:12px 16px;border-bottom:1px solid var(--line)}
-.row:first-child{background:var(--surface-alt)}
-.row dt{margin:0;color:var(--muted);font-size:13px}
-.row dd{margin:0;overflow-wrap:anywhere;font-size:13px;line-height:1.6}
+.dev-diagnostics{margin-top:16px}
+.dev-diagnostics,.settings-advanced{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.dev-diagnostics summary,.settings-advanced summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:48px;padding:10px 16px;color:var(--muted);font-size:14px;font-weight:600;list-style:none;cursor:pointer}
+.dev-diagnostics summary::-webkit-details-marker,.settings-advanced summary::-webkit-details-marker{display:none}
+.dev-diagnostics summary::before,.settings-advanced summary::before{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s}
+.dev-diagnostics[open] summary::before,.settings-advanced[open] summary::before{transform:rotate(45deg)}
+.dev-diagnostics summary:hover,.settings-advanced summary:hover{color:var(--text)}
+.dev-diagnostics summary:focus-visible,.settings-advanced summary:focus-visible{outline-offset:-2px}
+.dev-body{padding:16px;border-top:1px solid var(--line)}
+.dev-list{margin:0}
+.dev-list div{display:grid;grid-template-columns:160px minmax(0,1fr);gap:16px;padding:10px 0;border-bottom:1px solid var(--line)}
+.dev-list div:first-child{padding-top:0}
+.dev-list div:last-child{border-bottom:0;padding-bottom:0}
+.dev-list dt{color:var(--muted);font-size:12px}
+.dev-list dd{margin:0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.dev-link{margin-left:auto;padding:4px 0;color:var(--accent);font-size:12px;font-weight:500;text-decoration:none}
 #l-url{font:12px/1.7 var(--mono)}
-.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:500}
-.tag.ok{background:#24352c;color:var(--ok)}.tag.bad{background:#35282c;color:var(--bad)}
-.diagnostic-output{position:relative;margin-top:20px}
-.diagnostic-copy{position:absolute;top:12px;right:12px;z-index:1;min-width:144px}
-#raw{margin:0;padding:16px;border:1px solid var(--line);border-radius:3px;background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:500}
+.tag.ok{background:#18261e;color:var(--ok)}.tag.bad{background:#2a1c1f;color:var(--bad)}
 
-/* Resources and history */
-.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:24px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
-.card{min-width:0;padding:18px 20px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+/* Cards, resources and history */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:1fr;gap:16px;margin-top:16px}
+.card{min-width:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .card-h{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
 .card-h .pip{margin-left:auto}
 .card-v{margin-top:8px;font-size:21px;font-weight:600;line-height:1.35;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -126,7 +171,7 @@ footer{margin-top:32px;padding-top:16px;color:var(--dim);font-size:12px}
 .meter{height:3px;margin-top:14px;background:var(--line);overflow:hidden}
 .meter i{display:block;width:0;height:100%;background:var(--ok)}
 .meter i.warn{background:var(--warn)}.meter i.bad{background:var(--bad)}
-.chart-card{margin-top:28px}
+.chart-card{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .chart-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px}
 .chart-head p{margin-top:4px;color:var(--dim);font-size:12px}
 .legend{display:flex;flex-wrap:wrap;gap:18px;color:var(--muted);font-size:12px}
@@ -137,117 +182,130 @@ footer{margin-top:32px;padding-top:16px;color:var(--dim);font-size:12px}
 .chart polyline{fill:none;stroke:var(--info);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .chart .wifi-line{stroke:var(--warn);stroke-dasharray:5 3}
 
-/* Preview */
-.viewer-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;padding-bottom:20px}
-.viewer-copy{min-width:0;flex:1 1 320px}
-.viewer-h p{margin-top:8px;color:var(--muted);font-size:13px;line-height:1.7}
-.viewer-tools{display:flex;align-items:center;gap:10px}
-.ptz-open-btn{gap:9px;white-space:nowrap}
-.ptz-count{display:inline-grid;min-width:21px;height:20px;place-items:center;padding:0 5px;border-radius:3px;background:#ffffff26;font-size:11px;font-variant-numeric:tabular-nums}
-.viewer-h .form-result{flex-basis:100%}
-.viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:#171a1e;overflow:hidden}
-.viewer-stage img{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;opacity:0}
+/* Video stage */
+.segmented{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.segmented button{min-height:30px;padding:0 12px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:500 13px/1 var(--sans);cursor:pointer;transition:background-color .15s,color .15s}
+.segmented button:hover{color:var(--text)}
+.segmented button[aria-pressed="true"]{background:var(--surface-hover);color:var(--text)}
+.segmented button:focus-visible{outline-offset:-2px}
+.btn.ptz-open-btn{gap:8px;padding-block:0;white-space:nowrap}
+.ptz-count{display:inline-grid;min-width:21px;height:20px;place-items:center;padding:0 5px;border-radius:4px;background:#ffffff1f;font-size:11px;font-variant-numeric:tabular-nums}
+.viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:var(--stage);overflow:hidden}
+.viewer-stage img{position:relative;z-index:1;grid-area:1/1;width:100%;height:100%;object-fit:contain;opacity:0}
 .viewer-stage img.ready{opacity:1;cursor:zoom-in}
-.feed-state{position:absolute;z-index:3;inset:0;display:grid;place-items:center;text-align:center;padding:24px;background:#171a1edd;color:#d9dee4;font-size:14px}
+.feed-state{position:absolute;z-index:3;inset:0;display:grid;place-items:center;text-align:center;padding:24px;background:#050506e0;color:#e6e6e8;font-size:14px}
 .feed-state.hidden{opacity:0;pointer-events:none}
-.feed-stamp{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:6px 9px;background:#11161dde;color:#e0e5eb;font:11px/1.5 var(--mono)}
-.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;display:grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff40;border-radius:3px;background:#11161dde;color:#fff;cursor:pointer}
-.feed-fs-btn:hover{background:#384352}
+.feed-stamp{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:5px 9px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums}
+.feed-stamp:empty{display:none}
+.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;display:grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff40;border-radius:6px;background:#000000b3;color:#fff;cursor:pointer}
+.feed-fs-btn:hover{background:var(--surface-hover)}
 .feed-fs-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen{width:100%;height:100%}
 .viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
-.viewer-stage video{position:relative;z-index:1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;cursor:zoom-in}
+.viewer-stage video{position:relative;z-index:1;grid-area:1/1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;cursor:zoom-in}
 .viewer-stage video.ready{opacity:1}
 .viewer-stage:fullscreen video,.viewer-stage:-webkit-full-screen video,.viewer-stage.fs-fallback video{cursor:zoom-out}
-.live-badge{position:absolute;z-index:4;left:12px;top:12px;display:flex;align-items:center;gap:8px;padding:5px 10px;background:#11161dde;color:#e0e5eb;font:600 11px/1.5 var(--mono);letter-spacing:.06em}
+.live-badge{position:absolute;z-index:4;left:12px;top:12px;display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:4px;background:#000000b3;color:#e6e6e8;font:600 11px/1.5 var(--sans);letter-spacing:.06em}
 .live-badge i{width:8px;height:8px;border-radius:50%;background:var(--dim)}
 .live-badge.on i{background:var(--bad);animation:livepulse 1.6s ease-in-out infinite}
 @keyframes livepulse{50%{opacity:.3}}
-.live-quality{min-height:36px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans)}
 .feed-state .btn{margin-top:14px}
 
 /* Settings */
-.settings-kpi{min-width:200px;padding-left:24px;border-left:1px solid var(--line)}
-.settings-kpi span{display:block;color:var(--muted);font-size:12px}
-.settings-kpi b{display:block;margin-top:4px;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
-#settingsForm{display:grid;grid-template-columns:180px minmax(0,1fr);gap:28px 36px;margin-top:28px;align-items:start}
-.settings-tabbar{position:sticky;top:24px}
-.settings-tablist{display:flex;flex-direction:column;gap:2px}
-.settings-tab{min-height:40px;padding:10px 12px;border:0;border-left:2px solid transparent;background:transparent;color:var(--muted);font-size:13px;text-align:left;cursor:pointer}
-.settings-tab:hover{color:var(--text);background:var(--surface-alt)}
-.settings-tab[aria-selected="true"]{color:var(--accent);border-left-color:var(--accent);background:var(--surface-alt);font-weight:600}
-.settings-tab-divided{position:relative;margin-top:9px}
-.settings-tab-divided::before{content:"";position:absolute;left:0;right:0;top:-5px;border-top:1px solid var(--line)}
-.settings-panels,.settings-card{min-width:0}
-.settings-card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px}
-.settings-card-h p{margin-top:5px;color:var(--muted);font-size:13px}
-.form-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
-.field{min-width:0}.field.wide,.estimate-box{grid-column:1/-1}
-.field label{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 8px;margin-bottom:7px;font-size:13px;font-weight:500}
-.field label span{color:var(--dim);font-size:11px;font-weight:400;white-space:nowrap}
-.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{width:100%;height:38px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:14px/1.3 var(--sans)}
-.field input:focus,.field select:focus{border-color:var(--accent)}
+.settings-summary{flex:none;max-width:100%}
+#settingsForm{display:grid;gap:16px;margin-top:16px}
+.settings-tablist{display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
+.settings-tab-divided{margin-left:12px}
+.settings-panels{min-width:0}
+.settings-panel{display:grid;align-content:start;gap:16px;min-width:0}
+.settings-group{min-width:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.settings-group h3{margin:0 0 16px;overflow-wrap:anywhere}
+.group-note{margin:-8px 0 16px;color:var(--muted);font-size:13px;line-height:1.6}
+.dev-body>.group-note{margin-top:0}
+.form-grid{display:grid;margin:-12px 0}
+.form-grid>*{padding:12px 0}
+.form-grid>*+*{border-top:1px solid var(--line)}
+.field{min-width:0}
+.form-grid>.field{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,320px);column-gap:24px;align-items:center}
+.form-grid>.field>label{grid-column:1;grid-row:1;align-self:end;justify-content:flex-start;margin:0}
+.form-grid>.field>small{grid-column:1;grid-row:2;align-self:start;margin:2px 0 0}
+.form-grid>.field>input,.form-grid>.field>select,.form-grid>.field>.btn{grid-column:2;grid-row:1/3}
+.form-grid>.field>.checkline{grid-column:1/-1}
+.field label{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;margin-bottom:6px;font-size:13px;font-weight:500}
+.field label span{flex:none;color:var(--dim);font-size:11px;font-weight:400;white-space:nowrap}
+.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select,.live-quality{height:var(--control-h);padding:0 10px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--text);font:14px/1.3 var(--sans)}
+.field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{width:100%}
+.live-quality{font-size:13px;font-weight:500}
+.field input:focus,.field select:focus,.live-quality:focus{border-color:var(--accent)}
 .field input:disabled,.field select:disabled{opacity:.55;cursor:not-allowed}
 .field small{display:block;margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6}
-.checkline{display:flex;align-items:flex-start;gap:10px}
-.checkline input{width:17px;height:17px;flex:none;margin:2px 0 0;accent-color:var(--accent);cursor:pointer}
-.checkline label{display:block;margin:0;cursor:pointer}
+.checkline{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;gap:24px}
+.checkline input{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:36px;height:20px;margin:0;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface-alt);cursor:pointer;transition:background-color .15s,border-color .15s}
+.checkline input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform .15s,background-color .15s}
+.checkline input:checked{background:var(--button-primary);border-color:var(--button-primary)}
+.checkline input:checked::after{transform:translateX(16px);background:var(--on-primary)}
+.checkline input:disabled{opacity:.55;cursor:not-allowed}
+.checkline label{display:block;flex:1;min-width:0;margin:0;cursor:pointer}
 .checkline label b{display:block;font-size:13px;font-weight:500}
-.checkline label span{display:block;margin-top:5px;color:var(--muted);font-size:12px;line-height:1.6;white-space:normal}
-.estimate-box{padding:14px 16px;border-left:2px solid var(--accent);background:var(--surface-alt);color:var(--muted);font-size:13px;line-height:1.7}
-.estimate-box b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
-.settings-savebar{grid-column:2;display:flex;flex-direction:column;gap:12px;padding-top:20px;border-top:1px solid var(--line)}
-.settings-savebar .button-row{justify-content:flex-end}.settings-savebar .form-result{text-align:right}
-.button-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 14px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans);text-decoration:none;cursor:pointer;transition:background-color .12s,border-color .12s}
-.btn:hover{background:var(--surface-hover);border-color:var(--dim)}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.primary{background:var(--button-primary);border-color:#6f98c7;color:var(--on-primary)}.btn.primary:hover{background:var(--button-primary-hover);border-color:var(--accent)}
-.btn.warn{border-color:#806b49;color:var(--warn)}.btn.warn:hover{background:#393126;border-color:var(--warn)}
-.btn.bad{border-color:#85555b;color:var(--bad)}.btn.bad:hover{background:#3c2b30;border-color:var(--bad)}
+.checkline label span{display:block;margin-top:2px;color:var(--muted);font-size:12px;line-height:1.6;white-space:normal}
+.form-note{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.form-note b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.settings-savebar{position:sticky;bottom:16px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px 24px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.settings-save-info{min-width:0}
+.settings-save-scope{color:var(--text);font-size:13px;line-height:1.5}
+.settings-savebar .form-result{min-height:0;margin-top:2px}
+.settings-savebar .button-row{flex:none}
+.button-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:var(--control-h);padding:8px 14px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans);text-decoration:none;cursor:pointer;transition:background-color .15s,border-color .15s}
+.btn:hover{background:var(--surface-hover);border-color:var(--muted)}
+.btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--button-primary);border-color:var(--button-primary);color:var(--on-primary)}.btn.primary:hover{background:var(--button-primary-hover);border-color:var(--button-primary-hover)}
+.btn.warn{border-color:#806b49;color:var(--warn)}.btn.warn:hover{background:#2a2419;border-color:var(--warn)}
+.btn.bad{border-color:#85555b;color:var(--bad)}.btn.bad:hover{background:#2a1c1f;border-color:var(--bad)}
 .form-result{min-height:18px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .form-result.ok{color:var(--ok)}.form-result.warn{color:var(--warn)}.form-result.bad{color:var(--bad)}
-.actions-card .form-result{margin-top:22px}
-.action-grid{border-top:1px solid var(--line)}
-.action-item{display:grid;grid-template-columns:180px minmax(0,1fr) 164px;align-items:center;gap:28px;padding:20px 0;border-bottom:1px solid var(--line)}
-.action-item b{font-size:14px;font-weight:600}.action-item span{color:var(--muted);font-size:13px;line-height:1.65}
+.action-grid{margin:-12px 0}
+.action-item{display:grid;grid-template-columns:180px minmax(0,1fr) 164px;align-items:center;gap:24px;padding:12px 0}
+.action-item+.action-item{border-top:1px solid var(--line)}
+.action-item b{font-size:14px;font-weight:600}.action-item span{color:var(--muted);font-size:13px;line-height:1.6}
 .action-item .btn{width:100%}
+.diagnostic-output{position:relative}
+.diagnostic-copy{position:absolute;top:12px;right:12px;z-index:1;min-width:144px}
+#raw{margin:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
 
 /* Logs */
-.logs-hero-tools{display:flex;flex-wrap:wrap;gap:8px}
-.logs-card{margin-top:24px;border:1px solid var(--line);border-radius:3px;overflow:hidden}
-.logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(3,minmax(0,1fr));gap:16px;padding:16px;border-bottom:1px solid var(--line)}
+.settings-panel .grid{margin-top:0}
+.logs-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(3,minmax(0,1fr)) auto;align-items:end;gap:16px;padding:16px;border-bottom:1px solid var(--line)}
+.logs-toolbar .button-row{flex-wrap:nowrap}
 .logs-table-wrap{overflow:auto;max-height:620px;overscroll-behavior:contain}
 .logs-table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}
 .logs-table th{position:sticky;top:0;z-index:2;padding:12px;background:var(--surface-alt);color:var(--muted);text-align:left;font-size:12px;font-weight:500;border-bottom:1px solid var(--line)}
 .logs-table td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
 .logs-table tbody tr:first-child td{border-top:0}.logs-table tbody tr:hover td{background:var(--surface-hover)}
 .logs-table .mono{font-size:12px;white-space:nowrap}
-.logs-level{display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:500}
-.logs-level.info{color:var(--info);background:#26323e}.logs-level.warning{color:var(--warn);background:#393126}.logs-level.error{color:var(--bad);background:#35282c}
+.logs-level{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:500}
+.logs-level.info{color:var(--info);background:#1a2430}.logs-level.warning{color:var(--warn);background:#2a2419}.logs-level.error{color:var(--bad);background:#2a1c1f}
 .logs-event{color:var(--text);font-size:13px;white-space:nowrap}
 .logs-detail{max-width:340px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6}
 .logs-flags{display:block;margin-top:4px;color:var(--dim);font-size:11px;line-height:1.6}
 .logs-empty{padding:36px 16px;text-align:center;color:var(--dim);font-size:13px}
-.logs-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-top:1px solid var(--line)}
-.logs-foot .form-result{flex:1 1 260px}
-.settings-tool .settings-card-h{flex-wrap:wrap}
-.settings-tool .diagnostic-output{margin-top:0}
-.settings-tool .grid{margin-top:4px}
-.logs-badge{margin-top:12px;--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)}
+.logs-foot{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--line)}
+.logs-foot .form-result{flex:1 1 260px;min-height:0}
+.logs-badge{--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)}
 
 /* Dialogs */
-.modal-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:#08090bcc}
-.modal-box{width:100%;max-width:460px;max-height:calc(100dvh - 40px);overflow-y:auto;padding:24px;background:var(--surface);border:1px solid var(--line-strong);border-radius:5px;box-shadow:0 12px 40px #0006}
+.modal-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:#050506cc}
+.modal-box{width:100%;max-width:460px;max-height:calc(100dvh - 40px);overflow-y:auto;padding:24px;background:var(--surface-alt);border:1px solid var(--line-strong);border-radius:10px}
 .modal-box h3{font-size:18px}
 .modal-desc{margin:10px 0 20px;color:var(--muted);font-size:13px;line-height:1.7}
 .modal-actions{justify-content:flex-end;margin-top:22px}
 .merge-modal-box{max-width:620px}
 .merge-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-.merge-review{margin-top:20px;border:1px solid var(--line);border-radius:3px;background:var(--surface-alt)}
+.merge-review{margin-top:20px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
 .merge-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 .merge-record{min-width:0;padding:14px 16px}
 .merge-record+.merge-record{border-left:1px solid var(--line)}
@@ -259,69 +317,73 @@ body.fs-locked{overflow:hidden}
 .ptz-modal-box{max-width:600px;display:flex;flex-direction:column;overflow:hidden}
 .ptz-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex:none}
 .ptz-filter{flex:none;margin-bottom:16px}
-.ptz-list{min-height:80px;max-height:min(50vh,480px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:3px}
+.ptz-list{min-height:80px;max-height:min(50vh,480px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
 .ptz-list-item{display:flex;align-items:center;gap:14px;padding:12px 14px;border-top:1px solid var(--line)}
-.ptz-list-item:first-child{border:0}.ptz-list-item:hover{background:var(--surface-alt)}
+.ptz-list-item:first-child{border:0}.ptz-list-item:hover{background:var(--surface-hover)}
 .ptz-list-copy{min-width:0;flex:1}.ptz-list-copy b{display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere}
 .ptz-list-copy span{display:block;margin-top:4px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .ptz-list-item .btn{min-width:60px;flex:none}
 .ptz-empty{padding:28px 16px;text-align:center;color:var(--dim);font-size:13px;line-height:1.7}
 .ptz-modal-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;color:var(--dim);font-size:12px;flex:none}
 
+@media(max-width:1400px){
+  .camera-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"stage" "side"}
+  .camera-side{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));grid-template-rows:none}
+}
 @media(max-width:1000px){
-  .navigation-inner{grid-template-columns:minmax(0,1fr);padding:0 24px}.navigation-actions{grid-column:1;grid-row:3;justify-content:space-between;width:100%;border-top:1px solid var(--line)}
-  .tabs{width:100%;gap:24px}.navigation-actions .tabs{width:auto}.connection{justify-content:flex-end;padding:8px 0;border-left:0}
-  main{padding:24px}
+  .app-header{gap:16px;padding:0 16px}
+  .app-shell{grid-template-columns:minmax(0,1fr)}
+  .app-sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .sidebar-nav{flex-direction:row;align-items:center;gap:12px;padding:8px 16px}
+  .sidebar-h{flex:none;padding:0}
+  .cam-list{flex:1;flex-direction:row;gap:6px;min-width:0;padding:2px 0;overflow-x:auto;overflow-y:hidden}
+  .cam-list li{flex:none}
+  .cam-item{width:auto;max-width:220px;border:1px solid var(--line)}
+  .app-sidebar footer{padding:0 16px 8px;border-top:0}
+  main{padding:16px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #settingsForm{grid-template-columns:160px minmax(0,1fr);gap:24px}
-  .logs-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.logs-toolbar .field:first-child{grid-column:1/-1}
-  .device-header{flex-wrap:wrap;gap:24px}
+  .logs-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.logs-toolbar .field:first-child,.logs-toolbar .button-row{grid-column:1/-1}
+  .device-header{gap:16px}
   .action-item{grid-template-columns:minmax(0,1fr) 164px;gap:6px 24px}.action-item span{grid-column:1}.action-item .btn{grid-column:2;grid-row:1/3}
 }
+@media(max-width:860px){
+  .app-header{position:static;flex-wrap:wrap;height:auto;min-height:var(--header-h);row-gap:4px}
+  .brand{min-height:52px}
+  .tabs{order:3;width:100%;padding-bottom:6px}
+}
 @media(max-width:680px){
-  .navigation-inner{padding:0 max(16px,env(safe-area-inset-left)) 0 max(16px,env(safe-area-inset-right))}
-  .navigation-actions{flex-wrap:wrap;gap:0 16px}.navigation-actions .tabs{flex:1 1 auto}
-  .tabs{gap:22px}.tab{min-height:48px;font-size:13px}
-  .tab-admin-start{position:relative;margin-left:0;padding-left:22px}
-  .tab-admin-start::before{content:"";position:absolute;left:0;top:50%;height:20px;border-left:1px solid var(--line);transform:translateY(-50%)}
-  .connection,.status-pill{font-size:11px}.connection{justify-content:flex-start}
-  main{padding:24px max(16px,env(safe-area-inset-right)) 20px max(16px,env(safe-area-inset-left))}
-  h1{font-size:22px}
-  .device-header{display:block;padding-bottom:20px}
-  .rate{width:100%;margin-top:20px}.rate-label b{font-size:22px}
-  .probe-table,.probe-table tbody{display:block}
-  .probe-table caption{display:block}
-  .probe-table thead{display:none}
-  .probe-table tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:6px 16px;padding:14px 0;border-bottom:1px solid var(--line)}
-  .probe-table tbody th,.probe-table td{display:block;width:auto;padding:0;border:0}
-  .probe-table .card-v{text-align:right}.probe-table .card-m{grid-column:1/-1;font-size:13px}
-  .sec-t{flex-wrap:wrap;gap:4px}
-  .row{grid-template-columns:1fr;gap:6px;padding:12px 0}
-  .row:first-child{padding:12px}
-  .grid{grid-template-columns:1fr}.card{padding:16px}
+  .app-header{column-gap:12px;padding:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left))}
+  .tab,.settings-tab{min-height:44px;font-size:13px}
+  .status-pill{font-size:11px}
+  .sidebar-nav{padding-inline:max(16px,env(safe-area-inset-left)) max(16px,env(safe-area-inset-right))}
+  main{padding:16px max(16px,env(safe-area-inset-right)) 16px max(16px,env(safe-area-inset-left))}
+  h1{font-size:18px}
+  .device-header{display:block}
+  .rate{width:100%;margin-top:12px}.rate-label b{font-size:18px}
+  .settings-summary{display:flex;width:fit-content;margin:12px 0 0 auto}
+  .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .kpi{padding:12px}.kpi-value{font-size:20px}
+  .camera-grid{grid-template-columns:minmax(0,1fr)}
+  .camera-side{grid-template-columns:minmax(0,1fr)}
+  .segmented button{min-height:40px}
+  .live-quality{height:44px}
+  .dev-list div{grid-template-columns:1fr;gap:4px}
+  .grid{grid-template-columns:1fr}
   .chart{height:180px}
-  .viewer-copy{flex-basis:100%}.viewer-tools,.ptz-open-btn{width:100%}
-  .feed-state{padding:16px;font-size:13px}.feed-stamp{font-size:10px}
-  .settings-kpi{margin-top:16px;padding:16px 0 0;border-left:0;border-top:1px solid var(--line)}
-  #settingsForm{grid-template-columns:1fr;gap:20px}
-  .settings-tabbar{position:static;min-width:0}
-  .settings-tablist{flex-direction:row;overflow-x:auto;border-bottom:1px solid var(--line)}
-  .settings-tab{min-height:44px;flex:none;padding:10px 12px;border-left:0;border-bottom:2px solid transparent;white-space:nowrap}
-  .settings-tab[aria-selected="true"]{border-left:0;border-bottom-color:var(--accent)}
-  .settings-tab-divided{margin-top:0;margin-left:9px}
-  .settings-tab-divided::before{left:-5px;right:auto;top:8px;bottom:8px;border-top:0;border-left:1px solid var(--line)}
-  .settings-savebar{grid-column:1}.settings-savebar .form-result{text-align:left}
-  .settings-savebar .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .feed-state{padding:16px;font-size:13px}
+  .form-grid>.field{grid-template-columns:minmax(0,1fr)}
+  .form-grid>.field>input,.form-grid>.field>select,.form-grid>.field>.btn{grid-column:1;grid-row:2;margin-top:6px}
+  .form-grid>.field>small{grid-row:3}
+  .settings-savebar{position:static;flex-direction:column;align-items:stretch}
+  .settings-savebar .button-row{display:grid;grid-template-columns:1fr 1fr;align-items:stretch}
   .btn{min-height:44px;padding-inline:12px}
   .field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{height:44px;font-size:16px}
-  .action-item{grid-template-columns:1fr;gap:8px;padding:18px 0}.action-item .btn{grid-column:1;grid-row:auto;justify-self:start;width:auto;margin-top:4px}
-  .logs-hero-tools{margin-top:20px}.logs-hero-tools .btn{flex:1}
-  .logs-toolbar{grid-template-columns:1fr 1fr;padding:14px;gap:12px}
-  .logs-toolbar .field:last-child{grid-column:1/-1}.logs-table-wrap{max-height:65vh}
+  .action-item{grid-template-columns:1fr;gap:8px}.action-item .btn{grid-column:1;grid-row:auto;justify-self:start;width:auto;margin-top:4px}
+  .logs-toolbar{grid-template-columns:1fr 1fr;gap:12px}
+  .logs-toolbar .field:nth-child(4){grid-column:1/-1}.logs-toolbar .button-row .btn{flex:1}.logs-table-wrap{max-height:65vh}
   .modal-overlay{padding:12px}.modal-box{max-height:calc(100dvh - 24px);padding:20px}
   .merge-fields,.merge-records{grid-template-columns:1fr}.merge-record+.merge-record{border-left:0;border-top:1px solid var(--line)}
   .ptz-list-item{padding:12px}
-  footer{font-size:11px}
 }
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -330,147 +392,132 @@ body.fs-locked{overflow:hidden}
 </head>
 <body>
 <button class="skip-link" id="skipToContent" type="button">Skip to content</button>
-<div class="navigation">
-  <div class="navigation-inner">
-    <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-      <button class="tab" id="overviewTab" type="button" role="tab" data-view="overview" aria-controls="overviewView" aria-selected="true">Overview</button>
-      <button class="tab tab-divided" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Camera</button>
-      <button class="tab" id="liveTab" type="button" role="tab" data-view="live" aria-controls="liveView" aria-selected="false" tabindex="-1">Live</button>
-      <button class="tab" id="feedTab" type="button" role="tab" data-view="feed" aria-controls="feedView" aria-selected="false" tabindex="-1">Preview</button>
-    </nav>
-    <div class="camera-selector" role="group" aria-label="Select camera">
-      <button id="previousCamera" type="button" aria-label="Previous camera" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
-      <span class="camera-selector-name" id="selectedCameraName" aria-live="polite">Loading cameras…</span>
-      <button id="nextCamera" type="button" aria-label="Next camera" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button>
-    </div>
-    <div class="navigation-actions">
-    <nav class="tabs" role="tablist" aria-label="Administration">
-      <button class="tab tab-admin-start" id="actionsTab" type="button" role="tab" data-view="actions" aria-controls="actionsView" aria-selected="false" tabindex="-1">Actions</button>
-      <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Resources</button>
-      <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false" tabindex="-1">Settings</button>
-    </nav>
-    <div class="connection"><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">connecting…</span></div></div>
-    </div>
-  </div>
-</div>
+<header class="app-header">
+  <a class="brand" href="#overview">Camera Watchdog</a>
+  <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+    <button class="tab" id="overviewTab" type="button" role="tab" data-view="overview" aria-controls="overviewView" aria-selected="true">Overview</button>
+    <button class="tab" id="cameraTab" type="button" role="tab" data-view="camera" aria-controls="cameraView" aria-selected="false" tabindex="-1">Camera</button>
+    <button class="tab" id="resourcesTab" type="button" role="tab" data-view="resources" aria-controls="resourcesView" aria-selected="false" tabindex="-1">Resources</button>
+    <button class="tab" id="settingsTab" type="button" role="tab" data-view="settings" aria-controls="settingsView" aria-selected="false" tabindex="-1">Settings</button>
+  </nav>
+  <div class="header-status"><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">connecting…</span></div><div class="status-pill" id="deviceUptime">uptime —</div></div>
+</header>
+<div class="app-shell">
+<aside class="app-sidebar">
+  <nav class="sidebar-nav" aria-label="Cameras">
+    <div class="sidebar-h"><h2>Cameras</h2><span id="cameraCount"></span></div>
+    <ul class="cam-list" id="cameraList"></ul>
+    <p class="cam-empty" id="cameraListEmpty">Loading cameras…</p>
+  </nav>
+  <footer id="foot">ESP32 Camera Watchdog</footer>
+</aside>
 <main id="mainContent" tabindex="-1">
 
 <div id="overviewView" role="tabpanel" tabindex="0" aria-labelledby="overviewTab" data-view-panel="overview">
-  <section class="device-header"><div class="device-copy"><h1 class="device-name">Camera overview</h1><div class="device-meta" id="overviewSummary">Loading the registry…</div></div></section>
-  <section class="sec"><div class="grid">
-    <article class="card"><div class="card-h">Online</div><div class="card-v" id="overviewOnline">0</div><div class="card-m">Last check completed successfully</div></article>
-    <article class="card"><div class="card-h">Unstable or offline</div><div class="card-v" id="overviewProblems">0</div><div class="card-m">Cameras that need attention</div></article>
-    <article class="card"><div class="card-h">Recovering or starting</div><div class="card-v" id="overviewPending">0</div><div class="card-m">Waiting for confirmation that it works</div></article>
-  </div></section>
-  <section class="sec"><div class="sec-t"><h2>State of all cameras</h2><span>Select a name to open the individual view</span></div>
-    <div class="logs-table-wrap"><table class="overview-table"><thead><tr><th>Camera</th><th>IP</th><th>State</th><th>Last check</th><th>Last event</th></tr></thead><tbody id="overviewCameras"></tbody></table></div>
-    <p class="overview-note" id="overviewEmpty" hidden>No camera registered. Use Actions &gt; Rediscover cameras.</p>
-    <p class="overview-note" id="registryResult"></p>
-  </section>
+  <div class="kpi-row">
+    <article class="kpi"><span class="kpi-label">Registered</span><b class="kpi-value" id="overviewTotal">0</b></article>
+    <article class="kpi" style="--sc:var(--ok)"><span class="kpi-label"><i class="state-dot"></i>Online</span><b class="kpi-value" id="overviewOnline">0</b></article>
+    <article class="kpi" style="--sc:var(--bad)"><span class="kpi-label"><i class="state-dot"></i>Offline</span><b class="kpi-value" id="overviewOffline">0</b></article>
+    <article class="kpi" style="--sc:var(--info)"><span class="kpi-label"><i class="state-dot"></i>Recovering</span><b class="kpi-value" id="overviewRecovering">0</b></article>
+  </div>
+  <p class="overview-note" id="overviewOthers" hidden></p>
+  <ul class="camera-grid" id="overviewCameras" aria-label="Camera previews"></ul>
+  <p class="overview-note" id="overviewEmpty" hidden>No camera registered. Open <a href="#actions">Settings &gt; Actions</a> to rediscover cameras.</p>
+  <p class="overview-note" id="registryResult"></p>
 </div>
 
 <div id="cameraView" role="tabpanel" tabindex="0" aria-labelledby="cameraTab" data-view-panel="camera" hidden>
 
 <section class="device-header" id="hero">
   <div class="device-copy">
-    <span class="badge" id="badge"><i></i><span id="stateText">loading</span></span>
-    <h1 class="device-name" id="camName">—</h1>
-    <div class="device-meta" id="camSub">waiting for the first check cycle…</div>
+    <div class="device-title"><h1 class="device-name" id="camName">—</h1><span class="badge" id="badge"><i></i><span id="stateText">loading</span></span></div>
+    <div class="device-meta" id="cameraMeta">Loading camera information…</div>
   </div>
   <div class="rate">
     <div class="rate-label"><span>Availability</span><b id="availValue">—</b></div>
     <div class="rate-track" id="arc" aria-hidden="true"></div>
-    <small>Success rate of conclusive checks</small>
   </div>
 </section>
 
-<section class="probe-panel" aria-labelledby="probesTitle">
-  <table class="probe-table">
-    <caption id="probesTitle">Service health</caption>
-    <thead><tr><th scope="col">Service</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
-    <tbody>
-      <tr><th scope="row">ONVIF<i class="pip" id="p-onvif"></i></th><td class="card-v" id="v-onvif">—</td><td class="card-m" id="m-onvif">—</td></tr>
-      <tr><th scope="row">RTSP<i class="pip" id="p-rtsp"></i></th><td class="card-v" id="v-rtsp">—</td><td class="card-m" id="m-rtsp">—</td></tr>
-      <tr><th scope="row">JPEG image<i class="pip" id="p-image"></i></th><td class="card-v" id="v-image">—</td><td class="card-m" id="m-image">—</td></tr>
-      <tr><th scope="row">Checks</th><td class="card-v" id="v-checks">—</td><td class="card-m" id="m-checks">—</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<section class="sec">
-  <div class="sec-t"><h2>Record</h2><span>last known activity</span></div>
-  <dl class="log">
-    <div class="row"><dt>Last event</dt><dd id="l-event">—</dd></div>
-    <div class="row"><dt>ONVIF endpoint</dt><dd id="l-url">—</dd></div>
-    <div class="row"><dt>Last JPEG</dt><dd id="l-image">—</dd></div>
-    <div class="row"><dt>Automatic recovery</dt><dd id="l-reboot">—</dd></div>
-    <div class="row"><dt>ONVIF discovery</dt><dd id="l-disc">—</dd></div>
-    <div class="row"><dt>Network scan</dt><dd id="l-scan">—</dd></div>
-    <div class="row"><dt>Email sending</dt><dd id="l-mail">—</dd></div>
-  </dl>
-</section>
-
-</div>
-
-<div id="feedView" role="tabpanel" tabindex="0" aria-labelledby="feedTab" data-view-panel="feed" hidden>
-  <section class="viewer" aria-labelledby="viewerTitle">
-    <div class="viewer-h">
-      <div class="viewer-copy">
-        <h1 id="viewerTitle">Diagnostic preview</h1>
-        <p id="feedMeta">JPEG frames from the selected camera</p>
+<div class="camera-layout">
+  <section class="stage-card" aria-labelledby="stageTitle">
+    <div class="stage-bar">
+      <h2 id="stageTitle">Live video</h2>
+      <div class="segmented" role="group" aria-label="Video source">
+        <button type="button" data-camera-mode="live" aria-pressed="true">Live</button>
+        <button type="button" data-camera-mode="snapshot" aria-pressed="false">Snapshot</button>
       </div>
-      <div class="viewer-tools">
-        <button class="btn primary ptz-open-btn" type="button" id="ptzMenuButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>PTZ presets <span class="ptz-count" id="ptzPresetCount">—</span></button>
-      </div>
-      <div class="form-result" id="ptzActionStatus" hidden></div>
+      <select class="live-quality" id="liveQuality" data-source="live" aria-label="Live video quality">
+        <option value="fluid">Standard</option>
+        <option value="high">High resolution</option>
+      </select>
+      <button class="btn ptz-open-btn" type="button" id="ptzMenuButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>PTZ presets <span class="ptz-count" id="ptzPresetCount">—</span></button>
     </div>
-    <div class="viewer-stage">
-      <img id="cameraFeed" alt="JPEG preview of the monitored camera" decoding="async">
-      <div class="feed-state" id="feedState">Loading the first camera frame…</div>
-      <div class="feed-stamp" id="feedStamp">waiting for image</div>
+    <div class="viewer-stage" id="cameraStage" data-mode="live">
+      <video id="liveVideo" data-source="live" muted playsinline autoplay disablepictureinpicture></video>
+      <img id="cameraFeed" data-source="snapshot" alt="JPEG preview of the monitored camera" decoding="async" hidden>
+      <div class="feed-state" id="liveState" data-source="live"><div><span id="liveStateText">Connecting to the camera…</span><br><button class="btn" type="button" id="liveRetry" hidden>Try again</button></div></div>
+      <div class="feed-state" id="feedState" data-source="snapshot" hidden>Loading the first camera frame…</div>
+      <div class="live-badge" id="liveBadge" data-source="live"><i></i><span id="liveBadgeText">NO SIGNAL</span></div>
+      <div class="feed-stamp" id="liveStamp" data-source="live">waiting for video</div>
+      <div class="feed-stamp" id="feedStamp" data-source="snapshot" hidden>waiting for image</div>
       <button type="button" class="feed-fs-btn" id="feedFsBtn" aria-label="View full screen" aria-pressed="false" title="Full screen">
         <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
         <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
       </button>
     </div>
+    <div class="form-result" id="ptzActionStatus" hidden></div>
   </section>
+
+  <div class="camera-side">
+    <article class="card">
+      <h2>Service health</h2>
+      <ul class="health-list">
+        <li><span class="health-name"><i class="pip" id="p-onvif"></i>ONVIF</span><span class="card-v" id="v-onvif">—</span></li>
+        <li><span class="health-name"><i class="pip" id="p-rtsp"></i>RTSP</span><span class="card-v" id="v-rtsp">—</span></li>
+        <li><span class="health-name"><i class="pip" id="p-image"></i>JPEG image</span><span class="card-v" id="v-image">—</span></li>
+      </ul>
+    </article>
+    <article class="card">
+      <h2>Automatic recovery</h2>
+      <p class="card-text" id="l-reboot">—</p>
+    </article>
+    <article class="card">
+      <h2>Email alerts</h2>
+      <p class="card-text" id="l-mail">—</p>
+    </article>
+    <article class="card">
+      <h2>Last event</h2>
+      <p class="card-text" id="l-event">—</p>
+    </article>
+  </div>
 </div>
 
-<div id="liveView" role="tabpanel" tabindex="0" aria-labelledby="liveTab" data-view-panel="live" hidden>
-  <section class="viewer" aria-labelledby="liveTitle">
-    <div class="viewer-h">
-      <div class="viewer-copy">
-        <h1 id="liveTitle">Live</h1>
-        <p id="liveMeta">H.264 video from the selected camera</p>
-      </div>
-      <div class="viewer-tools">
-        <select class="live-quality" id="liveQuality" aria-label="Live video quality">
-          <option value="fluid">Standard</option>
-          <option value="high">High resolution</option>
-        </select>
-        <button class="btn primary ptz-open-btn" type="button" id="livePtzButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>PTZ presets <span class="ptz-count" id="livePtzCount">—</span></button>
-      </div>
-      <div class="form-result" id="liveActionStatus" hidden></div>
-    </div>
-    <div class="viewer-stage" id="liveStage">
-      <video id="liveVideo" muted playsinline autoplay disablepictureinpicture></video>
-      <div class="feed-state" id="liveState"><div><span id="liveStateText">Connecting to the camera…</span><br><button class="btn" type="button" id="liveRetry" hidden>Try again</button></div></div>
-      <div class="live-badge" id="liveBadge"><i></i><span id="liveBadgeText">NO SIGNAL</span></div>
-      <div class="feed-stamp" id="liveStamp">waiting for video</div>
-      <button type="button" class="feed-fs-btn" id="liveFsBtn" aria-label="View full screen" aria-pressed="false" title="Full screen">
-        <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
-        <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
-      </button>
-    </div>
-  </section>
+<details class="dev-diagnostics">
+  <summary>Development diagnostics<a class="dev-link" href="#diagnostics">Open the full JSON in Settings &gt; Diagnostics</a></summary>
+  <div class="dev-body">
+    <dl class="dev-list">
+      <div><dt>ONVIF probe</dt><dd id="m-onvif">—</dd></div>
+      <div><dt>RTSP probe</dt><dd id="m-rtsp">—</dd></div>
+      <div><dt>JPEG probe</dt><dd id="m-image">—</dd></div>
+      <div><dt>Checks</dt><dd><span id="v-checks">—</span> checks · <span id="m-checks">—</span></dd></div>
+      <div><dt>ONVIF endpoint</dt><dd id="l-url">—</dd></div>
+      <div><dt>Last JPEG</dt><dd id="l-image">—</dd></div>
+      <div><dt>ONVIF discovery</dt><dd id="l-disc">—</dd></div>
+      <div><dt>Network scan</dt><dd id="l-scan">—</dd></div>
+      <div><dt>Snapshot media</dt><dd id="feedMeta">JPEG frames from the selected camera</dd></div>
+      <div><dt>Live media</dt><dd id="liveMeta">H.264 video from the selected camera</dd></div>
+    </dl>
+  </div>
+</details>
+
 </div>
 
 <div id="resourcesView" role="tabpanel" tabindex="0" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
   <section class="device-header" id="resourcesHero">
     <div class="device-copy">
-      <span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">loading</span></span>
-      <h1 class="device-name" id="resourcesChip">ESP32</h1>
-      <div class="device-meta" id="resourcesMeta">waiting for device data…</div>
+      <div class="device-title"><h1 class="device-name" id="resourcesChip">ESP32</h1><span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">loading</span></span></div>
+      <div class="device-meta" id="resourcesMeta">Loading device information…</div>
     </div>
     <div class="rate">
       <div class="rate-label"><span>Free heap</span><b id="resourcesHeapPercent">—</b></div>
@@ -548,237 +595,278 @@ body.fs-locked{overflow:hidden}
   </section>
 </div>
 
-<div id="actionsView" role="tabpanel" tabindex="0" aria-labelledby="actionsTab" data-view-panel="actions" hidden>
-  <section class="settings-card actions-card">
-    <div class="settings-card-h"><div><h1>Manual control</h1><p>Sensitive actions require confirmation and respect the safety limits of the firmware.</p></div></div>
-    <div class="action-grid">
-      <div class="action-item"><b>Check now</b><span>Checks ONVIF, RTSP and JPEG on the selected camera.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Run</button></div>
-      <div class="action-item"><b>Rediscover cameras</b><span>Updates the registered cameras and automatically registers any new ones found.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Rediscover</button></div>
-      <div class="action-item" id="mergeAction" hidden><b>Merge registrations</b><span>Merges confirmed records of the same camera, choosing which ID and which settings stay.</span><button class="btn" type="button" id="mergeOpen">Review registrations</button></div>
-      <div class="action-item"><b>Forget registration</b><span>Permanently removes only the selected camera from monitoring and from NVS. An active camera can be discovered again.</span><button class="btn bad" type="button" id="forgetCameraOpen" disabled>Forget camera</button></div>
-      <div class="action-item"><b>Restart camera</b><span>Restarts the selected camera, respecting the cooldown and the window limit.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Restart camera</button></div>
-      <div class="action-item"><b>Restart all cameras</b><span>Sends SystemReboot to every camera in sequence, respecting the limits of each camera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Restart all</button></div>
-      <div class="action-item"><b>Reset limiter</b><span>Resets the cooldown and attempts of the selected camera.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Reset limit</button></div>
-      <div class="action-item"><b>Clear logs</b><span>Removes the previous history and keeps only the clearing marker.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Clear logs</button></div>
-      <div class="action-item"><b>Restart ESP32</b><span>Restarts only the watchdog, without cutting power to the camera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Restart ESP32</button></div>
-      <div class="action-item"><b>Erase ESP32 data</b><span>Erases registrations, saved settings, Wi-Fi networks saved from the dashboard, and the log history, then restarts the device. The firmware and the built-in credentials stay. Active cameras can be rediscovered.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
-    </div>
-    <p class="overview-note" id="actionCameraScope">Selected camera: waiting for registration</p>
-    <div class="form-result" id="adminActionStatus">No action requested in this session.</div>
-  </section>
-</div>
-
 <div id="settingsView" role="tabpanel" tabindex="0" aria-labelledby="settingsTab" data-view-panel="settings" hidden>
   <section class="device-header" id="settingsHero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
     <div class="device-copy">
-      <span class="badge"><i></i><span id="settingsSource">loading settings</span></span>
-      <h1 class="device-name" id="settingsTitle">Global settings</h1>
+      <div class="device-title"><h1 class="device-name" id="settingsTitle">Device settings</h1></div>
       <div class="device-meta" id="settingsMeta">Values stored in NVS, also validated by the firmware.</div>
     </div>
-    <div class="settings-kpi">
-      <span>estimated image alert</span>
-      <b id="settingsAlertEstimate">—</b>
-    </div>
+    <span class="badge settings-summary"><i></i><span id="settingsSource">loading settings</span></span>
   </section>
 
   <form id="settingsForm" autocomplete="off" novalidate>
-    <div class="settings-tabbar">
-      <nav class="settings-tablist" role="tablist" aria-label="Settings categories">
-        <button class="settings-tab" id="settingsGlobalTab" type="button" role="tab" data-settings-section="global" aria-controls="settingsGlobalPanel" aria-selected="true">Global</button>
-        <button class="settings-tab" id="settingsIdentificationTab" type="button" role="tab" data-settings-section="identification" aria-controls="settingsIdentificationPanel" aria-selected="false" tabindex="-1">Identification</button>
-        <button class="settings-tab" id="settingsAuthenticationTab" type="button" role="tab" data-settings-section="authentication" aria-controls="settingsAuthenticationPanel" aria-selected="false" tabindex="-1">Camera authentication</button>
-        <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoring</button>
-        <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recovery</button>
-        <button class="settings-tab" id="settingsNetworkTab" type="button" role="tab" data-settings-section="network" aria-controls="settingsNetworkPanel" aria-selected="false" tabindex="-1">Network and notifications</button>
-        <button class="settings-tab" id="settingsCommunicationTab" type="button" role="tab" data-settings-section="communication" aria-controls="settingsCommunicationPanel" aria-selected="false" tabindex="-1">Communication</button>
-        <button class="settings-tab settings-tab-divided" id="settingsDiagnosticsTab" type="button" role="tab" data-settings-section="diagnostics" aria-controls="settingsDiagnosticsPanel" aria-selected="false" tabindex="-1">Diagnostics</button>
-        <button class="settings-tab" id="settingsLogsTab" type="button" role="tab" data-settings-section="logs" aria-controls="settingsLogsPanel" aria-selected="false" tabindex="-1">Logs</button>
-      </nav>
-    </div>
+    <nav class="settings-tablist" role="tablist" aria-label="Settings categories">
+      <button class="settings-tab" id="settingsGlobalTab" type="button" role="tab" data-settings-section="global" aria-controls="settingsGlobalPanel" aria-selected="true">Device</button>
+      <button class="settings-tab settings-tab-divided" id="settingsCameraTab" type="button" role="tab" data-settings-section="camera" aria-controls="settingsCameraPanel" aria-selected="false" tabindex="-1">Camera</button>
+      <button class="settings-tab" id="settingsMonitoringTab" type="button" role="tab" data-settings-section="monitoring" aria-controls="settingsMonitoringPanel" aria-selected="false" tabindex="-1">Monitoring</button>
+      <button class="settings-tab" id="settingsRecoveryTab" type="button" role="tab" data-settings-section="recovery" aria-controls="settingsRecoveryPanel" aria-selected="false" tabindex="-1">Recovery</button>
+      <button class="settings-tab settings-tab-divided" id="settingsActionsTab" type="button" role="tab" data-settings-section="actions" aria-controls="settingsActionsPanel" aria-selected="false" tabindex="-1">Actions</button>
+      <button class="settings-tab" id="settingsDiagnosticsTab" type="button" role="tab" data-settings-section="diagnostics" aria-controls="settingsDiagnosticsPanel" aria-selected="false" tabindex="-1">Diagnostics</button>
+      <button class="settings-tab" id="settingsLogsTab" type="button" role="tab" data-settings-section="logs" aria-controls="settingsLogsPanel" aria-selected="false" tabindex="-1">Logs</button>
+    </nav>
 
     <div class="settings-panels">
-      <section class="settings-card settings-panel" id="settingsGlobalPanel" role="tabpanel" aria-labelledby="settingsGlobalTab" data-settings-section-panel="global"><div class="settings-card-h"><div><h2>Global settings</h2><p>ESP32 network, shared discovery, dashboard, and local alert for all cameras.</p></div></div><div class="form-grid">
-          <div class="field"><label for="cfgLocalHostname">Local address <span>1–31 characters</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letters, numbers, and hyphens. You will reach it at http://chosen-name.local/.</small></div>
-          <div class="field"><label for="cfgWifiTimeout">Initial Wi-Fi timeout <span>5–120 s</span></label><input id="cfgWifiTimeout" type="number" min="5" max="120" step="1" required><small>Used on the next boot.</small></div>
-          <div class="field"><label for="cfgStatusRefresh">Dashboard refresh <span>seconds</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Default: 3 s.</small></div>
-          <div class="field"><label for="cfgDiscoveryTimeout">WS-Discovery time <span>1–15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Default: 3.5 s.</small></div>
-          <div class="field"><label for="cfgRediscoveryInterval">Interval between rediscoveries <span>30–3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Default: 30 s.</small></div>
-          <div class="field"><div class="checkline"><input id="cfgAutoScan" type="checkbox"><label for="cfgAutoScan"><b>Allow automatic subnet scan</b><span>Used only after confirmed failures and limited to 254 hosts.</span></label></div></div>
-          <div class="field"><label for="cfgSubnetScanInterval">Interval between scans <span>1–1440 min</span></label><input id="cfgSubnetScanInterval" type="number" min="1" max="1440" step="1" required><small>Default: 5 min.</small></div>
-          <div class="field"><label for="cfgScanTimeout">Connection during scan <span>20–1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Default: 300 ms.</small></div>
-          <div class="field"><label for="cfgEmailRetry">Email retry interval <span>30–3600 s</span></label><input id="cfgEmailRetry" type="number" min="30" max="3600" step="1" required><small>Default: 60 s.</small></div>
-          <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox"><label for="cfgLedEnabled"><b>Blink the LED when not online</b><span>The GPIO is fixed in the firmware to avoid hardware conflicts.</span></label></div></div>
-          <div class="field"><label for="cfgLedBlink">Blink interval <span>200–10000 ms</span></label><input id="cfgLedBlink" type="number" min="200" max="10000" step="100" required><small>Default: 1000 ms.</small></div>
-          <div class="field"><label>ESP32 Wi-Fi network</label><a class="btn" href="/wifi">Choose another Wi-Fi network</a><small>The ESP32 lists the available networks, tests the password and signal, and only then saves to NVS. If the Wi-Fi stays down for more than 2 minutes, it opens the "Camera-Watchdog-XXXX" network so you can reconfigure it.</small></div>
-      </div></section>
-      <section class="settings-card settings-panel" id="settingsIdentificationPanel" role="tabpanel" aria-labelledby="settingsIdentificationTab" data-settings-section-panel="identification" hidden>
-        <div class="settings-card-h"><div><h2>Identification and interface</h2><p>Name, JPEG profile, and preview pace of the selected camera.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><label for="cfgCameraName">Camera name <span>1–48 characters</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Shown in the dashboard and in email subjects.</small></div>
-          <div class="field"><label for="cfgSnapshotProfileMatch">Preferred ONVIF profile <span>up to 32 characters</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>The firmware prioritizes a compatible JPEG profile; default: "snap".</small></div>
-          <div class="field"><label for="cfgCameraRtspPort">RTSP port <span>1–65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Default: 554.</small></div>
-          <div class="field"><label for="cfgFeedMinimum">Minimum preview interval <span>seconds</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Minimum allowed: 0.25 s; use 0.25 s with a 0.5 s cycle for up to 2 FPS.</small></div>
-          <div class="field"><label for="cfgFeedTarget">Target preview cycle <span>seconds</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Default: 5 s; minimum allowed: 0.5 s, which limits the preview to 2 FPS.</small></div>
+      <section class="settings-panel" id="settingsGlobalPanel" role="tabpanel" aria-labelledby="settingsGlobalTab" data-settings-section-panel="global">
+        <div class="settings-group">
+          <h3>Connection</h3>
+          <div class="form-grid">
+            <div class="field"><label for="cfgLocalHostname">Local address <span>1 to 31 characters</span></label><input id="cfgLocalHostname" type="text" minlength="1" maxlength="31" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,29}[A-Za-z0-9])?" placeholder="camera-watchdog" required><small>Use letters, numbers, and hyphens. The address will be http://chosen-name.local/.</small></div>
+            <div class="field"><label>Wi-Fi network</label><a class="btn" id="settingsWifiLink" href="/wifi">Choose another Wi-Fi network</a><small>Lists available networks and checks the connection before saving it.</small></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Dashboard and status light</h3>
+          <div class="form-grid">
+            <div class="field"><label for="cfgStatusRefresh">Dashboard refresh <span>1 to 30 s</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Refreshes the dashboard data. Default: 3 s.</small></div>
+            <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox" role="switch"><label for="cfgLedEnabled"><b>Enable status LED</b><span>Blinks when Wi-Fi is disconnected, a camera is offline or recovering, or an incident is active.</span></label></div></div>
+          </div>
+        </div>
+        <details class="settings-advanced">
+          <summary>Discovery settings</summary>
+          <div class="dev-body">
+            <p class="group-note">Routine discovery follows the scan interval. The minimum rediscovery interval limits additional discovery attempts.</p>
+            <div class="form-grid">
+              <div class="field"><div class="checkline"><input id="cfgAutoScan" type="checkbox" role="switch"><label for="cfgAutoScan"><b>Allow automatic subnet scan</b><span>After confirmed failures, scans up to 254 hosts on RTSP port 554 to find cameras missed by discovery.</span></label></div></div>
+              <div class="field"><label for="cfgDiscoveryTimeout">Discovery timeout <span>1 to 15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Time to collect WS-Discovery replies. Default: 3.5 s.</small></div>
+              <div class="field"><label for="cfgRediscoveryInterval">Minimum rediscovery interval <span>30 to 3600 s</span></label><input id="cfgRediscoveryInterval" type="number" min="30" max="3600" step="1" required><small>Minimum spacing between discovery attempts. Default: 30 s.</small></div>
+              <div class="field"><label for="cfgSubnetScanInterval">Scan interval <span>1 to 1440 min</span></label><input id="cfgSubnetScanInterval" type="number" min="1" max="1440" step="1" required><small>Also controls routine discovery scheduling. Default: 5 min.</small></div>
+              <div class="field"><label for="cfgScanTimeout">Scan connection timeout <span>20 to 1000 ms</span></label><input id="cfgScanTimeout" type="number" min="20" max="1000" step="10" required><small>Time allowed for a connection during a subnet scan. Default: 1000 ms.</small></div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="settings-panel" id="settingsCameraPanel" role="tabpanel" aria-labelledby="settingsCameraTab" data-settings-section-panel="camera" hidden>
+        <div class="settings-group">
+          <h3>Identity and credentials</h3>
+          <div class="form-grid">
+            <div class="field"><label for="cfgCameraName">Camera name <span>1 to 48 characters</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Shown in the dashboard and email subjects.</small></div>
+            <div class="field"><label for="cfgCameraUsername">Camera username</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>For access without authentication, choose Remove username and password.</small></div>
+            <div class="field"><label for="cfgCameraPasswordAction">Camera password</label><select id="cfgCameraPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option><option value="clear">Remove username and password</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
+            <div class="field"><label for="cfgCameraPassword">New password</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. An empty password is allowed with a username. Spaces are part of the password.</small></div>
+            <p class="form-note">These credentials let the watchdog access the camera. Saving them renews the connection and starts a check. The saved password never returns to the browser. Restoring defaults keeps both username and password.</p>
+          </div>
+        </div>
+        <details class="settings-advanced">
+          <summary>Snapshot preview settings</summary>
+          <div class="dev-body">
+            <p class="group-note">Timing and profile selection for JPEG previews in Snapshot mode.</p>
+            <div class="form-grid">
+              <div class="field"><label for="cfgSnapshotProfileMatch">JPEG profile name match <span>up to 32 characters</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>Used when choosing a JPEG-compatible ONVIF profile. Default: snap.</small></div>
+              <div class="field"><label for="cfgFeedMinimum">Minimum snapshot pause <span>0.25 to 10 s</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Minimum pause after an image finishes loading. Default: 5 s.</small></div>
+              <div class="field"><label for="cfgFeedTarget">Target snapshot cycle <span>0.5 to 30 s</span></label><input id="cfgFeedTarget" type="number" min="0.5" max="30" step="0.1" required><small>Must be at least the minimum pause. Image transfer can make the cycle longer. Default: 5 s.</small></div>
+            </div>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Connection settings</summary>
+          <div class="dev-body">
+            <div class="form-grid">
+              <div class="field"><label for="cfgCameraRtspPort">RTSP port <span>1 to 65535</span></label><input id="cfgCameraRtspPort" type="number" min="1" max="65535" step="1" required><small>Default: 554.</small></div>
+              <div class="field"><label for="cfgTcpTimeout">TCP connection timeout <span>200 to 5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Default: 900 ms.</small></div>
+              <div class="field"><label for="cfgServiceTimeout">ONVIF/RTSP response timeout <span>500 to 10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Default: 3000 ms.</small></div>
+              <div class="field"><label for="cfgSnapshotTimeout">JPEG timeout <span>1 to 30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Default: 5 s.</small></div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="settings-panel" id="settingsMonitoringPanel" role="tabpanel" aria-labelledby="settingsMonitoringTab" data-settings-section-panel="monitoring" hidden>
+        <div class="settings-group">
+          <h3>Checks and thresholds</h3>
+          <p class="group-note">How the watchdog confirms a failure and a return to normal operation.</p>
+          <div class="form-grid">
+            <div class="field"><label for="cfgHealthCheckInterval">Check interval <span>10 to 3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Default: 15 s.</small></div>
+            <div class="field"><label for="cfgFailuresBeforeOffline">Control failures before offline <span>1 to 20</span></label><input id="cfgFailuresBeforeOffline" type="number" min="1" max="20" step="1" required><small>Must be at least the rediscovery threshold below. Default: 3.</small></div>
+            <div class="field"><label for="cfgVideoFailuresBeforeAlert">Image failures before alert <span>1 to 20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Default: 2.</small></div>
+            <div class="field"><label for="cfgVideoFailuresBeforeReboot">Image failures before restart <span>1 to 20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Must be at least the image alert threshold. Also confirms a media failure when automatic restart is off. Default: 3.</small></div>
+            <div class="field"><label for="cfgSuccessesBeforeRecovery">Successful checks before recovery <span>1 to 10</span></label><input id="cfgSuccessesBeforeRecovery" type="number" min="1" max="10" step="1" required><small>Default: 2.</small></div>
+            <p class="form-note">At this check interval: image alert after about <b id="estimateAlert">—</b>, restart after about <b id="estimateReboot">—</b>, and offline after about <b id="estimateOffline">—</b>. Startup grace, check duration, and restart limits can add time.</p>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Email alerts</h3>
+          <div class="form-grid">
+            <div class="field"><div class="checkline"><input id="cfgEmailAlerts" type="checkbox" role="switch"><label for="cfgEmailAlerts"><b>Enable email alerts</b><span>Turning this off cancels pending notifications and keeps the Resend credentials.</span></label></div></div>
+            <div class="field"><div class="checkline"><input id="cfgEmailIpChange" type="checkbox" role="switch"><label for="cfgEmailIpChange"><b>Notify when the camera changes IP</b><span>Used when email alerts are enabled.</span></label></div></div>
+          </div>
+        </div>
+        <details class="settings-advanced">
+          <summary>Startup and rediscovery</summary>
+          <div class="dev-body">
+            <div class="form-grid">
+              <div class="field"><label for="cfgStartupGrace">Startup grace <span>0 to 600 s</span></label><input id="cfgStartupGrace" type="number" min="0" max="600" step="1" required><small>Time allowed for the camera to settle when monitoring starts. Default: 90 s.</small></div>
+              <div class="field"><label for="cfgFailuresBeforeRediscovery">Control failures before rediscovery <span>1 to 20</span></label><input id="cfgFailuresBeforeRediscovery" type="number" min="1" max="20" step="1" required><small>Must not exceed the offline threshold. Default: 2.</small></div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="settings-panel" id="settingsRecoveryPanel" role="tabpanel" aria-labelledby="settingsRecoveryTab" data-settings-section-panel="recovery" hidden>
+        <div class="settings-group">
+          <h3>Restart policy</h3>
+          <div class="form-grid">
+            <div class="field"><div class="checkline"><input id="cfgAutoReboot" type="checkbox" role="switch"><label for="cfgAutoReboot"><b>Enable automatic camera restart</b><span>Sends ONVIF SystemReboot after the image failure threshold set in Monitoring.</span></label></div></div>
+            <div class="field"><label for="cfgRebootGrace">Grace after restart <span>30 to 600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Pauses checks while the camera restarts. Default: 60 s.</small></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Limits against restart loops</h3>
+          <p class="group-note">These limits also apply to manual camera restarts.</p>
+          <div class="form-grid">
+            <div class="field"><label for="cfgRebootCooldown">Minimum time between restarts <span>2 to 1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Default: 5 min.</small></div>
+            <div class="field"><label for="cfgRebootWindow">Counting window <span>1 to 168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Must cover the minimum time between restarts. Default: 1 h.</small></div>
+            <div class="field"><label for="cfgMaxReboots">Maximum restarts in the window <span>1 to 20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Only accepted ONVIF restart commands use the quota. Default: 3.</small></div>
+          </div>
         </div>
       </section>
 
-      <section class="settings-card settings-panel" id="settingsAuthenticationPanel" role="tabpanel" aria-labelledby="settingsAuthenticationTab" data-settings-section-panel="authentication" hidden>
-        <div class="settings-card-h"><div><h2>Camera authentication</h2><p>Credentials the watchdog uses to access the camera image and services. This does not change the account on the camera.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><label for="cfgCameraUsername">Camera username</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>Leave empty when the camera allows access without authentication.</small></div>
-          <div class="field"><label for="cfgCameraPasswordAction">Camera password</label><select id="cfgCameraPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option><option value="clear">Remove username and password</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
-          <div class="field"><label for="cfgCameraPassword">New password</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>When replacing, you can leave it empty if the camera uses a username without a password. Spaces are part of the password.</small></div>
-          <div class="estimate-box">The saved password is never shown or sent back to the browser. When you save credential changes, the connection is renewed and a new check starts. Restoring defaults keeps these credentials.</div>
+      <section class="settings-panel settings-tool" id="settingsActionsPanel" role="tabpanel" aria-labelledby="settingsActionsTab" data-settings-section-panel="actions" hidden>
+        <div class="settings-group">
+          <h3 id="actionCameraScope">Selected camera: waiting for registration</h3>
+          <div class="action-grid">
+            <div class="action-item"><b>Check now</b><span>Checks ONVIF, RTSP and JPEG on the selected camera.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Run</button></div>
+            <div class="action-item"><b>Restart camera</b><span>Restarts the selected camera, respecting the cooldown and the window limit.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Restart camera</button></div>
+          </div>
         </div>
+        <div class="settings-group">
+          <h3>All cameras</h3>
+          <div class="action-grid">
+            <div class="action-item"><b>Rediscover cameras</b><span>Updates the registered cameras and automatically registers any new ones found.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Rediscover</button></div>
+            <div class="action-item"><b>Restart all cameras</b><span>Sends SystemReboot to every camera in sequence, respecting the limits of each camera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Restart all</button></div>
+            <div class="action-item" id="mergeAction" hidden><b>Merge registrations</b><span>Merges confirmed records of the same camera, choosing which ID and which settings stay.</span><button class="btn" type="button" id="mergeOpen">Review registrations</button></div>
+          </div>
+        </div>
+        <details class="settings-advanced">
+          <summary>Camera maintenance</summary>
+          <div class="dev-body">
+            <div class="action-grid">
+              <div class="action-item"><b>Reset limiter</b><span>Resets the cooldown and attempts of the selected camera.</span><button class="btn warn" type="button" data-admin-action="reset-reboot-limiter" disabled>Reset limit</button></div>
+              <div class="action-item"><b>Forget registration</b><span>Permanently removes only the selected camera from monitoring and from NVS. An active camera can be discovered again.</span><button class="btn bad" type="button" id="forgetCameraOpen" disabled>Forget camera</button></div>
+            </div>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Device maintenance</summary>
+          <div class="dev-body">
+            <div class="action-grid">
+              <div class="action-item"><b>Restart ESP32</b><span>Restarts only the watchdog, without cutting power to the camera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Restart ESP32</button></div>
+              <div class="action-item"><b>Clear logs</b><span>Removes the previous history and keeps only the clearing marker.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Clear logs</button></div>
+              <div class="action-item"><b>Erase ESP32 data</b><span>Erases registrations, saved settings, Wi-Fi networks saved from the dashboard, and the log history, then restarts the device. The firmware and the built-in credentials stay. Active cameras can be rediscovered.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
+            </div>
+          </div>
+        </details>
+        <div class="form-result" id="adminActionStatus">No action requested in this session.</div>
       </section>
 
-      <section class="settings-card settings-panel" id="settingsMonitoringPanel" role="tabpanel" aria-labelledby="settingsMonitoringTab" data-settings-section-panel="monitoring" hidden>
-        <div class="settings-card-h"><div><h2>Monitoring</h2><p>Failure and recovery confirmation.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><label for="cfgHealthCheckInterval">Interval between checks <span>10–3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Default: 15 s.</small></div>
-          <div class="field"><label for="cfgStartupGrace">Grace period after power-on <span>0–600 s</span></label><input id="cfgStartupGrace" type="number" min="0" max="600" step="1" required><small>Default: 90 s; it also protects against a reboot during startup.</small></div>
-          <div class="field"><label for="cfgFailuresBeforeRediscovery">Failures before rediscovery <span>1–20</span></label><input id="cfgFailuresBeforeRediscovery" type="number" min="1" max="20" step="1" required><small>Default: 2.</small></div>
-          <div class="field"><label for="cfgFailuresBeforeOffline">Failures before declaring offline <span>1–20</span></label><input id="cfgFailuresBeforeOffline" type="number" min="1" max="20" step="1" required><small>Default: 3; must be equal to or greater than the rediscovery value.</small></div>
-          <div class="field"><label for="cfgSuccessesBeforeRecovery">Successes to confirm recovery <span>1–10</span></label><input id="cfgSuccessesBeforeRecovery" type="number" min="1" max="10" step="1" required><small>Default: 2.</small></div>
-          <div class="field"><label for="cfgVideoFailuresBeforeAlert">JPEG failures before alert <span>1–20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Default: 2.</small></div>
-          <div class="field"><label for="cfgVideoFailuresBeforeReboot">JPEG failures before reboot <span>1–20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Default: 3; it cannot come before the alert.</small></div>
-          <div class="estimate-box">With these values: image alert in about <b id="estimateAlert">—</b>, reboot in <b id="estimateReboot">—</b>, and offline in <b id="estimateOffline">—</b>.</div>
-        </div>
-      </section>
-
-      <section class="settings-card settings-panel" id="settingsRecoveryPanel" role="tabpanel" aria-labelledby="settingsRecoveryTab" data-settings-section-panel="recovery" hidden>
-        <div class="settings-card-h"><div><h2>Automatic recovery</h2><p>Limits against restart loops.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><div class="checkline"><input id="cfgAutoReboot" type="checkbox"><label for="cfgAutoReboot"><b>Allow automatic ONVIF SystemReboot</b><span>A manual reboot still respects the cooldown and the window limit.</span></label></div></div>
-          <div class="field"><label for="cfgRebootGrace">Grace period after reboot <span>30–600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Default: 60 s without probes, which protects the camera's startup.</small></div>
-          <div class="field"><label for="cfgRebootCooldown">Cooldown between reboots <span>2–1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Default: 5 min.</small></div>
-          <div class="field"><label for="cfgRebootWindow">Counting window <span>1–168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Default: 1 h; only accepted ONVIF commands use up the quota.</small></div>
-          <div class="field"><label for="cfgMaxReboots">Maximum reboots in the window <span>1–20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Default: 3 accepted commands per hour; at most one every 5 min.</small></div>
-        </div>
-      </section>
-
-      <section class="settings-card settings-panel" id="settingsNetworkPanel" role="tabpanel" aria-labelledby="settingsNetworkTab" data-settings-section-panel="network" hidden>
-        <div class="settings-card-h"><div><h2>Network and notifications</h2><p>Notifications for the selected camera.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><div class="checkline"><input id="cfgEmailAlerts" type="checkbox"><label for="cfgEmailAlerts"><b>Turn on email alerts</b><span>Turning it off cancels pending notifications but does not delete the Resend credentials.</span></label></div></div>
-          <div class="field"><div class="checkline"><input id="cfgEmailIpChange" type="checkbox"><label for="cfgEmailIpChange"><b>Notify when the camera changes IP</b><span>Applied only when email alerts are on.</span></label></div></div>
-        </div>
-      </section>
-
-      <section class="settings-card settings-panel" id="settingsCommunicationPanel" role="tabpanel" aria-labelledby="settingsCommunicationTab" data-settings-section-panel="communication" hidden>
-        <div class="settings-card-h"><div><h2>Communication</h2><p>Timeouts and snapshot re-resolution.</p></div></div>
-        <div class="form-grid">
-          <div class="field"><label for="cfgTcpTimeout">TCP connection <span>200–5000 ms</span></label><input id="cfgTcpTimeout" type="number" min="200" max="5000" step="50" required><small>Default: 900 ms.</small></div>
-          <div class="field"><label for="cfgServiceTimeout">ONVIF/RTSP response <span>500–10000 ms</span></label><input id="cfgServiceTimeout" type="number" min="500" max="10000" step="100" required><small>Default: 3000 ms.</small></div>
-          <div class="field"><label for="cfgSnapshotTimeout">JPEG timeout <span>1–30 s</span></label><input id="cfgSnapshotTimeout" type="number" min="1" max="30" step="0.5" required><small>Default: 5 s.</small></div>
-          <div class="field"><label for="cfgSnapshotResolveRetry">URI re-resolution <span>5–600 s</span></label><input id="cfgSnapshotResolveRetry" type="number" min="5" max="600" step="1" required><small>Default: 15 s.</small></div>
-          <div class="field"><label for="cfgSnapshotFailuresReresolve">Failures before resolving the URI <span>1–10</span></label><input id="cfgSnapshotFailuresReresolve" type="number" min="1" max="10" step="1" required><small>Default: 2.</small></div>
-        </div>
-      </section>
-
-      <section class="settings-card settings-panel settings-tool" id="settingsDiagnosticsPanel" role="tabpanel" aria-labelledby="settingsDiagnosticsTab" data-settings-section-panel="diagnostics" hidden>
-        <div class="settings-card-h"><div><h2>Full diagnostics (JSON)</h2><p>Firmware response for the selected camera. Use Copy JSON when reporting a problem.</p></div></div>
+      <section class="settings-panel settings-tool" id="settingsDiagnosticsPanel" role="tabpanel" aria-labelledby="settingsDiagnosticsTab" data-settings-section-panel="diagnostics" hidden>
         <div class="diagnostic-output">
           <button class="btn diagnostic-copy" id="copyDiagnostics" type="button" aria-label="Copy diagnostics JSON" disabled><span id="diagnosticCopyStatus" role="status" aria-live="polite">Copy JSON</span></button>
           <pre id="raw">Loading…</pre>
         </div>
       </section>
 
-      <section class="settings-card settings-panel settings-tool" id="settingsLogsPanel" role="tabpanel" aria-labelledby="settingsLogsTab" data-settings-section-panel="logs" hidden>
-        <div class="settings-card-h">
-          <div>
-            <h2>Persistent history</h2>
-            <p>Events saved to the ESP32 logs partition.</p>
+      <section class="settings-panel settings-tool" id="settingsLogsPanel" role="tabpanel" aria-labelledby="settingsLogsTab" data-settings-section-panel="logs" hidden>
+        <div class="grid">
+          <article class="card">
+            <div class="card-h">Stored records</div>
+            <div class="card-v info" id="logsCount">—</div>
+            <div class="card-m" id="logsCountMeta">circular limit of 7,500 records</div>
+            <div class="meter"><i id="logsCountMeter"></i></div>
+          </article>
+          <article class="card">
+            <div class="card-h">Logs partition</div>
+            <div class="card-v info" id="logsStorage">—</div>
+            <div class="card-m" id="logsStorageMeta">waiting for LittleFS data</div>
+            <div class="meter"><i id="logsStorageMeter"></i></div>
+          </article>
+          <article class="card">
+            <div class="card-h">Integrity</div>
+            <div class="card-v" id="logsIntegrity">—</div>
+            <div class="card-m" id="logsIntegrityMeta">dropped records and write errors</div>
+          </article>
+        </div>
+
+        <section class="logs-card" aria-labelledby="logsTableTitle">
+          <div class="logs-toolbar">
+            <div class="field">
+              <label for="logsSearch">Filter records <span>in the loaded items</span></label>
+              <input id="logsSearch" type="text" maxlength="80" placeholder="Event, target, detail or status">
+            </div>
+            <div class="field">
+              <label for="logsLevel">Level</label>
+              <select id="logsLevel">
+                <option value="">All</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="logsCategory">Category</label>
+              <select id="logsCategory">
+                <option value="">All</option>
+                <option value="system">System</option>
+                <option value="wifi">Wi-Fi</option>
+                <option value="camera">Camera</option>
+                <option value="discovery">Discovery</option>
+                <option value="onvif">ONVIF</option>
+                <option value="snapshot">Snapshot</option>
+                <option value="rtsp">RTSP</option>
+                <option value="health">Health check</option>
+                <option value="action">Actions</option>
+                <option value="notification">Notifications</option>
+                <option value="settings">Settings</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="logsScope">View</label>
+              <select id="logsScope">
+                <option value="diagnostic">Diagnostic</option>
+                <option value="all">All attempts</option>
+              </select>
+            </div>
+            <div class="button-row">
+              <button class="btn" id="logsRefresh" type="button">Refresh</button>
+              <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Export full CSV</a>
+            </div>
+          </div>
+          <div class="logs-table-wrap">
+            <table class="logs-table">
+              <thead>
+                <tr><th id="logsTableTitle">Date and time</th><th>Level</th><th>Camera</th><th>Event</th><th>Target</th><th>Result</th><th>Duration</th><th>Details</th></tr>
+              </thead>
+              <tbody id="logsTableBody"></tbody>
+            </table>
+            <div class="logs-empty" id="logsEmpty">No records loaded.</div>
+          </div>
+          <div class="logs-foot">
             <span class="badge logs-badge"><i></i><span id="logsState">loading history</span></span>
+            <div class="form-result" id="logsStatus">Open this section to read the persistent history.</div>
+            <button class="btn" id="logsLoadMore" type="button" hidden>Load 100 more</button>
           </div>
-          <div class="logs-hero-tools">
-            <button class="btn" id="logsRefresh" type="button">Refresh</button>
-            <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Export full CSV</a>
-          </div>
-        </div>
-      <div class="grid">
-        <article class="card">
-          <div class="card-h">Stored records</div>
-          <div class="card-v info" id="logsCount">—</div>
-          <div class="card-m" id="logsCountMeta">circular limit of 7,500 records</div>
-          <div class="meter"><i id="logsCountMeter"></i></div>
-        </article>
-        <article class="card">
-          <div class="card-h">Logs partition</div>
-          <div class="card-v info" id="logsStorage">—</div>
-          <div class="card-m" id="logsStorageMeta">waiting for LittleFS data</div>
-          <div class="meter"><i id="logsStorageMeter"></i></div>
-        </article>
-        <article class="card">
-          <div class="card-h">Integrity</div>
-          <div class="card-v" id="logsIntegrity">—</div>
-          <div class="card-m" id="logsIntegrityMeta">dropped records and write errors</div>
-        </article>
-      </div>
-
-      <section class="logs-card" aria-labelledby="logsTableTitle">
-        <div class="logs-toolbar">
-          <div class="field">
-            <label for="logsSearch">Filter records <span>in the loaded items</span></label>
-            <input id="logsSearch" type="text" maxlength="80" placeholder="Event, target, detail or status">
-          </div>
-          <div class="field">
-            <label for="logsLevel">Level</label>
-            <select id="logsLevel">
-              <option value="">All</option>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="logsCategory">Category</label>
-            <select id="logsCategory">
-              <option value="">All</option>
-              <option value="system">System</option>
-              <option value="wifi">Wi-Fi</option>
-              <option value="camera">Camera</option>
-              <option value="discovery">Discovery</option>
-              <option value="onvif">ONVIF</option>
-              <option value="snapshot">Snapshot</option>
-              <option value="rtsp">RTSP</option>
-              <option value="health">Health check</option>
-              <option value="action">Actions</option>
-              <option value="notification">Notifications</option>
-              <option value="settings">Settings</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="logsScope">View</label>
-            <select id="logsScope">
-              <option value="diagnostic">Diagnostic</option>
-              <option value="all">All attempts</option>
-            </select>
-          </div>
-        </div>
-        <div class="logs-table-wrap">
-          <table class="logs-table">
-            <thead>
-              <tr><th id="logsTableTitle">Date and time</th><th>Level</th><th>Camera</th><th>Event</th><th>Target</th><th>Result</th><th>Duration</th><th>Details</th></tr>
-            </thead>
-            <tbody id="logsTableBody"></tbody>
-          </table>
-          <div class="logs-empty" id="logsEmpty">No records loaded.</div>
-        </div>
-        <div class="logs-foot">
-          <div class="form-result" id="logsStatus">Open this section to read the persistent history.</div>
-          <button class="btn" id="logsLoadMore" type="button" hidden>Load 100 more</button>
-        </div>
+        </section>
       </section>
-      </section>
-
     </div>
 
     <div class="settings-savebar" id="settingsSavebar">
-      <div class="button-row">
-        <button class="btn warn" id="settingsReset" type="button" disabled>Restore defaults</button>
-        <button class="btn primary" id="settingsSave" type="submit" disabled>Save settings</button>
+      <div class="settings-save-info">
+        <p class="settings-save-scope" id="settingsSaveScope">Load the device or camera settings before saving.</p>
+        <div class="form-result" id="settingsFormStatus">Load the tab to read the current values.</div>
       </div>
-      <div class="form-result" id="settingsFormStatus">Load the tab to read the current values.</div>
+      <div class="button-row">
+        <button class="btn warn" id="settingsReset" type="button" disabled>Restore device defaults</button>
+        <button class="btn primary" id="settingsSave" type="submit" disabled>Save changes</button>
+      </div>
     </div>
   </form>
 </div>
@@ -834,8 +922,8 @@ body.fs-locked{overflow:hidden}
   </div>
 </div>
 
-<footer id="foot">ESP32 Camera Watchdog</footer>
 </main>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -858,25 +946,87 @@ function currentSettingsScope() {
   return (activeView === 'settings' && settingsFormSection === 'global') || !selectedCameraId ? 'global' : 'camera';
 }
 
+function selectedCameraName() {
+  const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
+  return selected ? selected.name : 'No camera registered';
+}
+
+// Reconciles a list by key: creates missing nodes, updates existing ones in place
+// and moves a node only when its position differs, so images and focus survive polling.
+function syncKeyedList(container, items, keyOf, create, update) {
+  const keys = new Set(items.map(item => String(keyOf(item))));
+  [...container.children].forEach(node => { if (!keys.has(node.dataset.key)) node.remove(); });
+  const existing = new Map([...container.children].map(node => [node.dataset.key, node]));
+  let cursor = container.firstElementChild;
+  items.forEach(item => {
+    const key = String(keyOf(item));
+    let node = existing.get(key);
+    if (!node) {
+      node = create(item);
+      node.dataset.key = key;
+    }
+    update(node, item);
+    if (node === cursor) cursor = cursor.nextElementSibling;
+    else container.insertBefore(node, cursor);
+  });
+}
+
+function createCameraListItem(camera) {
+  const item = document.createElement('li');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'cam-item';
+  const dot = document.createElement('i');
+  dot.className = 'state-dot';
+  const name = document.createElement('span');
+  name.className = 'cam-item-name';
+  const state = document.createElement('span');
+  state.className = 'cam-item-state';
+  button.append(dot, name, state);
+  button.addEventListener('click', () => {
+    selectCamera(camera.id);
+    if (activeView === 'overview' && selectedCameraId === camera.id) activateView('camera', true);
+  });
+  item.append(button);
+  return item;
+}
+
+function updateCameraListItem(item, camera) {
+  const palette = PALETTE[camera.state] || ['Unknown', 'var(--dim)'];
+  const button = item.firstElementChild;
+  button.style.setProperty('--sc', palette[1]);
+  button.title = camera.name;
+  button.querySelector('.cam-item-name').textContent = camera.name;
+  button.querySelector('.cam-item-state').textContent = palette[0];
+  if (camera.id === selectedCameraId) button.setAttribute('aria-current', 'true');
+  else button.removeAttribute('aria-current');
+}
+
 function updateCameraSelector() {
   const selected = cameraRegistry.find(camera => camera.id === selectedCameraId);
-  $('selectedCameraName').textContent = selected ? selected.name : 'No camera registered';
-  $('selectedCameraName').title = selected ? selected.name : '';
-  $('previousCamera').disabled = $('nextCamera').disabled = cameraRegistry.length < 2 || settingsBusy;
+  $('cameraCount').textContent = cameraRegistry.length;
+  $('cameraListEmpty').textContent = 'No camera registered';
+  $('cameraListEmpty').hidden = cameraRegistry.length > 0;
+  syncKeyedList($('cameraList'), cameraRegistry, camera => camera.id, createCameraListItem, updateCameraListItem);
   $('actionCameraScope').textContent = selected ? 'Selected camera: ' + selected.name : 'No camera selected';
   updateSettingsHero();
   document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab => {
     const section = tab.dataset.settingsSection;
     tab.disabled = section !== 'global' && !SETTINGS_TOOL_SECTIONS.has(section) && !selected;
   });
+  if (activeView === 'settings' && !selected && !settingsDirty
+    && activeSettingsSection !== 'global' && !SETTINGS_TOOL_SECTIONS.has(activeSettingsSection)) {
+    activateSettingsSection('global');
+  }
 }
 
 function updateSettingsScope() {
   const globalScope = currentSettingsScope() === 'global';
+  const blocked = !settingsLoaded || settingsBusy || factoryResetPending;
   Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
-    $(descriptor.id).disabled = GLOBAL_SETTING_FIELDS.has(key) !== globalScope;
+    $(descriptor.id).disabled = blocked || GLOBAL_SETTING_FIELDS.has(key) !== globalScope;
   });
-  $('cfgCameraPasswordAction').disabled = globalScope;
+  $('cfgCameraPasswordAction').disabled = blocked || globalScope;
   updateCameraCredentialFields();
   updateSettingsHero();
 }
@@ -889,12 +1039,15 @@ function updateSettingsHero() {
     $('settingsTitle').textContent = tool.perCamera ? tool.title + ' · ' + (selected ? selected.name : 'no camera') : tool.title;
     $('settingsMeta').textContent = tool.meta;
   } else {
-    $('settingsTitle').textContent = globalScope ? 'Global settings' : 'Settings · ' + (selected ? selected.name : 'camera');
+    $('settingsTitle').textContent = globalScope ? 'Device settings' : 'Settings · ' + (selected ? selected.name : 'camera');
     $('settingsMeta').textContent = settingsFormMetaText;
   }
   $('settingsSource').textContent = settingsFormSourceText;
-  $('settingsSource').parentElement.hidden = Boolean(tool);
-  $('settingsAlertEstimate').closest('.settings-kpi').hidden = globalScope || Boolean(tool);
+  $('settingsSource').closest('.settings-summary').hidden = Boolean(tool);
+  $('settingsSaveScope').textContent = globalScope
+    ? 'Saves all device settings, including advanced values.'
+    : 'Saves all settings for ' + selectedCameraName() + ', including advanced values.';
+  $('settingsReset').textContent = globalScope ? 'Restore device defaults' : 'Restore camera defaults';
 }
 
 function selectCamera(id) {
@@ -907,6 +1060,8 @@ function selectCamera(id) {
   cameraSelectionManual = true;
   settingsRequestGeneration++;
   settingsLoaded = false;
+  settingsValues = null;
+  settingsCameraPasswordConfigured = false;
   settingsLoadedKey = '';
   settingsLoading = false;
   settingsLoadPromise = null;
@@ -922,61 +1077,348 @@ function selectCamera(id) {
   ptzControlsEnabled = false;
   ptzCatalog = { available: false, presets: [], command: {} };
   $('ptzPresetModal').hidden = true;
-  if (activeView === 'live') stopLive();
+  if (liveModeActive()) stopLive();
   $('cameraFeed').removeAttribute('src');
   $('cameraFeed').classList.remove('ready');
   $('feedState').classList.remove('hidden');
   $('feedState').textContent = 'Loading the selected camera…';
   $('camName').textContent = cameraRegistry.find(camera => camera.id === id).name;
+  $('cameraMeta').textContent = 'Loading camera information…';
   $('stateText').textContent = 'Loading';
-  ['camSub','v-onvif','m-onvif','v-rtsp','m-rtsp','v-image','m-image','v-checks','m-checks','availValue','l-event','l-url','l-image','l-reboot','l-disc','l-scan','l-mail'].forEach(key => { $(key).textContent = '—'; });
+  ['v-onvif','m-onvif','v-rtsp','m-rtsp','v-image','m-image','v-checks','m-checks','availValue','l-event','l-url','l-image','l-reboot','l-disc','l-scan','l-mail'].forEach(key => { $(key).textContent = '—'; });
   updateCameraSelector();
   setMutationControlsEnabled(false);
-  if (activeView === 'settings' || activeView === 'actions' || activeView === 'feed' || activeView === 'live') loadSettings(true);
+  if (activeView === 'settings' || activeView === 'camera') loadSettings(true);
   refresh(true);
-  if (activeView === 'live') startLive();
+  if (liveModeActive()) startLive();
 }
 
-function stepCamera(direction) {
-  const current = cameraRegistry.findIndex(camera => camera.id === selectedCameraId);
-  if (cameraRegistry.length > 1) selectCamera(cameraRegistry[(current + direction + cameraRegistry.length) % cameraRegistry.length].id);
+const PREVIEW_PLACEHOLDERS = {
+  offline: 'Camera offline',
+  recovering: 'Camera restarting',
+  starting: 'Camera starting',
+  discovering: 'Searching for the camera'
+};
+const PREVIEW_BUSY_RETRY_DELAYS_MS = [1200, 2400, 4800];
+// One JPEG request at a time: the ESP32 web server serves a single client.
+const overviewPreviews = { pass: 0, queue: [], cards: new Map(), inFlight: null, pumpTimer: null };
+
+function previewEligible(state) {
+  return state === 'online' || state === 'degraded';
 }
 
-$('previousCamera').addEventListener('click', () => stepCamera(-1));
-$('nextCamera').addEventListener('click', () => stepCamera(1));
+function snapshotWatchdogMs() {
+  return Math.max(12000, Math.min(65000, snapshotHttpTimeoutMs * 2 + 5000));
+}
+
+function setCardPreview(card, mode, text, showRetry) {
+  card.media.dataset.preview = mode;
+  card.media.setAttribute('aria-busy', mode === 'loading' || mode === 'refreshing' ? 'true' : 'false');
+  card.text.textContent = text || '';
+  card.retry.hidden = !showRetry;
+}
+
+function showCardLoading(card) {
+  setCardPreview(card, card.hasFrame ? 'refreshing' : 'loading', card.hasFrame ? 'Updating' : 'Loading preview…');
+}
+
+function dropPendingFrame(card) {
+  if (!card.pendingUrl) return;
+  card.image.onload = card.image.onerror = null;
+  URL.revokeObjectURL(card.pendingUrl);
+  card.pendingUrl = '';
+  if (card.objectUrl) card.image.src = card.objectUrl;
+  else card.image.removeAttribute('src');
+}
+
+function clearCardFrame(card) {
+  dropPendingFrame(card);
+  card.image.removeAttribute('src');
+  card.image.alt = '';
+  if (card.objectUrl) URL.revokeObjectURL(card.objectUrl);
+  card.objectUrl = '';
+  card.hasFrame = false;
+  card.stamp.textContent = '';
+}
+
+function cancelCardPreview(card) {
+  const job = overviewPreviews.inFlight;
+  if (job && job.card === card) {
+    overviewPreviews.inFlight = null;
+    clearTimeout(job.timer);
+    job.controller.abort();
+    schedulePreviewPump(300);
+  }
+  overviewPreviews.queue = overviewPreviews.queue.filter(id => id !== card.id);
+  clearTimeout(card.retryTimer);
+  card.retryTimer = null;
+  dropPendingFrame(card);
+  if (card.pending) {
+    card.pending = false;
+    card.requestedPass = -1;
+    if (card.hasFrame) setCardPreview(card, 'ready', '');
+  }
+}
+
+function cancelOverviewPreviews() {
+  overviewPreviews.cards.forEach(cancelCardPreview);
+  clearTimeout(overviewPreviews.pumpTimer);
+  overviewPreviews.pumpTimer = null;
+  overviewPreviews.queue = [];
+}
+
+function failCardPreview(card, message) {
+  card.pending = false;
+  clearCardFrame(card);
+  setCardPreview(card, 'failed', message, true);
+}
+
+function requestCardPreview(card) {
+  if (card.pending || activeView !== 'overview' || document.hidden || !previewEligible(card.state)) return;
+  card.requestedPass = overviewPreviews.pass;
+  card.pending = true;
+  card.attempts = 0;
+  overviewPreviews.queue.push(card.id);
+  showCardLoading(card);
+  if (!overviewPreviews.pumpTimer) pumpOverviewPreviews();
+}
+
+function enqueueOverviewPreviews() {
+  if (activeView !== 'overview' || document.hidden) return;
+  cameraRegistry.forEach(camera => {
+    const card = overviewPreviews.cards.get(camera.id);
+    if (card && card.requestedPass !== overviewPreviews.pass) requestCardPreview(card);
+  });
+}
+
+function schedulePreviewPump(delay) {
+  clearTimeout(overviewPreviews.pumpTimer);
+  overviewPreviews.pumpTimer = setTimeout(pumpOverviewPreviews, delay);
+}
+
+function pumpOverviewPreviews() {
+  clearTimeout(overviewPreviews.pumpTimer);
+  overviewPreviews.pumpTimer = null;
+  if (overviewPreviews.inFlight || activeView !== 'overview' || document.hidden) return;
+  if (statusLoading) {
+    if (overviewPreviews.queue.length) schedulePreviewPump(150);
+    return;
+  }
+  while (overviewPreviews.queue.length) {
+    const card = overviewPreviews.cards.get(overviewPreviews.queue.shift());
+    if (card && card.pending) {
+      loadOverviewPreview(card);
+      return;
+    }
+  }
+}
+
+function finishOverviewPreview(job) {
+  clearTimeout(job.timer);
+  if (overviewPreviews.inFlight === job) overviewPreviews.inFlight = null;
+  schedulePreviewPump(300);
+}
+
+function retryBusyPreview(card) {
+  if (card.attempts >= PREVIEW_BUSY_RETRY_DELAYS_MS.length) {
+    failCardPreview(card, 'ESP32 busy checking cameras');
+    return;
+  }
+  card.retryTimer = setTimeout(() => {
+    card.retryTimer = null;
+    if (!card.pending || activeView !== 'overview' || document.hidden) return;
+    overviewPreviews.queue.push(card.id);
+    if (!overviewPreviews.pumpTimer) pumpOverviewPreviews();
+  }, PREVIEW_BUSY_RETRY_DELAYS_MS[card.attempts++]);
+}
+
+function showCardFrame(job, blob) {
+  const card = job.card;
+  const url = URL.createObjectURL(blob);
+  card.pendingUrl = url;
+  card.image.onload = () => {
+    if (card.pendingUrl !== url) return;
+    card.image.onload = card.image.onerror = null;
+    if (card.objectUrl) URL.revokeObjectURL(card.objectUrl);
+    card.objectUrl = url;
+    card.pendingUrl = '';
+    card.hasFrame = true;
+    card.pending = false;
+    card.image.alt = 'Latest image from ' + card.open.textContent;
+    card.stamp.textContent = 'updated ' + new Date().toLocaleTimeString('en-US');
+    setCardPreview(card, 'ready', '');
+    finishOverviewPreview(job);
+  };
+  card.image.onerror = () => {
+    if (card.pendingUrl !== url) return;
+    finishOverviewPreview(job);
+    failCardPreview(card, 'Preview unavailable');
+  };
+  card.image.src = url;
+}
+
+async function loadOverviewPreview(card) {
+  const controller = new AbortController();
+  const job = { card, controller, timedOut: false, timer: null };
+  overviewPreviews.inFlight = job;
+  job.timer = setTimeout(() => {
+    if (overviewPreviews.inFlight !== job) return;
+    job.timedOut = true;
+    controller.abort();
+    if (card.pendingUrl) {
+      finishOverviewPreview(job);
+      failCardPreview(card, 'Preview took too long');
+    }
+  }, snapshotWatchdogMs());
+  try {
+    const response = await fetch(cameraUrl('/api/camera/snapshot?t=' + Date.now(), card.id), { cache: 'no-store', signal: controller.signal });
+    if (overviewPreviews.inFlight !== job) return;
+    if (!response.ok) {
+      let code = '';
+      try { code = (await response.json()).error || ''; } catch (_) {}
+      if (overviewPreviews.inFlight !== job) return;
+      finishOverviewPreview(job);
+      if (response.status === 503 && (code === 'health_check_in_progress' || code === 'camera_io_busy')) retryBusyPreview(card);
+      else failCardPreview(card, 'Preview unavailable');
+      return;
+    }
+    const blob = await response.blob();
+    if (overviewPreviews.inFlight !== job) return;
+    showCardFrame(job, blob);
+  } catch (error) {
+    if (overviewPreviews.inFlight !== job) return;
+    finishOverviewPreview(job);
+    failCardPreview(card, job.timedOut ? 'Preview took too long' : 'Preview unavailable');
+  }
+}
+
+function createOverviewCard(camera) {
+  const item = document.createElement('li');
+  item.className = 'camera-card';
+  const head = document.createElement('div');
+  head.className = 'camera-card-head';
+  const title = document.createElement('h2');
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'camera-card-open';
+  open.addEventListener('click', () => {
+    selectCamera(camera.id);
+    if (selectedCameraId === camera.id) activateView('camera', true);
+  });
+  title.append(open);
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  const badgeText = document.createElement('span');
+  badge.append(document.createElement('i'), badgeText);
+  head.append(title, badge);
+
+  const media = document.createElement('div');
+  media.className = 'camera-card-media';
+  const image = document.createElement('img');
+  image.decoding = 'async';
+  image.alt = '';
+  const overlay = document.createElement('div');
+  overlay.className = 'card-overlay';
+  const spinner = document.createElement('span');
+  spinner.className = 'spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'btn';
+  retry.textContent = 'Try again';
+  retry.hidden = true;
+  overlay.append(spinner, text, retry);
+  const stamp = document.createElement('span');
+  stamp.className = 'card-stamp';
+  media.append(image, overlay, stamp);
+
+  const foot = document.createElement('div');
+  foot.className = 'camera-card-foot';
+  const meta = document.createElement('p');
+  meta.className = 'camera-card-meta';
+  const ip = document.createElement('span');
+  ip.className = 'mono';
+  const check = document.createElement('span');
+  meta.append(ip, check);
+  const event = document.createElement('p');
+  event.className = 'camera-card-event';
+  foot.append(meta, event);
+  item.append(head, media, foot);
+
+  const card = {
+    id: camera.id, open, badgeText, media, image, text, retry, stamp, ip, check, event,
+    state: '', requestedPass: -1, pending: false, attempts: 0, retryTimer: null,
+    objectUrl: '', pendingUrl: '', hasFrame: false
+  };
+  retry.addEventListener('click', () => requestCardPreview(card));
+  overviewPreviews.cards.set(camera.id, card);
+  return item;
+}
+
+function updateOverviewCard(item, camera) {
+  const card = overviewPreviews.cards.get(camera.id);
+  const palette = PALETTE[camera.state] || ['Unknown', 'var(--dim)', '', ''];
+  item.style.setProperty('--sc', palette[1]);
+  item.style.setProperty('--sbg', palette[2]);
+  item.style.setProperty('--sbd', palette[3]);
+  card.open.textContent = camera.name;
+  card.open.title = camera.name;
+  card.badgeText.textContent = palette[0];
+  card.ip.textContent = camera.ip;
+  const stale = camera.lastCheckAgeSeconds !== null && camera.lastCheckAgeSeconds * 1000 > camera.healthCheckIntervalMs * 2;
+  card.check.textContent = camera.lastCheckAgeSeconds === null
+    ? 'Not checked yet'
+    : 'Last check ' + duration(camera.lastCheckAgeSeconds) + ' ago' + (stale ? ' · overdue' : '');
+  card.check.className = stale ? 'check-stale' : '';
+  card.event.textContent = localizeTimestampText(camera.lastEvent || '—');
+  card.event.title = card.event.textContent;
+  card.retry.setAttribute('aria-label', 'Load the preview of ' + camera.name + ' again');
+  if (card.state === camera.state) return;
+  const wasEligible = previewEligible(card.state);
+  card.state = camera.state;
+  if (!previewEligible(camera.state)) {
+    cancelCardPreview(card);
+    clearCardFrame(card);
+    card.requestedPass = -1;
+    setCardPreview(card, 'placeholder', PREVIEW_PLACEHOLDERS[camera.state] || 'No preview in this state');
+  } else if (!wasEligible) {
+    showCardLoading(card);
+  }
+}
 
 function renderOverview(payload) {
   const counts = {};
-  cameraRegistry.forEach(camera => { counts[camera.state] = (counts[camera.state] || 0) + 1; });
+  const others = new Map();
+  cameraRegistry.forEach(camera => {
+    counts[camera.state] = (counts[camera.state] || 0) + 1;
+    if (['online', 'offline', 'recovering'].includes(camera.state)) return;
+    const label = PALETTE[camera.state] ? PALETTE[camera.state][0] : 'Other';
+    others.set(label, (others.get(label) || 0) + 1);
+  });
+  $('overviewTotal').textContent = cameraRegistry.length;
   $('overviewOnline').textContent = counts.online || 0;
-  $('overviewProblems').textContent = (counts.degraded || 0) + (counts.offline || 0);
-  $('overviewPending').textContent = (counts.recovering || 0) + (counts.starting || 0) + (counts.discovering || 0);
-  $('overviewSummary').textContent = (counts.online || 0) + ' online · ' + (counts.degraded || 0) + ' unstable · ' + (counts.offline || 0) + ' offline · ' + (counts.recovering || 0) + ' recovering';
+  $('overviewOffline').textContent = counts.offline || 0;
+  $('overviewRecovering').textContent = counts.recovering || 0;
+  $('overviewOthers').hidden = others.size === 0;
+  $('overviewOthers').textContent = others.size
+    ? 'Not counted above: ' + [...others].map(([label, count]) => count + ' ' + label).join(', ')
+    : '';
   $('registryResult').textContent = payload.lastResult || '';
   updateMergeControls();
   $('overviewEmpty').hidden = cameraRegistry.length > 0;
-  const rows = document.createDocumentFragment();
-  cameraRegistry.forEach(camera => {
-    const row = document.createElement('tr');
-    const name = document.createElement('td');
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'camera-link';
-    button.textContent = camera.name;
-    button.addEventListener('click', () => { selectCamera(camera.id); if (selectedCameraId === camera.id) activateView('camera', true); });
-    name.append(button); row.append(name);
-    appendPersistentLogCell(row, camera.ip, 'mono');
-    const palette = PALETTE[camera.state] || ['Unknown','var(--muted)'];
-    const state = appendPersistentLogCell(row, palette[0], 'camera-state');
-    state.style.color = palette[1];
-    const stale = camera.lastCheckAgeSeconds !== null && camera.lastCheckAgeSeconds * 1000 > camera.healthCheckIntervalMs * 2;
-    appendPersistentLogCell(row, camera.lastCheckAgeSeconds === null ? 'Not checked yet' : duration(camera.lastCheckAgeSeconds) + ' ago' + (stale ? ' · overdue' : ''), stale ? 'check-stale' : '');
-    appendPersistentLogCell(row, localizeTimestampText(camera.lastEvent || '—'));
-    rows.append(row);
+  const registeredIds = new Set(cameraRegistry.map(camera => camera.id));
+  overviewPreviews.cards.forEach((card, id) => {
+    if (registeredIds.has(id)) return;
+    cancelCardPreview(card);
+    clearCardFrame(card);
+    overviewPreviews.cards.delete(id);
   });
-  $('overviewCameras').replaceChildren(rows);
-  if (activeView === 'actions' && payload.adminAction && !factoryResetResult) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
-  $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + payload.firmwareVersion + ' · uptime ' + duration(payload.uptimeSeconds);
+  syncKeyedList($('overviewCameras'), cameraRegistry, camera => camera.id, createOverviewCard, updateOverviewCard);
+  enqueueOverviewPreviews();
+  if (actionsSectionActive() && payload.adminAction && !factoryResetResult) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
+  $('foot').textContent = 'ESP32 Camera Watchdog · ' + payload.firmwareVersion;
+  $('deviceUptime').textContent = 'uptime ' + duration(payload.uptimeSeconds);
 }
 
 let mergeOptionsKey = '';
@@ -1041,7 +1483,12 @@ function updateMergeControls() {
 $('mergePrimary').addEventListener('change', updateMergeControls);
 $('mergeSecondary').addEventListener('change', updateMergeControls);
 $('mergeOpen').addEventListener('click', () => {
-  if (cameraRegistry.length < 2) return;
+  if (settingsBusy || cameraRegistry.length < 2) return;
+  if (settingsDirty) {
+    setAdminActionStatus('Save or discard the pending changes before merging registrations.', 'bad');
+    return;
+  }
+  if (!settingsAuthorizationReady('actions')) return;
   updateMergeControls();
   $('mergeStatus').hidden = true;
   $('mergeModal').hidden = false;
@@ -1052,14 +1499,25 @@ $('mergeModal').addEventListener('click', event => {
   if (event.target === $('mergeModal')) $('mergeModal').hidden = true;
 });
 $('mergeSubmit').addEventListener('click', () => {
+  if (settingsBusy) return;
+  if (settingsDirty) {
+    $('mergeStatus').textContent = 'Save or discard the pending changes before merging registrations.';
+    $('mergeStatus').className = 'form-result bad';
+    $('mergeStatus').hidden = false;
+    return;
+  }
+  if (!settingsAuthorizationReady('actions')) return;
   const primaryId = Number($('mergePrimary').value);
   const secondaryId = Number($('mergeSecondary').value);
   if (!primaryId || !secondaryId || primaryId === secondaryId) return;
   const primary = cameraRegistry.find(camera => camera.id === primaryId);
   const secondary = cameraRegistry.find(camera => camera.id === secondaryId);
+  if (!primary || !secondary) return;
   openConfirmModal('Merge #' + secondaryId + ' (' + secondary.name + ') into #' + primaryId + ' (' + primary.name + '). The settings and credentials of the primary registration prevail; confirm the conflicts before continuing.', async password => {
+    settingsBusy = true;
+    setMutationControlsEnabled(false);
+    updateMergeControls();
     try {
-      await loadSettings(true);
       const params = collectMutationParams(false, password);
       params.set('primaryId', String(primaryId));
       params.set('secondaryId', String(secondaryId));
@@ -1072,20 +1530,30 @@ $('mergeSubmit').addEventListener('click', () => {
         statusRequestGeneration++;
         if (statusAbortController) statusAbortController.abort();
         statusLoading = false;
-        settingsRequestGeneration++;
-        settingsLoaded = false;
-        settingsLoadedKey = '';
+        if (currentSettingsScope() === 'camera') {
+          settingsRequestGeneration++;
+          settingsLoading = false;
+          settingsLoadPromise = null;
+          settingsLoaded = false;
+          settingsValues = null;
+          settingsCameraPasswordConfigured = false;
+          settingsLoadedKey = '';
+        }
       }
       $('mergeStatus').textContent = 'Registrations merged. ID #' + secondaryId + ' is now history only.';
       $('mergeStatus').className = 'form-result ok';
       $('mergeStatus').hidden = false;
       $('mergeModal').hidden = true;
       setAdminActionStatus($('mergeStatus').textContent, 'ok');
-      refresh(true);
+      await refresh(true);
     } catch (error) {
       $('mergeStatus').textContent = error.message;
       $('mergeStatus').className = 'form-result bad';
       $('mergeStatus').hidden = false;
+    } finally {
+      settingsBusy = false;
+      setMutationControlsEnabled(Boolean(settingsWriteToken));
+      updateMergeControls();
     }
   });
 });
@@ -1119,6 +1587,8 @@ $('forgetCameraOpen').addEventListener('click', () => {
         statusLoading = false;
         settingsRequestGeneration++;
         settingsLoaded = false;
+        settingsValues = null;
+        settingsCameraPasswordConfigured = false;
         settingsLoadedKey = '';
       }
     } catch (error) {
@@ -1150,13 +1620,27 @@ async function loadCameraRegistry(signal) {
   const shouldFollowActiveCamera = !cameraSelectionManual && !settingsDirty && !settingsBusy
     && $('adminConfirmModal').hidden && selected && preferredCamera && preferredCamera.id !== selected.id
     && (selected.state === 'offline' || preferredCamera.state === 'online');
-  if (!selected || shouldFollowActiveCamera) {
+  const nextCameraId = preferredCamera ? preferredCamera.id : 0;
+  if ((!selected || shouldFollowActiveCamera) && nextCameraId !== selectedCameraId) {
+    const previousScope = currentSettingsScope();
+    const previousSettingsId = previousScope === 'global' ? 0 : selectedCameraId;
     cancelFeedLoad(true);
     $('cameraFeed').removeAttribute('src');
-    selectedCameraId = preferredCamera ? preferredCamera.id : 0;
+    selectedCameraId = nextCameraId;
     cameraSelectionManual = false;
-    settingsLoaded = false;
-    settingsLoadedKey = '';
+    const scope = currentSettingsScope();
+    const settingsId = scope === 'global' ? 0 : selectedCameraId;
+    if (scope !== previousScope || settingsId !== previousSettingsId) {
+      settingsRequestGeneration++;
+      settingsLoading = false;
+      settingsLoadPromise = null;
+      settingsLoaded = false;
+      settingsValues = null;
+      settingsCameraPasswordConfigured = false;
+      settingsLoadedKey = '';
+      setMutationControlsEnabled(false);
+      if (settingsDirty) setSettingsStatus('The camera selection changed. Open Device or choose another camera to discard the pending edits and reload its settings.', 'warn');
+    }
   }
   statusRefreshIntervalMs = Number(payload.statusRefreshIntervalMs) || statusRefreshIntervalMs;
   updateCameraSelector();
@@ -1165,17 +1649,15 @@ async function loadCameraRegistry(signal) {
 }
 
 function viewFromHash() {
-  if (location.hash === '#actions') return 'actions';
   if (location.hash === '#settings') return 'settings';
-  if (location.hash === '#logs' || location.hash === '#diagnostics') return 'settings';
+  if (location.hash === '#actions' || location.hash === '#logs' || location.hash === '#diagnostics') return 'settings';
   if (location.hash === '#resources') return 'resources';
-  if (location.hash === '#feed') return 'feed';
-  if (location.hash === '#live') return 'live';
   if (location.hash === '#camera') return 'camera';
   return 'overview';
 }
 
 const SETTINGS_TOOL_SECTIONS = new Map([
+  ['actions', { title: 'Actions', perCamera: false, meta: 'Manual checks, restarts, and data maintenance for the cameras and the ESP32.' }],
   ['diagnostics', { title: 'Diagnostics', perCamera: true, meta: 'Full state of the selected camera and the ESP32, in JSON.' }],
   ['logs', { title: 'Logs', perCamera: false, meta: 'Warnings and errors from all cameras and the ESP32, kept across restarts.' }]
 ]);
@@ -1195,8 +1677,26 @@ let settingsFormSection = 'global';
 let settingsFormSourceText = 'loading settings';
 let settingsFormMetaText = 'Values stored in NVS, also validated by the firmware.';
 
+let cameraMode = 'live';
+
 function logsSectionActive() {
   return activeView === 'settings' && activeSettingsSection === 'logs';
+}
+
+function actionsSectionActive() {
+  return activeView === 'settings' && activeSettingsSection === 'actions';
+}
+
+function liveModeActive() {
+  return activeView === 'camera' && cameraMode === 'live';
+}
+
+function snapshotModeActive() {
+  return activeView === 'camera' && cameraMode === 'snapshot';
+}
+
+function snapshotRequestActive() {
+  return (snapshotModeActive() && feedLoading) || Boolean(overviewPreviews.inFlight);
 }
 
 function settingsDocumentTitle() {
@@ -1208,10 +1708,13 @@ let cameraSelectionManual = false;
 let cameraRegistry = [];
 let registryLoading = null;
 let settingsLoadedKey = '';
+let settingsValues = null;
+let settingsCameraPasswordConfigured = false;
 let settingsRequestGeneration = 0;
 let settingsDirty = false;
 let persistentLogsNextOffset = 0;
 const GLOBAL_SETTING_FIELDS = new Set(["cameraAlertLedBlinkIntervalMs", "discoveryTimeoutMs", "emailRetryIntervalMs", "enableAutomaticSubnetScan", "enableCameraAlertLed", "localHostname", "rediscoveryIntervalMs", "scanConnectTimeoutMs", "statusRefreshIntervalMs", "subnetScanIntervalMs", "wifiConnectTimeoutMs"]);
+const PRESERVED_SETTING_FIELDS = ['wifiConnectTimeoutMs', 'emailRetryIntervalMs', 'cameraAlertLedBlinkIntervalMs', 'snapshotResolveRetryIntervalMs', 'snapshotFailuresBeforeReresolve'];
 let feedMinimumIntervalMs = 5000;
 let feedTargetCycleMs = 5000;
 let statusRefreshIntervalMs = 3000;
@@ -1303,10 +1806,7 @@ function renderResources(d) {
   resourceHero.style.setProperty('--sbd', toneValues[3]);
   $('resourcesState').textContent = toneValues[0];
   $('resourcesChip').textContent = resources.chip.model + ' rev. ' + resources.chip.revision;
-  $('resourcesMeta').textContent = resources.chip.cores + ' cores · '
-    + resources.chip.cpuFrequencyMHz + ' MHz · last reset: '
-    + (resources.chip.resetReason || 'unknown') + ' · uptime '
-    + duration(d.uptimeSeconds);
+  $('resourcesMeta').textContent = 'Last reset: ' + resources.chip.resetReason.replace(/_/g, ' ');
   $('resourcesArc').style.setProperty('--p', heapPercent);
   $('resourcesHeapPercent').textContent = Math.round(heapPercent) + '%';
 
@@ -1796,7 +2296,7 @@ function pauseFeedForPtz() {
 
 function resumeFeedAfterPtz(delay) {
   feedPausedForPtz = false;
-  if (!document.hidden && activeView === 'feed') scheduleFeed(delay || 0);
+  if (!document.hidden && snapshotModeActive()) scheduleFeed(delay || 0);
 }
 
 async function waitForFeedIdle() {
@@ -1811,7 +2311,7 @@ async function waitForFeedIdle() {
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
-  if (document.hidden || activeView !== 'feed' || feedPausedForPtz || feedActivationPending) return;
+  if (document.hidden || !snapshotModeActive() || feedPausedForPtz || feedActivationPending) return;
   feedTimer = setTimeout(() => {
     feedTimer = null;
     loadFeed();
@@ -1819,7 +2319,7 @@ function scheduleFeed(delay) {
 }
 
 function loadFeed() {
-  if (document.hidden || activeView !== 'feed' || feedLoading || feedPausedForPtz || feedActivationPending) return;
+  if (document.hidden || !snapshotModeActive() || feedLoading || feedPausedForPtz || feedActivationPending) return;
   if (statusLoading) {
     scheduleFeed(250);
     return;
@@ -1853,7 +2353,7 @@ function loadFeed() {
     $('feedState').textContent = 'The image took too long; trying again…';
     $('feedStamp').textContent = 'preview temporarily unavailable';
     scheduleFeed(Math.min(8000, 1000 * Math.pow(2, Math.min(feedFailures, 3))));
-  }, Math.max(12000, Math.min(65000, snapshotHttpTimeoutMs * 2 + 5000)));
+  }, snapshotWatchdogMs());
   frame.onload = () => {
     if (requestGeneration !== feedRequestGeneration) return;
     clearTimeout(feedWatchdogTimer);
@@ -1886,15 +2386,15 @@ function loadFeed() {
   frame.src = cameraUrl('/api/camera/snapshot?t=' + Date.now());
 }
 
-const feedStage = document.querySelector('.viewer-stage');
+const cameraStage = $('cameraStage');
 const feedFsBtn = $('feedFsBtn');
 
 function isNativeFullscreen() {
-  return document.fullscreenElement === feedStage || document.webkitFullscreenElement === feedStage;
+  return document.fullscreenElement === cameraStage || document.webkitFullscreenElement === cameraStage;
 }
 
 function updateFsButton() {
-  const active = isNativeFullscreen() || feedStage.classList.contains('fs-fallback');
+  const active = isNativeFullscreen() || cameraStage.classList.contains('fs-fallback');
   feedFsBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
   feedFsBtn.setAttribute('aria-label', active ? 'Exit full screen' : 'View full screen');
   feedFsBtn.title = active ? 'Exit full screen' : 'Full screen';
@@ -1903,7 +2403,7 @@ function updateFsButton() {
 }
 
 function exitFallbackFullscreen() {
-  feedStage.classList.remove('fs-fallback');
+  cameraStage.classList.remove('fs-fallback');
   document.body.classList.remove('fs-locked');
   updateFsButton();
 }
@@ -1913,19 +2413,19 @@ function toggleFullscreen() {
     (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     return;
   }
-  if (feedStage.classList.contains('fs-fallback')) {
+  if (cameraStage.classList.contains('fs-fallback')) {
     exitFallbackFullscreen();
     return;
   }
-  const request = feedStage.requestFullscreen || feedStage.webkitRequestFullscreen;
+  const request = cameraStage.requestFullscreen || cameraStage.webkitRequestFullscreen;
   if (!request) {
-    feedStage.classList.add('fs-fallback');
+    cameraStage.classList.add('fs-fallback');
     document.body.classList.add('fs-locked');
     updateFsButton();
     return;
   }
-  Promise.resolve(request.call(feedStage)).catch(() => {
-    feedStage.classList.add('fs-fallback');
+  Promise.resolve(request.call(cameraStage)).catch(() => {
+    cameraStage.classList.add('fs-fallback');
     document.body.classList.add('fs-locked');
     updateFsButton();
   });
@@ -1933,13 +2433,74 @@ function toggleFullscreen() {
 
 feedFsBtn.addEventListener('click', toggleFullscreen);
 $('cameraFeed').addEventListener('click', () => { if (cameraKnown) toggleFullscreen(); });
+$('liveVideo').addEventListener('dblclick', toggleFullscreen);
 document.addEventListener('fullscreenchange', updateFsButton);
 document.addEventListener('webkitfullscreenchange', updateFsButton);
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
+  if (e.key === 'Escape' && cameraStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
+});
+
+function showCameraSource() {
+  cameraStage.dataset.mode = cameraMode;
+  document.querySelectorAll('#cameraView [data-source]').forEach(element => {
+    element.hidden = element.dataset.source !== cameraMode;
+  });
+  document.querySelectorAll('[data-camera-mode]').forEach(button => {
+    button.setAttribute('aria-pressed', button.dataset.cameraMode === cameraMode ? 'true' : 'false');
+  });
+  $('stageTitle').textContent = cameraMode === 'live' ? 'Live video' : 'Snapshot preview';
+}
+
+function leaveSnapshotMode() {
+  feedPausedForPtz = false;
+  feedActivationPending = false;
+  clearTimeout(feedTimer);
+  feedTimer = null;
+  cancelFeedLoad(true);
+  $('cameraFeed').classList.remove('ready');
+}
+
+// Starts the selected video source of the Camera view and stops the other one.
+function applyCameraMode() {
+  showCameraSource();
+  if (activeView !== 'camera') return;
+  if (cameraMode === 'snapshot') {
+    stopLive();
+    feedPausedForPtz = false;
+    feedActivationPending = true;
+    $('feedState').textContent = cameraRecovering
+      ? 'The camera is restarting…'
+      : cameraKnown ? 'Updating the image…' : 'Waiting for the camera to be found…';
+    $('feedState').classList.remove('hidden');
+    $('feedStamp').textContent = cameraRecovering
+      ? 'automatic recovery in progress'
+      : 'waiting for image';
+  } else {
+    leaveSnapshotMode();
+    startLive();
+  }
+  loadSettings(false)
+    .then(() => refresh(true))
+    .finally(() => {
+      feedActivationPending = false;
+      if (snapshotModeActive()) scheduleFeed(0);
+    });
+}
+
+document.querySelectorAll('[data-camera-mode]').forEach(button => {
+  button.addEventListener('click', () => {
+    const mode = button.dataset.cameraMode === 'snapshot' ? 'snapshot' : 'live';
+    if (mode === cameraMode) return;
+    cameraMode = mode;
+    applyCameraMode();
+  });
 });
 
 function activateSettingsSection(name) {
+  if (settingsBusy || !$('adminConfirmModal').hidden) {
+    if (activeView === 'settings') history.replaceState(null, '', settingsHashFor(activeSettingsSection));
+    return;
+  }
   const available = [...document.querySelectorAll('[data-settings-section-panel]')];
   const target = available.find(panel => panel.dataset.settingsSectionPanel === name);
   if (!target) return;
@@ -1948,7 +2509,7 @@ function activateSettingsSection(name) {
   const nextFormSection = tool ? settingsFormSection : name;
   const scopeChanged = (nextFormSection === 'global') !== (settingsFormSection === 'global');
   if (scopeChanged && settingsDirty && !window.confirm('Discard the unsaved changes before changing the scope?')) return;
-  if (scopeChanged) { settingsDirty = false; settingsLoaded = false; settingsLoadedKey = ''; }
+  if (scopeChanged) { settingsDirty = false; settingsLoaded = false; settingsLoadedKey = ''; settingsValues = null; settingsCameraPasswordConfigured = false; }
   activeSettingsSection = name;
   settingsFormSection = nextFormSection;
   available.forEach(panel => {
@@ -1979,6 +2540,8 @@ document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab =>
 });
 
 function validateSettingsForm() {
+  Object.values(SETTINGS_FIELDS).forEach(descriptor => $(descriptor.id).setCustomValidity(''));
+  $('cfgCameraPassword').setCustomValidity('');
   [['cfgCameraUsername', 64], ['cfgCameraPassword', 128]].forEach(([id, limit]) => {
     const input = $(id);
     let error = '';
@@ -1993,10 +2556,35 @@ function validateSettingsForm() {
     }
     input.setCustomValidity(error);
   });
+  const relationships = [
+    ['cfgFailuresBeforeOffline', 'cfgFailuresBeforeRediscovery', 1, 'The offline threshold must be at least the rediscovery threshold.'],
+    ['cfgVideoFailuresBeforeReboot', 'cfgVideoFailuresBeforeAlert', 1, 'The restart threshold must be at least the image alert threshold.'],
+    ['cfgRebootWindow', 'cfgRebootCooldown', 60, 'The counting window must cover the minimum time between restarts.'],
+    ['cfgFeedTarget', 'cfgFeedMinimum', 1, 'The snapshot cycle must be at least the minimum snapshot pause.']
+  ];
+  relationships.forEach(([id, minimumId, multiplier, message]) => {
+    const input = $(id);
+    const minimum = $(minimumId);
+    if (!input.disabled && input.value !== '' && minimum.value !== ''
+      && Number(input.value) * multiplier < Number(minimum.value)) input.setCustomValidity(message);
+  });
+  const username = $('cfgCameraUsername');
+  const passwordAction = $('cfgCameraPasswordAction').value;
+  const passwordNeedsUsername = passwordAction === 'keep' ? settingsCameraPasswordConfigured
+    : passwordAction === 'replace' && $('cfgCameraPassword').value.length > 0;
+  if (!username.disabled && username.validity.valid && username.value === '' && passwordNeedsUsername) {
+    username.setCustomValidity('Enter the camera username or choose Remove username and password.');
+  }
   const invalid = $('settingsForm').querySelector(':invalid');
   if (!invalid) return true;
   const panel = invalid.closest('[data-settings-section-panel]');
   if (panel) activateSettingsSection(panel.dataset.settingsSectionPanel);
+  let disclosure = invalid.closest('details');
+  while (disclosure) {
+    disclosure.open = true;
+    disclosure = disclosure.parentElement.closest('details');
+  }
+  invalid.focus();
   invalid.reportValidity();
   return false;
 }
@@ -2019,22 +2607,17 @@ const SETTINGS_FIELDS = {
   onvifRebootCooldownMs: { id: 'cfgRebootCooldown', scale: 60000 },
   onvifRebootWindowMs: { id: 'cfgRebootWindow', scale: 3600000 },
   maxOnvifRebootAttemptsPerWindow: { id: 'cfgMaxReboots' },
-  wifiConnectTimeoutMs: { id: 'cfgWifiTimeout', scale: 1000 },
   enableAutomaticSubnetScan: { id: 'cfgAutoScan', kind: 'bool' },
   discoveryTimeoutMs: { id: 'cfgDiscoveryTimeout', scale: 1000 },
   rediscoveryIntervalMs: { id: 'cfgRediscoveryInterval', scale: 1000 },
   subnetScanIntervalMs: { id: 'cfgSubnetScanInterval', scale: 60000 },
   enableEmailAlerts: { id: 'cfgEmailAlerts', kind: 'bool' },
   emailOnIpChange: { id: 'cfgEmailIpChange', kind: 'bool' },
-  emailRetryIntervalMs: { id: 'cfgEmailRetry', scale: 1000 },
   tcpConnectTimeoutMs: { id: 'cfgTcpTimeout' },
   serviceResponseTimeoutMs: { id: 'cfgServiceTimeout' },
   scanConnectTimeoutMs: { id: 'cfgScanTimeout' },
   snapshotHttpTimeoutMs: { id: 'cfgSnapshotTimeout', scale: 1000 },
-  snapshotResolveRetryIntervalMs: { id: 'cfgSnapshotResolveRetry', scale: 1000 },
-  snapshotFailuresBeforeReresolve: { id: 'cfgSnapshotFailuresReresolve' },
   enableCameraAlertLed: { id: 'cfgLedEnabled', kind: 'bool' },
-  cameraAlertLedBlinkIntervalMs: { id: 'cfgLedBlink' },
   feedMinIntervalMs: { id: 'cfgFeedMinimum', scale: 1000 },
   feedTargetCycleMs: { id: 'cfgFeedTarget', scale: 1000 },
   statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 }
@@ -2088,16 +2671,17 @@ function setPtzActionStatus(message, tone) {
   target.hidden = !isProblem;
   target.textContent = isProblem ? localizeTimestampText(message) : '';
   target.className = 'form-result' + (isProblem ? ' bad' : '');
-  const liveTarget = $('liveActionStatus');
-  liveTarget.hidden = !isProblem;
-  liveTarget.textContent = target.textContent;
-  liveTarget.className = target.className;
 }
 
 function setMutationControlsEnabled(enabled) {
+  updateSettingsScope();
   enabled = enabled && !settingsBusy && !factoryResetPending;
-  $('settingsSave').disabled = !enabled;
-  $('settingsReset').disabled = !enabled;
+  $('settingsWifiLink').setAttribute('aria-disabled', settingsBusy || factoryResetPending ? 'true' : 'false');
+  const scope = currentSettingsScope();
+  const settingsReady = enabled && settingsLoaded && settingsValues
+    && settingsLoadedKey === scope + '/' + (scope === 'global' ? 0 : selectedCameraId);
+  $('settingsSave').disabled = !settingsReady;
+  $('settingsReset').disabled = !settingsReady;
   $('forgetCameraOpen').disabled = !enabled || !selectedCameraId;
   $('factoryResetOpen').disabled = !enabled;
   document.querySelectorAll('[data-admin-action]').forEach(button => {
@@ -2110,6 +2694,17 @@ function setMutationControlsEnabled(enabled) {
 }
 
 function settingsAuthorizationReady(source) {
+  const scope = currentSettingsScope();
+  if (source === 'settings' && (!settingsLoaded || !settingsValues
+    || settingsLoadedKey !== scope + '/' + (scope === 'global' ? 0 : selectedCameraId))) {
+    if (settingsDirty) {
+      setSettingsStatus('These settings are no longer loaded for this selection. Open Device or choose another camera to discard the pending edits and reload.', 'bad');
+      return false;
+    }
+    setSettingsStatus('Load the settings for this device or camera before saving or restoring defaults.', 'bad');
+    loadSettings(true);
+    return false;
+  }
   if (!settingsWriteToken) {
     if (source === 'actions') {
       setAdminActionStatus('Actions stay blocked until the authorization is loaded.', 'bad');
@@ -2134,14 +2729,14 @@ function updateSettingsEstimates() {
   $('estimateAlert').textContent = duration(alertSeconds);
   $('estimateReboot').textContent = duration(interval * rebootFailures);
   $('estimateOffline').textContent = duration(interval * offlineFailures);
-  $('settingsAlertEstimate').textContent = alertSeconds ? duration(alertSeconds) : '—';
 }
 
 function updateCameraCredentialFields() {
   const action = $('cfgCameraPasswordAction').value;
-  $('cfgCameraUsername').disabled = currentSettingsScope() === 'global' || action === 'clear';
+  const blocked = !settingsLoaded || settingsBusy || factoryResetPending || currentSettingsScope() === 'global';
+  $('cfgCameraUsername').disabled = blocked || action === 'clear';
   $('cfgCameraUsername').setCustomValidity('');
-  $('cfgCameraPassword').disabled = currentSettingsScope() === 'global' || action !== 'replace';
+  $('cfgCameraPassword').disabled = blocked || action !== 'replace';
   $('cfgCameraPassword').setCustomValidity('');
   if (action !== 'replace') $('cfgCameraPassword').value = '';
 }
@@ -2150,6 +2745,8 @@ $('cfgCameraPasswordAction').addEventListener('change', updateCameraCredentialFi
 
 function populateSettings(payload) {
   const values = payload.values || {};
+  settingsValues = { ...values };
+  settingsCameraPasswordConfigured = Boolean(payload.security && payload.security.cameraPasswordConfigured);
   Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
     const input = $(descriptor.id);
     if (!input || !(key in values)) return;
@@ -2166,16 +2763,14 @@ function populateSettings(payload) {
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
   $('cfgCameraPasswordAction').value = 'keep';
   $('cfgCameraPassword').value = '';
-  $('cfgCameraPasswordStatus').textContent = payload.security && payload.security.cameraPasswordConfigured
+  $('cfgCameraPasswordStatus').textContent = settingsCameraPasswordConfigured
     ? 'Password configured. Saving other settings keeps the current password.'
     : 'No password configured.';
   updateCameraCredentialFields();
   settingsFormSourceText = payload.source === 'nvs'
     ? 'settings saved in NVS'
     : 'factory default values';
-  settingsFormMetaText = 'schema ' + payload.schemaVersion
-    + ' · defaults ' + (payload.defaultsRevision || 0) + ' · revision ' + payload.revision
-    + ' · ' + localizeTimestampText(payload.lastResult || 'settings loaded');
+  settingsFormMetaText = localizeTimestampText(payload.lastResult || 'settings loaded');
 
   feedMinimumIntervalMs = Number(values.feedMinIntervalMs) || feedMinimumIntervalMs;
   feedTargetCycleMs = Number(values.feedTargetCycleMs) || feedTargetCycleMs;
@@ -2183,12 +2778,11 @@ function populateSettings(payload) {
   settingsLoaded = true;
   settingsDirty = false;
   settingsLoadedKey = payload.scope + '/' + payload.cameraId;
-  updateSettingsScope();
   updateSettingsEstimates();
   setMutationControlsEnabled(true);
-  if (activeView === 'actions') {
+  if (actionsSectionActive()) {
     if (!factoryResetResult) setAdminActionStatus('Authorization loaded. Choose an admin action.', 'ok');
-  } else if (activeView === 'feed' || activeView === 'live') {
+  } else if (activeView === 'camera') {
     if (!ptzCatalog.command || Number(ptzCatalog.command.attempts) === 0) {
       setPtzActionStatus('PTZ control authorized. Open the list to choose a preset.', 'ok');
     }
@@ -2198,6 +2792,7 @@ function populateSettings(payload) {
 }
 
 function loadSettings(force) {
+  if (settingsDirty) return Promise.resolve();
   const scope = currentSettingsScope();
   const id = scope === 'global' ? 0 : selectedCameraId;
   const key = scope + '/' + id;
@@ -2205,6 +2800,10 @@ function loadSettings(force) {
   if (settingsLoaded && settingsLoadedKey === key && !force) return Promise.resolve();
   const generation = ++settingsRequestGeneration;
   settingsLoading = true;
+  settingsLoaded = false;
+  settingsLoadedKey = '';
+  settingsValues = null;
+  settingsCameraPasswordConfigured = false;
   setMutationControlsEnabled(false);
   settingsLoadPromise = (async () => {
     try {
@@ -2218,7 +2817,7 @@ function loadSettings(force) {
       if (generation !== settingsRequestGeneration) return;
       setMutationControlsEnabled(false);
       setSettingsStatus('Failed to load: ' + error.message, 'bad');
-      if (activeView === 'actions') setAdminActionStatus('Failed to load authorization: ' + error.message, 'bad');
+      if (actionsSectionActive()) setAdminActionStatus('Failed to load authorization: ' + error.message, 'bad');
     } finally {
       if (generation === settingsRequestGeneration) { settingsLoading = false; settingsLoadPromise = null; }
     }
@@ -2238,6 +2837,15 @@ function collectMutationParams(includeSettings, password) {
   }
 
   if (includeSettings) {
+    if (!settingsLoaded || !settingsValues
+      || settingsLoadedKey !== scope + '/' + (scope === 'global' ? 0 : selectedCameraId)) {
+      throw new Error('Reload the settings for this device or camera before saving.');
+    }
+    PRESERVED_SETTING_FIELDS.forEach(key => {
+      if (GLOBAL_SETTING_FIELDS.has(key) !== (scope === 'global')) return;
+      if (!(key in settingsValues)) throw new Error('The settings response is incomplete. Reload before saving.');
+      params.set(key, String(settingsValues[key]));
+    });
     Object.entries(SETTINGS_FIELDS).forEach(([key, descriptor]) => {
       if (GLOBAL_SETTING_FIELDS.has(key) !== (scope === 'global')) return;
       const input = $(descriptor.id);
@@ -2251,10 +2859,10 @@ function collectMutationParams(includeSettings, password) {
       }
     });
     if (scope === 'camera') {
-    const passwordAction = $('cfgCameraPasswordAction').value;
-    params.set('cameraPasswordAction', passwordAction);
-    params.set('cameraPassword', passwordAction === 'replace' ? $('cfgCameraPassword').value : '');
-    if (passwordAction === 'clear') params.set('cameraUsername', '');
+      const passwordAction = $('cfgCameraPasswordAction').value;
+      params.set('cameraPasswordAction', passwordAction);
+      params.set('cameraPassword', passwordAction === 'replace' ? $('cfgCameraPassword').value : '');
+      if (passwordAction === 'clear') params.set('cameraUsername', '');
     }
   }
   return params;
@@ -2276,6 +2884,16 @@ async function postForm(url, params, options) {
   return payload;
 }
 
+$('settingsWifiLink').addEventListener('click', event => {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  if (settingsBusy || factoryResetPending || !$('adminConfirmModal').hidden) {
+    event.preventDefault();
+    setSettingsStatus('Wait for the current operation to finish before opening Wi-Fi setup.', 'warn');
+  } else if (settingsDirty && !window.confirm('Discard the unsaved changes before opening Wi-Fi setup?')) {
+    event.preventDefault();
+  }
+});
+
 $('settingsForm').addEventListener('input', event => {
   if (event.target.closest('.settings-tool')) return;
   settingsDirty = true;
@@ -2289,13 +2907,12 @@ $('settingsForm').addEventListener('submit', event => {
   event.preventDefault();
   if (SETTINGS_TOOL_SECTIONS.has(activeSettingsSection)) return;
   if (settingsBusy || !validateSettingsForm() || !settingsAuthorizationReady('settings')) return;
-  openConfirmModal(currentSettingsScope() === 'global' ? 'Save the global settings of the ESP32.' : 'Save the settings of ' + $('selectedCameraName').textContent + '.', password => saveSettings(password));
+  openConfirmModal(currentSettingsScope() === 'global' ? 'Save all device settings, including advanced values.' : 'Save all settings of ' + selectedCameraName() + ', including advanced values.', password => saveSettings(password));
 });
 
 async function saveSettings(password) {
   settingsBusy = true;
-  $('settingsSave').disabled = true;
-  $('settingsReset').disabled = true;
+  setMutationControlsEnabled(false);
   setSettingsStatus('Validating and saving to NVS…', 'warn');
   try {
     const payload = await postForm('/api/settings', collectMutationParams(true, password));
@@ -2315,19 +2932,20 @@ async function saveSettings(password) {
 
 $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
-  openConfirmModal(currentSettingsScope() === 'global' ? 'Restore only the global settings of the ESP32.' : 'Restore the settings of ' + $('selectedCameraName').textContent + ', keeping its credentials.', password => resetSettings(password));
+  openConfirmModal(currentSettingsScope() === 'global'
+    ? 'Restore all device settings, including advanced values and the local address. The hostname returns to its firmware default. Camera settings and saved Wi-Fi networks are kept.'
+    : 'Restore all settings of ' + selectedCameraName() + ', including advanced values, while keeping its username and password.', password => resetSettings(password));
 });
 
 async function resetSettings(password) {
   settingsBusy = true;
-  $('settingsSave').disabled = true;
-  $('settingsReset').disabled = true;
+  setMutationControlsEnabled(false);
   setSettingsStatus('Restoring the factory values…', 'warn');
   try {
     const payload = await postForm('/api/settings/reset', collectMutationParams(false, password));
     populateSettings(payload);
     setSettingsStatus(
-      payload.scope === 'global' ? 'Global defaults restored.' : 'Camera defaults restored; credentials preserved.',
+      payload.scope === 'global' ? 'Device defaults restored. Address: http://' + payload.values.localHostname + '.local/' : 'Camera defaults restored; credentials preserved.',
       'ok'
     );
     refresh();
@@ -2350,10 +2968,12 @@ const ADMIN_ACTIONS = {
 };
 
 let pendingConfirm = null;
+let pendingConfirmTrigger = null;
 let pendingConfirmResumesFeed = false;
 let pendingConfirmPhrase = '';
 
 function openConfirmModal(description, onConfirm, resumeFeedOnCancel, requiredPhrase) {
+  pendingConfirmTrigger = document.activeElement;
   pendingConfirm = onConfirm;
   pendingConfirmResumesFeed = Boolean(resumeFeedOnCancel);
   pendingConfirmPhrase = requiredPhrase || '';
@@ -2369,17 +2989,20 @@ function openConfirmModal(description, onConfirm, resumeFeedOnCancel, requiredPh
 
 function closeConfirmModal(resumePausedFeed) {
   const shouldResumeFeed = Boolean(resumePausedFeed && pendingConfirmResumesFeed);
+  const trigger = pendingConfirmTrigger;
   $('adminConfirmModal').hidden = true;
   pendingConfirm = null;
+  pendingConfirmTrigger = null;
   pendingConfirmResumesFeed = false;
   pendingConfirmPhrase = '';
   if (shouldResumeFeed) resumeFeedAfterPtz(0);
+  if (trigger && trigger.isConnected && !trigger.disabled && trigger.getClientRects().length) trigger.focus();
 }
 
 async function executeAdminAction(action, password) {
   factoryResetResult = '';
   settingsBusy = true;
-  document.querySelectorAll('[data-admin-action],[data-ptz-preset-token]').forEach(item => { item.disabled = true; });
+  setMutationControlsEnabled(false);
   setAdminActionStatus('Sending the action to the ESP32…', 'warn');
   try {
     const payload = await postForm(action[0], collectMutationParams(false, password));
@@ -2398,7 +3021,7 @@ document.querySelectorAll('[data-admin-action]').forEach(button => {
     const action = ADMIN_ACTIONS[button.dataset.adminAction];
     if (!action || settingsBusy || !settingsAuthorizationReady('actions')) return;
     const individual = ['health-check','reboot-camera','reset-reboot-limiter'].includes(button.dataset.adminAction);
-    openConfirmModal(action[1] + (individual ? '\nCamera: ' + $('selectedCameraName').textContent : '\nScope: global.'), password => executeAdminAction(action, password));
+    openConfirmModal(action[1] + (individual ? '\nCamera: ' + selectedCameraName() : '\nScope: global.'), password => executeAdminAction(action, password));
   });
 });
 
@@ -2551,7 +3174,7 @@ function renderPtzPresetList() {
 function openPtzPresetModal() {
   if ($('ptzMenuButton').disabled) return;
   pauseFeedForPtz();
-  $('ptzPauseNote').hidden = activeView === 'live';
+  $('ptzPauseNote').hidden = cameraMode === 'live';
   $('ptzPresetFilter').value = '';
   renderPtzPresetList();
   $('ptzPresetModal').hidden = false;
@@ -2587,6 +3210,19 @@ $('adminConfirmModal').addEventListener('click', event => {
   if (event.target === $('adminConfirmModal')) closeConfirmModal(true);
 });
 document.addEventListener('keydown', event => {
+  const confirmation = $('adminConfirmModal');
+  if (event.key === 'Tab' && !confirmation.hidden) {
+    const focusable = [...confirmation.querySelectorAll('button,input,select,textarea,a[href],[tabindex]')]
+      .filter(element => !element.disabled && element.tabIndex >= 0 && element.getClientRects().length);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !confirmation.contains(document.activeElement)
+      || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault();
+      if (first) (event.shiftKey ? last : first).focus();
+    }
+    return;
+  }
   if (event.key !== 'Escape') return;
   if (!$('adminConfirmModal').hidden) {
     closeConfirmModal(true);
@@ -2656,10 +3292,6 @@ function renderPtz(d) {
       : 'PTZ presets unavailable'
   );
 
-  $('livePtzButton').disabled = menuButton.disabled;
-  $('livePtzCount').textContent = $('ptzPresetCount').textContent;
-  $('livePtzButton').setAttribute('aria-label', menuButton.getAttribute('aria-label'));
-
   $('ptzMeta').textContent = !ptzCatalog.available
     ? ptzCatalog.unavailableReason
     : !ptzCatalog.presetsLoaded
@@ -2703,12 +3335,12 @@ function render(d) {
   $('stateText').textContent = label + ' · for ' + duration(d.stateSinceSeconds);
 
   $('camName').textContent = d.camera.name;
+  const cameraInfo = d.onvif.deviceInfo;
+  $('cameraMeta').textContent = [cameraInfo.manufacturer, cameraInfo.model].filter(Boolean).join(' · ')
+    || (cameraInfo.loaded ? 'Manufacturer and model not reported' : 'Waiting for camera identification');
   const esp32Address = d.wifi.mdnsAvailable
     ? d.wifi.localUrl
     : 'http://' + d.wifi.ip + '/';
-  $('camSub').innerHTML = d.camera.known
-    ? 'IP <b>' + d.camera.ip + '</b> · RTSP <b>' + d.camera.rtspPort + '</b> · ESP32 at <b>' + esp32Address + '</b>'
-    : 'Camera not found on the network yet · ESP32 at <b>' + esp32Address + '</b>';
   cameraKnown = d.camera.known;
   cameraRecovering = Boolean(d.recovery && d.recovery.graceActive);
 
@@ -2719,7 +3351,7 @@ function render(d) {
     snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
   }
 
-  if (d.adminAction && d.adminAction.lastResult && activeView === 'actions' && !factoryResetResult) {
+  if (d.adminAction && d.adminAction.lastResult && actionsSectionActive() && !factoryResetResult) {
     setAdminActionStatus(d.adminAction.lastResult, d.adminAction.pending === 'none' ? '' : 'warn');
   }
   renderPtz(d);
@@ -2743,7 +3375,7 @@ function render(d) {
     }
   }
 
-  if (activeView === 'feed' && !feedLoading && !feedTimer) scheduleFeed(0);
+  if (snapshotModeActive() && !feedLoading && !feedTimer) scheduleFeed(0);
 
   const c = d.counters;
   const conclusiveChecks = c.successfulChecks + c.failedChecks;
@@ -2802,8 +3434,8 @@ function render(d) {
 
   $('raw').textContent = JSON.stringify(d, null, 2);
   $('copyDiagnostics').disabled = false;
-  $('foot').textContent = 'ESP32 Camera Watchdog · firmware ' + d.firmwareVersion
-    + ' · uptime ' + duration(d.uptimeSeconds);
+  $('foot').textContent = 'ESP32 Camera Watchdog · ' + d.firmwareVersion;
+  $('deviceUptime').textContent = 'uptime ' + duration(d.uptimeSeconds);
   renderResources(d);
 
   lastOk = Date.now();
@@ -2820,7 +3452,7 @@ async function refresh(force) {
   clearTimeout(statusRefreshTimer);
   statusRefreshTimer = null;
   if (statusLoading) return;
-  if (activeView === 'feed' && feedLoading) { scheduleStatusRefresh(250); return; }
+  if (snapshotRequestActive()) { scheduleStatusRefresh(250); return; }
   statusLoading = true;
   const generation = ++statusRequestGeneration;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -2839,8 +3471,8 @@ async function refresh(force) {
       updateFactoryResetState(payload, resetEpoch);
       render(payload);
     }
-    if ((activeView === 'settings' || activeView === 'actions' || activeView === 'feed' || activeView === 'live') && !settingsDirty) loadSettings(false);
-    if (activeView === 'live') startLive();
+    if ((activeView === 'settings' || activeView === 'camera') && !settingsDirty) loadSettings(false);
+    if (liveModeActive()) startLive();
     lastOk = Date.now();
     $('deviceStatus').classList.remove('stale');
     $('deviceStatusText').textContent = 'updated just now';
@@ -3429,7 +4061,6 @@ const LivePlayer = (() => {
 })();
 
 const liveVideo = $('liveVideo');
-const liveStage = $('liveStage');
 let liveStartedFor = 0;
 let liveStartedQuality = '';
 let liveQuality = 'fluid';
@@ -3452,6 +4083,7 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
       liveVideo.classList.add('ready');
       setLiveOverlay('', false);
       setLiveBadge(true);
+      $('liveStamp').textContent = '';
     } else if (kind === 'connecting') {
       liveVideo.classList.remove('ready');
       setLiveOverlay(text || 'Connecting to the camera…', false);
@@ -3472,15 +4104,15 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
   dimensions() {},
   stats(values) {
     if (!values.width || !liveVideo.classList.contains('ready')) return;
-    $('liveStamp').textContent = values.width + '×' + values.height
+    $('liveMeta').textContent = 'H.264 · profile ' + liveProfileText
+      + ' · ' + values.width + '×' + values.height
       + ' · ' + Math.round(values.fps) + ' fps · ' + Math.round(values.kbps) + ' kbps'
-      + ' · lag ' + values.lag.toFixed(1) + ' s';
-    $('liveMeta').textContent = 'H.264 · profile ' + liveProfileText + ' · ' + values.frames + ' frames';
+      + ' · lag ' + values.lag.toFixed(1) + ' s · ' + values.frames + ' frames';
   }
 });
 
 function startLive() {
-  if (activeView !== 'live' || document.hidden || !selectedCameraId) return;
+  if (!liveModeActive() || document.hidden || !selectedCameraId) return;
   if (liveStartedFor === selectedCameraId && liveStartedQuality === liveQuality) return;
   liveStartedFor = selectedCameraId;
   liveStartedQuality = liveQuality;
@@ -3498,67 +4130,22 @@ function stopLive() {
   liveVideo.classList.remove('ready');
 }
 
-function liveFullscreenActive() {
-  return document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage || liveStage.classList.contains('fs-fallback');
-}
-
-function updateLiveFsButton() {
-  const active = liveFullscreenActive();
-  const button = $('liveFsBtn');
-  button.setAttribute('aria-pressed', active ? 'true' : 'false');
-  button.setAttribute('aria-label', active ? 'Exit full screen' : 'View full screen');
-  button.title = active ? 'Exit full screen' : 'Full screen';
-  button.querySelector('.ic-expand').hidden = active;
-  button.querySelector('.ic-collapse').hidden = !active;
-}
-
-function exitLiveFullscreen() {
-  if (document.fullscreenElement === liveStage || document.webkitFullscreenElement === liveStage) {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  }
-  if (liveStage.classList.contains('fs-fallback')) {
-    liveStage.classList.remove('fs-fallback');
-    document.body.classList.remove('fs-locked');
-  }
-  updateLiveFsButton();
-}
-
-function toggleLiveFullscreen() {
-  if (liveFullscreenActive()) { exitLiveFullscreen(); return; }
-  const request = liveStage.requestFullscreen || liveStage.webkitRequestFullscreen;
-  if (!request) {
-    liveStage.classList.add('fs-fallback');
-    document.body.classList.add('fs-locked');
-    updateLiveFsButton();
-    return;
-  }
-  Promise.resolve(request.call(liveStage)).catch(() => {
-    liveStage.classList.add('fs-fallback');
-    document.body.classList.add('fs-locked');
-    updateLiveFsButton();
-  });
-}
-
-$('liveFsBtn').addEventListener('click', toggleLiveFullscreen);
-liveVideo.addEventListener('dblclick', toggleLiveFullscreen);
-document.addEventListener('fullscreenchange', updateLiveFsButton);
-document.addEventListener('webkitfullscreenchange', updateLiveFsButton);
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && liveStage.classList.contains('fs-fallback')) exitLiveFullscreen();
-});
 $('liveQuality').addEventListener('change', () => {
   liveQuality = $('liveQuality').value === 'high' ? 'high' : 'fluid';
   stopLive();
   startLive();
 });
 $('liveRetry').addEventListener('click', () => { stopLive(); startLive(); });
-$('livePtzButton').addEventListener('click', openPtzPresetModal);
 window.addEventListener('pagehide', () => livePlayer.stop());
 
 function activateView(name, updateHash) {
-  const nextView = ['overview', 'camera', 'actions', 'settings', 'resources', 'feed', 'live'].includes(name)
+  const nextView = ['overview', 'camera', 'settings', 'resources'].includes(name)
     ? name
     : 'overview';
+  if (nextView !== activeView && (settingsBusy || !$('adminConfirmModal').hidden)) {
+    if (updateHash === false) history.replaceState(null, '', activeView === 'settings' ? settingsHashFor(activeSettingsSection) : '#' + activeView);
+    return;
+  }
   if (activeView === 'settings' && nextView !== activeView && settingsDirty) {
     if (!window.confirm('Discard the unsaved changes before leaving the settings?')) {
       if (updateHash === false) location.hash = settingsHashFor(activeSettingsSection);
@@ -3566,6 +4153,8 @@ function activateView(name, updateHash) {
     }
     settingsDirty = false;
     settingsLoaded = false;
+    settingsValues = null;
+    settingsCameraPasswordConfigured = false;
     settingsLoadedKey = '';
   }
   activeView = nextView;
@@ -3580,8 +4169,8 @@ function activateView(name, updateHash) {
   const selectedTab = document.querySelector('.tab[aria-selected="true"]');
   document.title = nextView === 'settings' ? settingsDocumentTitle() : selectedTab.textContent + ' · Camera Watchdog';
 
-  if (nextView === 'settings') updateSettingsScope();
-  if (nextView === 'settings' || nextView === 'actions') {
+  if (nextView === 'settings') {
+    updateSettingsScope();
     loadSettings(false);
   }
 
@@ -3589,42 +4178,22 @@ function activateView(name, updateHash) {
     loadPersistentLogs(true);
   }
 
-  if (nextView === 'feed') {
-    feedPausedForPtz = false;
-    feedActivationPending = true;
-    $('feedState').textContent = cameraRecovering
-      ? 'The camera is restarting…'
-      : cameraKnown ? 'Updating the image…' : 'Waiting for the camera to be found…';
-    $('feedState').classList.remove('hidden');
-    $('feedStamp').textContent = cameraRecovering
-      ? 'automatic recovery in progress'
-      : 'waiting for image';
-    loadSettings(false)
-      .then(() => refresh(true))
-      .finally(() => {
-        feedActivationPending = false;
-        if (activeView === 'feed') scheduleFeed(0);
-      });
+  if (nextView === 'overview') {
+    overviewPreviews.pass++;
+    enqueueOverviewPreviews();
   } else {
-    feedPausedForPtz = false;
-    feedActivationPending = false;
-    $('ptzPresetModal').hidden = true;
-    if (isNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    if (feedStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
-    clearTimeout(feedTimer);
-    feedTimer = null;
-    cancelFeedLoad(true);
-    const frame = $('cameraFeed');
-    frame.classList.remove('ready');
-    scheduleStatusRefresh(0);
+    cancelOverviewPreviews();
   }
 
-  if (nextView === 'live') {
-    loadSettings(false).then(() => refresh(true));
-    startLive();
+  if (nextView === 'camera') {
+    applyCameraMode();
   } else {
+    $('ptzPresetModal').hidden = true;
+    if (isNativeFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    if (cameraStage.classList.contains('fs-fallback')) exitFallbackFullscreen();
+    leaveSnapshotMode();
     stopLive();
-    exitLiveFullscreen();
+    scheduleStatusRefresh(0);
   }
 
   const nextHash = nextView === 'settings' ? settingsHashFor(activeSettingsSection) : '#' + nextView;
@@ -3684,26 +4253,20 @@ $('copyDiagnostics').addEventListener('click', async () => {
 
 document.querySelectorAll('[role="tablist"]').forEach(tablist => {
   const tabs = [...tablist.querySelectorAll('[role="tab"]')];
-  const settingsTabs = tablist.classList.contains('settings-tablist');
-  const compact = window.matchMedia('(max-width:680px)');
-  const updateOrientation = () => {
-    tablist.setAttribute('aria-orientation', settingsTabs && !compact.matches ? 'vertical' : 'horizontal');
-  };
-  updateOrientation();
-  compact.addEventListener('change', updateOrientation);
-  tabs.forEach((tab, index) => {
+  tabs.forEach(tab => {
     tab.addEventListener('keydown', event => {
-      const previousKey = settingsTabs && !compact.matches ? 'ArrowUp' : 'ArrowLeft';
-      const nextKey = settingsTabs && !compact.matches ? 'ArrowDown' : 'ArrowRight';
-      if (![previousKey, nextKey, 'Home', 'End'].includes(event.key)) return;
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
+      const enabledTabs = tabs.filter(candidate => !candidate.disabled);
+      if (!enabledTabs.length) return;
+      const index = enabledTabs.indexOf(tab);
       let nextIndex = index;
-      if (event.key === previousKey) nextIndex = (index - 1 + tabs.length) % tabs.length;
-      if (event.key === nextKey) nextIndex = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') nextIndex = (index - 1 + enabledTabs.length) % enabledTabs.length;
+      if (event.key === 'ArrowRight') nextIndex = (index + 1) % enabledTabs.length;
       if (event.key === 'Home') nextIndex = 0;
-      if (event.key === 'End') nextIndex = tabs.length - 1;
-      tabs[nextIndex].focus();
-      tabs[nextIndex].click();
+      if (event.key === 'End') nextIndex = enabledTabs.length - 1;
+      enabledTabs[nextIndex].focus();
+      enabledTabs[nextIndex].click();
     });
   });
 });
@@ -3720,12 +4283,13 @@ window.addEventListener('hashchange', () => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    if (activeView === 'live') stopLive();
+    if (liveModeActive()) stopLive();
+    cancelOverviewPreviews();
     clearTimeout(feedTimer);
     clearTimeout(statusRefreshTimer);
     feedTimer = null;
     cancelFeedLoad(false);
-    if (activeView === 'feed') {
+    if (snapshotModeActive()) {
       $('cameraFeed').classList.remove('ready');
       $('feedState').classList.remove('hidden');
       $('feedState').textContent = 'Preview paused while the tab is hidden.';
@@ -3739,15 +4303,16 @@ document.addEventListener('visibilitychange', () => {
   }
 
   refresh();
-  if (activeView === 'live') startLive();
-  if (activeView === 'feed') scheduleFeed(0);
-  if (activeView === 'settings' || activeView === 'actions') loadSettings(true);
+  if (liveModeActive()) startLive();
+  if (snapshotModeActive()) scheduleFeed(0);
+  if (activeView === 'overview') enqueueOverviewPreviews();
+  if (activeView === 'settings' && !settingsDirty && !settingsBusy && $('adminConfirmModal').hidden) loadSettings(false);
   if (logsSectionActive()) loadPersistentLogs(true);
 });
 
 activateSettingsSection(activeSettingsSection);
 activateView(activeView, false);
-if (activeView !== 'feed') refresh();
+if (!snapshotModeActive()) refresh();
 </script>
 </body>
 </html>

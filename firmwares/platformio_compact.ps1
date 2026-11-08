@@ -9,15 +9,7 @@ param(
     [string]$EnvironmentName,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet(
-        "build",
-        "erase",
-        "upload",
-        "backup-logs",
-        "erase-except-logs",
-        "verify-logs-after-erase",
-        "verify-logs-after-upload"
-    )]
+    [ValidateSet("build", "erase", "upload")]
     [string]$Action,
 
     [string]$Port = ""
@@ -33,14 +25,6 @@ if ($Action -eq "erase") {
     $pioArguments += @("--target", "erase", "--upload-port", $Port)
 } elseif ($Action -eq "upload") {
     $pioArguments += @("--target", "upload", "--upload-port", $Port)
-} elseif ($Action -eq "backup-logs") {
-    $pioArguments += @("--target", "backup_logs", "--upload-port", $Port)
-} elseif ($Action -eq "erase-except-logs") {
-    $pioArguments += @("--target", "erase_except_logs", "--upload-port", $Port)
-} elseif ($Action -eq "verify-logs-after-erase") {
-    $pioArguments += @("--target", "verify_logs_after_erase", "--upload-port", $Port)
-} elseif ($Action -eq "verify-logs-after-upload") {
-    $pioArguments += @("--target", "verify_logs_after_upload", "--upload-port", $Port)
 }
 
 $capturedOutput = New-Object "System.Collections.Generic.List[string]"
@@ -57,9 +41,6 @@ $trackApplicationWrite = $false
 $applicationProgressSeen = $false
 $verificationShown = $false
 $resetShown = $false
-$deviceShown = $false
-$flashSizeShown = $false
-$layoutShown = $false
 
 function Complete-ProgressLine {
     if ($script:progressActive) {
@@ -87,12 +68,6 @@ try {
 
     if ($Action -eq "build") {
         Write-CompactLine "    Preparing build..."
-    } elseif ($Action -eq "backup-logs") {
-        Write-CompactLine "    Preparing forensic backup..."
-    } elseif ($Action -eq "erase-except-logs") {
-        Write-CompactLine "    Preparing selective erase..."
-    } elseif ($Action -like "verify-logs-*") {
-        Write-CompactLine "    Preparing binary verification..."
     } else {
         Write-CompactLine "    Preparing serial communication..."
     }
@@ -101,70 +76,6 @@ try {
         $line = [string]$_
         $cleanLine = ($line -replace $ansiPattern, "").TrimEnd("`r", "`n")
         $capturedOutput.Add($cleanLine) | Out-Null
-
-        if ($cleanLine -eq "LOG_LAYOUT_OK=0x310000:0x0F0000:0x400000") {
-            if (-not $layoutShown) {
-                Write-CompactLine "    Layout confirmed: logs at 0x310000-0x3FFFFF (960 KiB)."
-                $layoutShown = $true
-            }
-            return
-        }
-
-        if ($cleanLine -match "^LOG_DEVICE_OK=(.+)$") {
-            if (-not $deviceShown) {
-                Write-CompactLine ("    ESP32 confirmed: " + $Matches[1])
-                $deviceShown = $true
-            }
-            return
-        }
-
-        if ($cleanLine -match "^LOG_FLASH_SIZE_OK=(.+)$") {
-            if (-not $flashSizeShown) {
-                Write-CompactLine ("    Flash confirmed: " + $Matches[1])
-                $flashSizeShown = $true
-            }
-            return
-        }
-
-        if ($cleanLine -eq "LOG_BACKUP_STARTED") {
-            Write-CompactLine "    Reading the entire logs partition..."
-            return
-        }
-
-        if ($cleanLine -match "^LOG_BACKUP_SAVED=(.+)$") {
-            Write-CompactLine ("    Backup saved to: " + $Matches[1])
-            return
-        }
-
-        if ($cleanLine -match "^LOG_BACKUP_SHA256=([0-9a-fA-F]+)$") {
-            Write-CompactLine ("    SHA256: " + $Matches[1].ToLowerInvariant())
-            return
-        }
-
-        if ($cleanLine -eq "LOG_PRESERVE_ERASE_START") {
-            Write-CompactLine "    Erasing from address 0x000000 to 0x30FFFF..."
-            return
-        }
-
-        if ($cleanLine -eq "LOG_PRESERVE_ERASE_DONE") {
-            Write-CompactLine "    Selective erase complete."
-            return
-        }
-
-        if ($cleanLine -match "^LOG_VERIFY_STARTED=(after-erase|after-upload)$") {
-            Write-CompactLine "    Rereading the 960 KiB of the logs partition..."
-            return
-        }
-
-        if ($cleanLine -match "^LOG_VERIFY_OK=(after-erase|after-upload)$") {
-            Write-CompactLine "    SHA256 and binary comparison confirmed."
-            return
-        }
-
-        if ($cleanLine -match "^LOG_ERROR=(.+)$") {
-            Write-CompactLine ("    ERROR: " + $Matches[1])
-            return
-        }
 
         if ($Action -eq "build") {
             if (-not $buildCompileShown -and $cleanLine -match "^Compiling ") {

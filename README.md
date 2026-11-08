@@ -69,56 +69,59 @@ If `secrets.h` has no Wi-Fi, or if the network does not respond for 2 minutes, t
 4. The ESP32 tests the password, the IP address, and the signal quality. It saves the network only if the test passes.
 5. Switch your phone back to your normal Wi-Fi and open `http://camera-watchdog.local/`.
 
-The saved network stays in the ESP32 memory and survives restarts and power loss. It takes priority over the `secrets.h` network, which stays as a fallback. With the ESP32 already connected, the same page opens at `http://camera-watchdog.local/wifi`, or under Settings, Global, Choose another Wi-Fi network.
+The saved network stays in the ESP32 memory and survives restarts and power loss. It takes priority over the `secrets.h` network, which stays as a fallback. With the ESP32 already connected, the same page opens at `http://camera-watchdog.local/wifi`, or under Settings, Device, Choose another Wi-Fi network.
 
 To protect the setup network with a password, set `WIFI_SETUP_AP_PASSWORD` in `include/app_config.h` to 8 to 63 characters. Without a password, phones show the notification to sign in to the network automatically, and the dashboard admin password is still required to save.
 
 ## Setting up the dashboard
 
-Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab lists all cameras. If you see none, wait for discovery, which runs every 30 seconds by default, or open Actions and use Rediscover cameras.
+Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab shows every registered camera with its latest image. If you see none, wait for discovery, which runs every 30 seconds by default, or open Settings, Actions, and use Rediscover cameras.
 
 If the camera does not appear, check that it and the ESP32 are on the same subnet and that ONVIF is turned on in the camera app. As an alternative, enter the IP in `CAMERA_IP_HINT` in the file `include/app_config.h` and upload the firmware again.
 
+The sidebar lists the registered cameras with their state. Select a camera there to open it, or to switch the camera that the other tabs show.
+
 The dashboard tabs.
 
-| Tab       | What it shows                                                                            |
-| --------- | ---------------------------------------------------------------------------------------- |
-| Overview  | State of all cameras.                                                                    |
-| Camera    | Results of the ONVIF, RTSP, and image tests of the selected camera.                      |
-| Live      | H.264 video from the selected camera and the PTZ presets.                                |
-| Preview   | JPEG images, used for diagnosis.                                                         |
-| Actions   | Check now, restart the camera, rediscover cameras, clear logs, and erase the ESP32 data. |
-| Resources | Memory, flash, and Wi-Fi signal of the ESP32.                                            |
-| Settings  | All the settings, in sections.                                                           |
+| Tab       | What it shows                                                                                                                                                  |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview  | How many cameras are registered, online, offline, and recovering, and a card for each camera with a JPEG image loaded when you open the tab.                    |
+| Camera    | Live H.264 video or JPEG snapshots of the selected camera, the PTZ presets, the ONVIF, RTSP, and image results, and a collapsed section with development diagnostics. |
+| Resources | Memory, flash, and Wi-Fi signal of the ESP32.                                                                                                                   |
+| Settings  | All the settings, the admin actions, the diagnostics, and the logs, in sections.                                                                                |
 
 The Settings sections.
 
-- Global. Local name of the ESP32, Wi-Fi and discovery times, and the link to switch Wi-Fi network.
-- Identification. Camera name, preferred ONVIF profile for the image, and RTSP port.
-- Camera authentication. Camera username and password, used by the watchdog. They do not change the account inside the camera. The saved password never goes back to the browser.
-- Monitoring. Interval between checks and how many failures lead to each state.
-- Recovery. Automatic ONVIF restart, wait time, minimum interval, and hourly limit.
-- Network and notifications. Turns on the email alerts and the IP change notice.
-- Communication. Connection and response timeouts.
+- Device. Local address, Wi-Fi selection, dashboard refresh, and the status LED. Discovery and subnet scan options are in a closed group.
+- Camera. Name and credentials for the selected camera. Snapshot timing, JPEG profile selection, RTSP port, and connection timeouts are in closed groups. These credentials do not change the camera account, and the saved password never returns to the browser.
+- Monitoring. Check interval, failure and recovery thresholds, and email alerts. Startup grace and the rediscovery threshold are in a closed group.
+- Recovery. Automatic ONVIF restart, grace after restart, cooldown, counting window, and maximum restarts. All restart limits remain visible.
+- Actions. Manual operations grouped by selected camera, all cameras, and device maintenance. Removing registrations, resetting the restart limiter, clearing logs, and erasing data remain protected by their existing confirmations.
 - Diagnostics. The full state as JSON, with a copy button.
 - Logs. The persistent history, with filters and CSV export.
 
+Save changes applies to all settings of the displayed scope, either the device or the selected camera. Fields are locked while a save or restore is in progress. Advanced groups open automatically when a field needs correction. Restore device defaults also resets the local hostname. Restore camera defaults keeps the camera username and password.
+
+Switching browser tabs keeps unsaved edits. Opening Wi-Fi setup asks before discarding them and waits for any pending operation to finish.
+
+The boot Wi-Fi wait, email retry interval, LED blink interval, and the two snapshot URI retry parameters no longer have controls in the dashboard. Their saved values remain in use and survive normal saves. Restoring defaults resets them with the other settings in their scope.
+
 To start, follow this order.
 
-1. Under Settings, Camera authentication, enter the camera username and password, if it asks for them.
-2. Under Settings, Network and notifications, turn on the email alerts.
-3. Under Actions, run Check now and check the Camera tab.
+1. Under Settings, Camera, enter the camera username and password, if needed.
+2. Under Settings, Monitoring, turn on the email alerts.
+3. Under Settings, Actions, run Check now and check the Camera tab.
 
 The default values are a check every 15 seconds, a grace period of 90 seconds after power-on, three failures to declare the camera offline, and at most three restarts per hour, with 5 minutes between them.
 
 ### Live video
 
-The Live tab uses the H.264 stream of the camera over RTSP. The ESP32 relays the packets to the browser on port 81 without decoding anything, and the browser plays the video.
+The Camera tab opens on Live, which uses the H.264 stream of the camera over RTSP. The ESP32 relays the packets to the browser on port 81 without decoding anything, and the browser plays the video. Snapshot, next to Live, shows JPEG images instead.
 
 - The Standard quality uses the smallest H.264 profile of the camera with at least 640 by 360 pixels. The High resolution quality uses the largest profile and may stutter, because the camera sends that stream in bursts.
 - The ESP32 opens one session at a time, so two viewers can only watch the same camera at the same quality.
-- Cameras that send only H.265 do not work on this tab.
-- The video stops by itself when you leave the tab, and the camera is free again.
+- Cameras that send only H.265 do not work on Live. Use Snapshot for them.
+- The video stops by itself when you switch to Snapshot or leave the Camera tab, and the camera is free again.
 
 ### Security
 
@@ -126,23 +129,22 @@ The dashboard uses HTTP, without encryption, and is meant for the local network.
 
 ## Support firmwares
 
-The `firmwares/` folder has three firmwares that help you test the board, clear the memory, and recover the history. The installers are Windows scripts, and each folder has an `install.bat`.
+The `firmwares/` folder has two firmwares that help you test the board and clear the memory. The installers are Windows scripts, and each folder has an `install.bat`.
 
 | Folder       | What it does                                                                               |
 | ------------ | ------------------------------------------------------------------------------------------ |
 | `minimal`    | Erases the whole flash and uploads a test firmware, with a page that shows the board data. |
 | `zeroed`     | Erases the whole flash and uploads nothing.                                                |
-| `log-reader` | Saves a copy of the logs, erases the rest, and uploads a log reader.                       |
 
 ### Before using the installers
 
 - Install PlatformIO Core. The installer looks for `platformio.exe` in `%USERPROFILE%\.platformio\penv\Scripts`, then in the PATH. To use another path, set the environment variable `ESP32_PLATFORMIO_EXE`.
-- Create `include/secrets.h` as described above. The `minimal` and `log-reader` firmwares use the Wi-Fi from that file.
+- Create `include/secrets.h` as described above. The `minimal` firmware uses the Wi-Fi from that file.
 - Find the COM port of the ESP32 in the Windows Device Manager. You may need to install the USB driver of the board, such as CP210x or CH340.
 
 To run an installer, double-click the `install.bat` in the folder, enter the port, such as `COM3`, and confirm with Y. Answering N cancels without changing the board.
 
-The `minimal` and `zeroed` modes erase everything, including the main firmware, the settings, the saved Wi-Fi network, and the logs. Use these two only when you really want to wipe the board. To recover the logs before wiping, use `log-reader`.
+Both modes erase everything, including the main firmware, the settings, the saved Wi-Fi network, and the logs. Use them only when you really want to wipe the board.
 
 ### minimal
 
@@ -151,25 +153,6 @@ Builds and uploads a diagnostic firmware. It connects to the Wi-Fi from `secrets
 ### zeroed
 
 Erases the entire flash, including the bootloader, settings, NVS, and logs. The board stays without firmware until you upload another one. Use it to return a board to its factory state before reusing it.
-
-### log-reader
-
-Recovers the log history of a watchdog without losing any record. The installer runs these steps.
-
-1. Builds the reader.
-2. Saves a full 960 KiB copy of the logs partition in the folder `firmwares/log-reader/backups/` and checks the size and the SHA-256.
-3. Erases everything except the logs partition.
-4. Checks that the logs partition is still identical to the backup.
-5. Uploads the reader and checks the logs again.
-
-The process stops before erasing anything if it cannot confirm the backup, the flash size, or the identity of the board. Git ignores the `backups` folder, and it can contain names and addresses from your network, so treat it as sensitive material.
-
-After the installation, open the reader in one of these ways.
-
-- Through the Wi-Fi from `secrets.h`, at `http://esp32-log-reader.local/`.
-- Through the network `ESP32-LogReader-XXXXXX`, with the password `Logs-XXXXXX`, where the last six characters are the same in both names. The address is `http://192.168.4.1/`.
-
-The site filters by level, category, event, result, Boot ID, and Context ID. It exports the valid records as CSV and JSONL, and exports the whole partition as RAW, even if the file system is corrupted. To go back to monitoring, upload the main firmware with `pio run -t upload` in the root folder.
 
 ## Troubleshooting
 
