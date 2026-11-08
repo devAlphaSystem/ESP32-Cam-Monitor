@@ -93,7 +93,7 @@ main{min-width:0;padding:20px 24px 24px}
 .kpi{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .kpi-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
 .kpi-value{font-size:24px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
-.camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin:16px 0 0;padding:0;list-style:none}
+.camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(max(280px,calc((100% - 48px)/4)),1fr));gap:16px;margin:16px 0 0;padding:0;list-style:none}
 .camera-card{position:relative;isolation:isolate;display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;transition:border-color .15s}
 @media(hover:hover){.camera-card:hover{border-color:var(--line-strong)}}
 .camera-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:8px 16px}
@@ -127,7 +127,7 @@ main{min-width:0;padding:20px 24px 24px}
 .stage-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:56px;padding:10px 16px}
 .stage-bar h2{margin-right:auto}
 .stage-card>.form-result{padding:8px 16px;border-top:1px solid var(--line)}
-.camera-side{grid-area:side;display:grid;grid-template-rows:repeat(3,auto) minmax(0,1fr);gap:16px;min-width:0}
+.camera-side{grid-area:side;display:grid;grid-template-rows:repeat(4,auto) minmax(0,1fr);gap:16px;min-width:0}
 .card-text{margin-top:8px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .health-list{margin:4px 0 0;padding:0;list-style:none}
 .health-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
@@ -226,8 +226,6 @@ body.fs-locked{overflow:hidden}
 .settings-panel{display:grid;align-content:start;gap:16px;min-width:0}
 .settings-group{min-width:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .settings-group h3{margin:0 0 16px;overflow-wrap:anywhere}
-.group-note{margin:-8px 0 16px;color:var(--muted);font-size:13px;line-height:1.6}
-.dev-body>.group-note{margin-top:0}
 .form-grid{display:grid;margin:-12px 0}
 .form-grid>*{padding:12px 0}
 .form-grid>*+*{border-top:1px solid var(--line)}
@@ -254,8 +252,6 @@ body.fs-locked{overflow:hidden}
 .checkline label{display:block;flex:1;min-width:0;margin:0;cursor:pointer}
 .checkline label b{display:block;font-size:13px;font-weight:500}
 .checkline label span{display:block;margin-top:2px;color:var(--muted);font-size:12px;line-height:1.6;white-space:normal}
-.form-note{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
-.form-note b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
 .settings-savebar{position:sticky;bottom:16px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px 24px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .settings-save-info{min-width:0}
 .settings-save-scope{color:var(--text);font-size:13px;line-height:1.5}
@@ -525,6 +521,10 @@ body.fs-locked{overflow:hidden}
       </ul>
     </article>
     <article class="card">
+      <h2>Checks</h2>
+      <p class="card-text"><span id="v-checks">—</span> checks · <span id="m-checks">—</span></p>
+    </article>
+    <article class="card">
       <h2>Automatic recovery</h2>
       <p class="card-text" id="l-reboot">—</p>
     </article>
@@ -546,7 +546,6 @@ body.fs-locked{overflow:hidden}
       <div><dt>ONVIF probe</dt><dd id="m-onvif">—</dd></div>
       <div><dt>RTSP probe</dt><dd id="m-rtsp">—</dd></div>
       <div><dt>JPEG probe</dt><dd id="m-image">—</dd></div>
-      <div><dt>Checks</dt><dd><span id="v-checks">—</span> checks · <span id="m-checks">—</span></dd></div>
       <div><dt>ONVIF endpoint</dt><dd id="l-url">—</dd></div>
       <div><dt>Last JPEG</dt><dd id="l-image">—</dd></div>
       <div><dt>ONVIF discovery</dt><dd id="l-disc">—</dd></div>
@@ -680,7 +679,6 @@ body.fs-locked{overflow:hidden}
         <details class="settings-advanced">
           <summary>Discovery settings</summary>
           <div class="dev-body">
-            <p class="group-note">Routine discovery follows the scan interval. The minimum rediscovery interval limits additional discovery attempts.</p>
             <div class="form-grid">
               <div class="field"><div class="checkline"><input id="cfgAutoScan" type="checkbox" role="switch"><label for="cfgAutoScan"><b>Allow automatic subnet scan</b><span>After confirmed failures, scans up to 254 hosts on RTSP port 554 to find cameras missed by discovery.</span></label></div></div>
               <div class="field"><label for="cfgDiscoveryTimeout">Discovery timeout <span>1 to 15 s</span></label><input id="cfgDiscoveryTimeout" type="number" min="1" max="15" step="0.1" required><small>Time to collect WS-Discovery replies. Default: 3.5 s.</small></div>
@@ -700,13 +698,11 @@ body.fs-locked{overflow:hidden}
             <div class="field"><label for="cfgCameraUsername">Camera username</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>For access without authentication, choose Remove username and password.</small></div>
             <div class="field"><label for="cfgCameraPasswordAction">Camera password</label><select id="cfgCameraPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option><option value="clear">Remove username and password</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
             <div class="field"><label for="cfgCameraPassword">New password</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. An empty password is allowed with a username. Spaces are part of the password.</small></div>
-            <p class="form-note">These credentials let the watchdog access the camera. Saving them renews the connection and starts a check. The saved password never returns to the browser. Restoring defaults keeps both username and password.</p>
           </div>
         </div>
         <details class="settings-advanced">
           <summary>Snapshot preview settings</summary>
           <div class="dev-body">
-            <p class="group-note">Timing and profile selection for JPEG previews in Snapshot mode.</p>
             <div class="form-grid">
               <div class="field"><label for="cfgSnapshotProfileMatch">JPEG profile name match <span>up to 32 characters</span></label><input id="cfgSnapshotProfileMatch" type="text" maxlength="32" placeholder="snap"><small>Used when choosing a JPEG-compatible ONVIF profile. Default: snap.</small></div>
               <div class="field"><label for="cfgFeedMinimum">Minimum snapshot pause <span>0.25 to 10 s</span></label><input id="cfgFeedMinimum" type="number" min="0.25" max="10" step="0.05" required><small>Minimum pause after an image finishes loading. Default: 5 s.</small></div>
@@ -730,14 +726,12 @@ body.fs-locked{overflow:hidden}
       <section class="settings-panel" id="settingsMonitoringPanel" role="tabpanel" aria-labelledby="settingsMonitoringTab" data-settings-section-panel="monitoring" hidden>
         <div class="settings-group">
           <h3>Checks and thresholds</h3>
-          <p class="group-note">How the watchdog confirms a failure and a return to normal operation.</p>
           <div class="form-grid">
             <div class="field"><label for="cfgHealthCheckInterval">Check interval <span>10 to 3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Default: 15 s.</small></div>
             <div class="field"><label for="cfgFailuresBeforeOffline">Control failures before offline <span>1 to 20</span></label><input id="cfgFailuresBeforeOffline" type="number" min="1" max="20" step="1" required><small>Must be at least the rediscovery threshold below. Default: 3.</small></div>
             <div class="field"><label for="cfgVideoFailuresBeforeAlert">Image failures before alert <span>1 to 20</span></label><input id="cfgVideoFailuresBeforeAlert" type="number" min="1" max="20" step="1" required><small>Default: 2.</small></div>
             <div class="field"><label for="cfgVideoFailuresBeforeReboot">Image failures before restart <span>1 to 20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Must be at least the image alert threshold. Also confirms a media failure when automatic restart is off. Default: 3.</small></div>
             <div class="field"><label for="cfgSuccessesBeforeRecovery">Successful checks before recovery <span>1 to 10</span></label><input id="cfgSuccessesBeforeRecovery" type="number" min="1" max="10" step="1" required><small>Default: 2.</small></div>
-            <p class="form-note">At this check interval: image alert after about <b id="estimateAlert">—</b>, restart after about <b id="estimateReboot">—</b>, and offline after about <b id="estimateOffline">—</b>. Startup grace, check duration, and restart limits can add time.</p>
           </div>
         </div>
         <div class="settings-group">
@@ -768,7 +762,6 @@ body.fs-locked{overflow:hidden}
         </div>
         <div class="settings-group">
           <h3>Limits against restart loops</h3>
-          <p class="group-note">These limits also apply to manual camera restarts.</p>
           <div class="form-grid">
             <div class="field"><label for="cfgRebootCooldown">Minimum time between restarts <span>2 to 1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Default: 5 min.</small></div>
             <div class="field"><label for="cfgRebootWindow">Counting window <span>1 to 168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Must cover the minimum time between restarts. Default: 1 h.</small></div>
@@ -808,7 +801,7 @@ body.fs-locked{overflow:hidden}
             <div class="action-grid">
               <div class="action-item"><b>Restart ESP32</b><span>Restarts only the watchdog, without cutting power to the camera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Restart ESP32</button></div>
               <div class="action-item"><b>Clear logs</b><span>Removes the previous history and keeps only the clearing marker.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Clear logs</button></div>
-              <div class="action-item"><b>Erase ESP32 data</b><span>Erases registrations, saved settings, Wi-Fi networks saved from the dashboard, and the log history, then restarts the device. The firmware and the built-in credentials stay. Active cameras can be rediscovered.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
+              <div class="action-item"><b>Erase ESP32 data</b><span>Erases cameras, settings, saved Wi-Fi networks, and logs, then restarts the ESP32. Firmware and built-in credentials stay.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
             </div>
           </div>
         </details>
@@ -2745,17 +2738,6 @@ function settingsAuthorizationReady(source) {
   return true;
 }
 
-function updateSettingsEstimates() {
-  const interval = Number($('cfgHealthCheckInterval').value || 0);
-  const alertFailures = Number($('cfgVideoFailuresBeforeAlert').value || 0);
-  const rebootFailures = Number($('cfgVideoFailuresBeforeReboot').value || 0);
-  const offlineFailures = Number($('cfgFailuresBeforeOffline').value || 0);
-  const alertSeconds = interval * alertFailures;
-  $('estimateAlert').textContent = duration(alertSeconds);
-  $('estimateReboot').textContent = duration(interval * rebootFailures);
-  $('estimateOffline').textContent = duration(interval * offlineFailures);
-}
-
 function updateCameraCredentialFields() {
   const action = $('cfgCameraPasswordAction').value;
   const blocked = !settingsLoaded || settingsBusy || factoryResetPending || currentSettingsScope() === 'global';
@@ -2803,7 +2785,6 @@ function populateSettings(payload) {
   settingsLoaded = true;
   settingsDirty = false;
   settingsLoadedKey = payload.scope + '/' + payload.cameraId;
-  updateSettingsEstimates();
   setMutationControlsEnabled(true);
   if (actionsSectionActive()) {
     if (!factoryResetResult) setAdminActionStatus('Authorization loaded. Choose an admin action.', 'ok');
@@ -2922,7 +2903,6 @@ $('settingsWifiLink').addEventListener('click', event => {
 $('settingsForm').addEventListener('input', event => {
   if (event.target.closest('.settings-tool')) return;
   settingsDirty = true;
-  updateSettingsEstimates();
 });
 $('settingsForm').addEventListener('change', event => {
   if (event.target.closest('.settings-tool')) return;

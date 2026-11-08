@@ -1,6 +1,6 @@
 # ESP32 Camera Watchdog
 
-Camera Watchdog runs on an ESP32 connected to your local network and watches IP cameras that support ONVIF. It checks the camera every few seconds, sends an email when the camera fails, and restarts the camera by itself when it hangs. A web dashboard served by the ESP32 itself shows everything.
+Camera Watchdog runs on an ESP32 connected to your local network and watches IP cameras that support ONVIF. It checks the camera every few seconds, sends an email when the camera fails, and restarts the camera by itself when it hangs. The ESP32 itself serves a web dashboard with the camera state, live video, and settings.
 
 ## What the firmware does
 
@@ -32,15 +32,13 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
 
 3. Fill in `include/secrets.h`.
 
-   | Field                                                           | What it is for                                                                                                                              |
-   | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-   | `WIFI_SSID` and `WIFI_PASSWORD`                                 | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later.                                  |
-   | `DASHBOARD_ADMIN_PASSWORD_VALUE`                                | Password the dashboard asks for before saving settings and running actions. We recommend setting one.                                       |
-   | `RESEND_API_KEY`, `RESEND_FROM`, and `ALERT_EMAIL`              | Resend key, sender, and recipient of the alerts. The key starts with `re_`. Without it, the dashboard works and only the emails stay off.   |
+   | Field                                              | What it is for                                                                                                                            |
+   | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+   | `WIFI_SSID` and `WIFI_PASSWORD`                    | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later.                                |
+   | `DASHBOARD_ADMIN_PASSWORD_VALUE`                   | Password the dashboard asks for before saving settings and running actions. We recommend setting one.                                     |
+   | `RESEND_API_KEY`, `RESEND_FROM`, and `ALERT_EMAIL` | Resend key, sender, and recipient of the alerts. The key starts with `re_`. Without it, the dashboard works and only the emails stay off. |
 
-4. In `platformio.ini`, replace `upload_port = COM5` with the port of your ESP32, or delete the line so PlatformIO detects the port.
-
-5. Connect the ESP32 by USB and upload the firmware.
+4. Connect the ESP32 by USB and upload the firmware.
 
    ```
    pio run -t upload
@@ -48,7 +46,7 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
 
    In Visual Studio Code, the same command is the Upload button in the PlatformIO bottom bar. If the upload fails, hold the BOOT button on the board while PlatformIO connects, and release it when the upload starts.
 
-6. Open the serial monitor to see the dashboard address.
+5. Open the serial monitor to see the dashboard address.
 
    ```
    pio device monitor
@@ -82,20 +80,20 @@ The sidebar lists the registered cameras with their state. Select a camera there
 
 The dashboard tabs.
 
-| Tab       | What it shows                                                                                                                                                  |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overview  | How many cameras are registered, online, offline, and recovering, and a card for each camera with a JPEG image loaded when you open the tab.                    |
+| Tab       | What it shows                                                                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview  | How many cameras are registered, online, offline, and recovering, and a card for each camera with a JPEG image loaded when you open the tab.                          |
 | Camera    | Live H.264 video or JPEG snapshots of the selected camera, the PTZ presets, the ONVIF, RTSP, and image results, and a collapsed section with development diagnostics. |
-| Resources | Memory, flash, and Wi-Fi signal of the ESP32.                                                                                                                   |
-| Settings  | All the settings, the admin actions, the diagnostics, and the logs, in sections.                                                                                |
+| Resources | Memory, flash, and Wi-Fi signal of the ESP32.                                                                                                                         |
+| Settings  | All the settings, the admin actions, the diagnostics, and the logs, in sections.                                                                                      |
 
 The Settings sections.
 
 - Device. Local address, Wi-Fi selection, dashboard refresh, and the status LED. Discovery and subnet scan options are in a closed group.
 - Camera. Name and credentials for the selected camera. Snapshot timing, JPEG profile selection, RTSP port, and connection timeouts are in closed groups. These credentials do not change the camera account, and the saved password never returns to the browser.
 - Monitoring. Check interval, failure and recovery thresholds, and email alerts. Startup grace and the rediscovery threshold are in a closed group.
-- Recovery. Automatic ONVIF restart, grace after restart, cooldown, counting window, and maximum restarts. All restart limits remain visible.
-- Actions. Manual operations grouped by selected camera, all cameras, and device maintenance. Removing registrations, resetting the restart limiter, clearing logs, and erasing data remain protected by their existing confirmations.
+- Recovery. Automatic ONVIF restart, grace after restart, cooldown, counting window, and maximum restarts. All restart limits are visible.
+- Actions. Manual operations grouped by selected camera, all cameras, and device maintenance. Removing registrations, resetting the restart limiter, clearing logs, and erasing data ask for confirmation.
 - Diagnostics. The full state as JSON, with a copy button.
 - Logs. The persistent history, with filters and CSV export.
 
@@ -103,7 +101,7 @@ Save changes applies to all settings of the displayed scope, either the device o
 
 Switching browser tabs keeps unsaved edits. Opening Wi-Fi setup asks before discarding them and waits for any pending operation to finish.
 
-The boot Wi-Fi wait, email retry interval, LED blink interval, and the two snapshot URI retry parameters no longer have controls in the dashboard. Their saved values remain in use and survive normal saves. Restoring defaults resets them with the other settings in their scope.
+The boot Wi-Fi wait, email retry interval, LED blink interval, and the two snapshot URI retry parameters have no controls in the dashboard. Normal saves keep their stored values, and restoring defaults resets them with the other settings in their scope.
 
 To start, follow this order.
 
@@ -130,10 +128,10 @@ The dashboard uses HTTP, without encryption, and is meant for the local network.
 
 The `firmwares/` folder has two firmwares that help you test the board and clear the memory. The installers are Windows scripts, and each folder has an `install.bat`.
 
-| Folder       | What it does                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| `minimal`    | Erases the whole flash and uploads a test firmware, with a page that shows the board data. |
-| `zeroed`     | Erases the whole flash and uploads nothing.                                                |
+| Folder    | What it does                                                                               |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `minimal` | Erases the whole flash and uploads a test firmware, with a page that shows the board data. |
+| `zeroed`  | Erases the whole flash and uploads nothing.                                                |
 
 ### Before using the installers
 
