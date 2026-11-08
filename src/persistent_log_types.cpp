@@ -77,8 +77,6 @@ const char* eventName(Event event)
             return "wifi_connect";
         case Event::WifiDisconnect:
             return "wifi_disconnect";
-        case Event::WifiReconnect:
-            return "wifi_reconnect";
         case Event::CameraState:
             return "camera_state";
         case Event::Incident:
@@ -89,10 +87,6 @@ const char* eventName(Event event)
             return "discovery_probe";
         case Event::DiscoveryResult:
             return "discovery_result";
-        case Event::SubnetScan:
-            return "subnet_scan";
-        case Event::TcpScan:
-            return "tcp_scan";
         case Event::OnvifProbe:
             return "onvif_probe";
         case Event::OnvifSoap:
@@ -105,8 +99,6 @@ const char* eventName(Event event)
             return "rtsp_probe";
         case Event::EmailHttp:
             return "email_http";
-        case Event::SettingsSaved:
-            return "settings_saved";
         case Event::SettingsReset:
             return "settings_reset";
         case Event::AdminAction:
@@ -115,16 +107,8 @@ const char* eventName(Event event)
             return "camera_reboot";
         case Event::PtzCommand:
             return "ptz_command";
-        case Event::SntpSync:
-            return "sntp_sync";
-        case Event::RuntimeContext:
-            return "runtime_context";
         case Event::SettingsContext:
             return "settings_context";
-        case Event::CameraTargetLoad:
-            return "camera_target_load";
-        case Event::CameraTargetSave:
-            return "camera_target_save";
         case Event::DiscoveryResponse:
             return "discovery_response";
         case Event::LogsCleared:

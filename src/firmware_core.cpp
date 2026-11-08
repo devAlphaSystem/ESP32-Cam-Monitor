@@ -3,16 +3,12 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.23.0";
+const char FIRMWARE_VERSION[] = "0.24.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
-constexpr char SETTINGS_NVS_KEY[] = "runtime";
-constexpr char SETTINGS_DEFAULTS_REVISION_KEY[] = "defaults_rev";
-constexpr uint32_t SETTINGS_MAGIC = 0x43573035UL;
 constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t GLOBAL_SETTINGS_MAGIC = 0x43573036UL;
-constexpr uint32_t CAMERA_RECORD_MAGIC = 0x43414D36UL;
 constexpr uint32_t CAMERA_RECORD_MAGIC_V7 = 0x43414D37UL;
 constexpr uint16_t CAMERA_RECORD_SCHEMA_VERSION = 7;
 constexpr uint32_t CAMERA_ALIAS_MAGIC = 0x43414C37UL;
@@ -26,17 +22,6 @@ struct GlobalSettingsBlob {
     uint16_t schemaVersion;
     uint16_t payloadSize;
     GlobalSettings values;
-    uint32_t checksum;
-};
-
-struct CameraRecordHeader {
-    uint32_t magic;
-    uint32_t id;
-    uint16_t schemaVersion;
-    uint16_t payloadSize;
-    uint16_t urlBytes;
-    uint16_t uuidBytes;
-    RuntimeSettings values;
     uint32_t checksum;
 };
 
@@ -75,60 +60,6 @@ struct CameraRebootLedger {
 
 void resolveActiveIncident(CameraContext& ctx);
 
-struct MigrationSettingsV5 {
-    char cameraName[CAMERA_NAME_MAX_LENGTH + 1];
-    char snapshotProfileMatch[SNAPSHOT_PROFILE_MATCH_MAX_LENGTH + 1];
-    uint16_t cameraRtspPort;
-
-    uint32_t healthCheckIntervalMs;
-    uint32_t startupGraceMs;
-    uint8_t failuresBeforeRediscovery;
-    uint8_t failuresBeforeOffline;
-    uint8_t successesBeforeRecovery;
-    uint8_t videoFailuresBeforeAlert;
-    uint8_t videoFailuresBeforeReboot;
-
-    uint8_t enableOnvifAutoReboot;
-    uint32_t onvifRebootGraceMs;
-    uint32_t onvifRebootCooldownMs;
-    uint32_t onvifRebootWindowMs;
-    uint8_t maxOnvifRebootAttemptsPerWindow;
-
-    uint32_t wifiConnectTimeoutMs;
-    uint8_t enableAutomaticSubnetScan;
-    uint32_t discoveryTimeoutMs;
-    uint32_t rediscoveryIntervalMs;
-    uint32_t subnetScanIntervalMs;
-
-    uint8_t enableEmailAlerts;
-    uint8_t emailOnIpChange;
-    uint32_t emailRetryIntervalMs;
-
-    uint32_t tcpConnectTimeoutMs;
-    uint32_t serviceResponseTimeoutMs;
-    uint32_t scanConnectTimeoutMs;
-    uint32_t snapshotHttpTimeoutMs;
-    uint32_t snapshotResolveRetryIntervalMs;
-    uint8_t snapshotFailuresBeforeReresolve;
-
-    uint8_t enableCameraAlertLed;
-    uint32_t cameraAlertLedBlinkIntervalMs;
-    uint32_t feedMinIntervalMs;
-    uint32_t feedTargetCycleMs;
-    uint32_t statusRefreshIntervalMs;
-    char localHostname[LOCAL_HOSTNAME_MAX_LENGTH + 1];
-    char cameraUsername[CAMERA_USERNAME_MAX_LENGTH + 1];
-    char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
-};
-
-struct MigrationSettingsBlob {
-    uint32_t magic;
-    uint16_t schemaVersion;
-    uint16_t payloadSize;
-    MigrationSettingsV5 values;
-    uint32_t checksum;
-};
-
 GlobalSettings globalSettings = makeDefaultGlobalSettings();
 std::unique_ptr<CameraContext> cameras;
 size_t cameraCount = 0;
@@ -148,7 +79,6 @@ uint16_t cameraIoDepth = 0;
 
 WebServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
-Preferences preferences;
 SemaphoreHandle_t cameraIoMutex = nullptr;
 
 bool ensureCameraIoMutex()
@@ -201,7 +131,6 @@ portMUX_TYPE sntpReferenceMux = portMUX_INITIALIZER_UNLOCKED;
 bool espSntpSynchronized = false;
 unsigned long espSntpSynchronizedAtMs = 0;
 uint32_t espSntpSynchronizationGeneration = 0;
-uint32_t loggedSntpSynchronizationGeneration = 0;
 esp_err_t bluetoothMemoryReleaseResult = ESP_ERR_NOT_SUPPORTED;
 esp_bt_controller_status_t bluetoothControllerStatusBeforeRelease = ESP_BT_CONTROLLER_STATUS_NUM;
 
@@ -662,7 +591,6 @@ CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
         ctx = endpointMatch;
     }
     if (ctx != nullptr) {
-        ctx->lastDiscoverySeenAtMs = millis();
         if (ctx->camera.onvifUrl == target.onvifUrl) {
             const CameraTarget previous = ctx->camera;
             ctx->camera.valid = true;
@@ -723,7 +651,6 @@ CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
     entry->id = nextCameraId;
     entry->registeredAtMs = millis();
     entry->lastStateChangeAtMs = entry->registeredAtMs;
-    entry->lastDiscoverySeenAtMs = entry->registeredAtMs;
     entry->camera = target;
     entry->camera.rtspPort = entry->settings.cameraRtspPort;
     copySettingText(entry->settings.cameraName, String("Camera ") + entry->id + " - " + target.ip.toString());
@@ -1029,7 +956,7 @@ void loadRuntimeSettings()
             char key[12];
             snprintf(key, sizeof(key), "c%08lx", static_cast<unsigned long>(id));
             const size_t size = storage.getBytesLength(key);
-            const CameraPolicy::StoredRecordLength recordLength = CameraPolicy::classifyStoredRecordLength(size, sizeof(CameraRecordHeader) + 2, sizeof(CameraRecordHeaderV7) + 2200);
+            const CameraPolicy::StoredRecordLength recordLength = CameraPolicy::classifyStoredRecordLength(size, sizeof(CameraRecordHeaderV7) + 2, sizeof(CameraRecordHeaderV7) + 2200);
             if (recordLength == CameraPolicy::StoredRecordLength::MissingReserved) {
                 missingCameraIds++;
                 continue;
@@ -1050,29 +977,21 @@ void loadRuntimeSettings()
                 cameraRegistryFullyLoaded = false;
                 break;
             }
-            CameraRecordHeader* oldRecord = reinterpret_cast<CameraRecordHeader*>(bytes.get());
             CameraRecordHeaderV7* record = reinterpret_cast<CameraRecordHeaderV7*>(bytes.get());
-            const bool version7 = size >= sizeof(CameraRecordHeaderV7) + 5 && record->magic == CAMERA_RECORD_MAGIC_V7;
-            const uint32_t checksum = version7 ? record->checksum : oldRecord->checksum;
-            if (version7)
-                record->checksum = 0;
-            else
-                oldRecord->checksum = 0;
-            const bool headerValid = version7 ? record->id == id && record->schemaVersion == CAMERA_RECORD_SCHEMA_VERSION && record->payloadSize == sizeof(RuntimeSettings) && record->alternateCount <= CAMERA_ALTERNATE_ENDPOINT_CAPACITY : oldRecord->magic == CAMERA_RECORD_MAGIC && oldRecord->id == id && oldRecord->schemaVersion == RUNTIME_SETTINGS_SCHEMA_VERSION && oldRecord->payloadSize == sizeof(RuntimeSettings);
-            const uint16_t urlBytes = version7 ? record->urlBytes : oldRecord->urlBytes;
-            const uint16_t uuidBytes = version7 ? record->uuidBytes : oldRecord->uuidBytes;
-            size_t expected = (version7 ? sizeof(CameraRecordHeaderV7) : sizeof(CameraRecordHeader)) + urlBytes + uuidBytes;
-            if (version7) {
-                expected += record->serialBytes + record->manufacturerBytes + record->modelBytes + record->interfaceMacsBytes;
-                for (uint8_t index = 0; index < record->alternateCount; index++)
-                    expected += record->alternateBytes[index];
-            }
-            if (!headerValid || urlBytes == 0 || uuidBytes == 0 || (version7 && (record->serialBytes == 0 || record->manufacturerBytes == 0 || record->modelBytes == 0 || record->interfaceMacsBytes == 0)) || expected != size || settingsChecksumBytes(bytes.get(), size) != checksum) {
+            const uint32_t checksum = record->checksum;
+            record->checksum = 0;
+            const bool headerValid = record->magic == CAMERA_RECORD_MAGIC_V7 && record->id == id && record->schemaVersion == CAMERA_RECORD_SCHEMA_VERSION && record->payloadSize == sizeof(RuntimeSettings) && record->alternateCount <= CAMERA_ALTERNATE_ENDPOINT_CAPACITY;
+            const uint16_t urlBytes = record->urlBytes;
+            const uint16_t uuidBytes = record->uuidBytes;
+            size_t expected = sizeof(CameraRecordHeaderV7) + urlBytes + uuidBytes + record->serialBytes + record->manufacturerBytes + record->modelBytes + record->interfaceMacsBytes;
+            for (uint8_t index = 0; headerValid && index < record->alternateCount; index++)
+                expected += record->alternateBytes[index];
+            if (!headerValid || urlBytes == 0 || uuidBytes == 0 || record->serialBytes == 0 || record->manufacturerBytes == 0 || record->modelBytes == 0 || record->interfaceMacsBytes == 0 || expected != size || settingsChecksumBytes(bytes.get(), size) != checksum) {
                 lastRegistryResult = String("Integrity check failed: camera ") + id;
                 cameraRegistryFullyLoaded = false;
                 continue;
             }
-            const char* url = reinterpret_cast<const char*>(bytes.get() + (version7 ? sizeof(CameraRecordHeaderV7) : sizeof(CameraRecordHeader)));
+            const char* url = reinterpret_cast<const char*>(bytes.get() + sizeof(CameraRecordHeaderV7));
             const char* uuid = url + urlBytes;
             if (url[urlBytes - 1] != '\0' || uuid[uuidBytes - 1] != '\0' || memchr(url, '\0', urlBytes - 1) != nullptr || memchr(uuid, '\0', uuidBytes - 1) != nullptr) {
                 lastRegistryResult = String("Invalid address: camera ") + id;
@@ -1082,7 +1001,7 @@ void loadRuntimeSettings()
             ParsedUrl parsed;
             String error;
             const bool endpointKnown = url[0] != '\0';
-            const RuntimeSettings& values = version7 ? record->values : oldRecord->values;
+            const RuntimeSettings& values = record->values;
             if ((endpointKnown && (!parseHttpUrl(url, parsed) || parsed.secure)) || !validateRuntimeSettings(values, error)) {
                 lastRegistryResult = String("Invalid configuration: camera ") + id;
                 cameraRegistryFullyLoaded = false;
@@ -1099,41 +1018,39 @@ void loadRuntimeSettings()
             entry->settingsLoadedFromNvs = true;
             entry->registeredAtMs = millis();
             entry->lastStateChangeAtMs = entry->registeredAtMs;
-            entry->camera.valid = endpointKnown && (!version7 || (record->reserved & 1) != 0);
+            entry->camera.valid = endpointKnown && (record->reserved & 1) != 0;
             entry->camera.ip = parsed.ip;
             entry->camera.onvifPort = parsed.port;
             entry->camera.rtspPort = entry->settings.cameraRtspPort;
             entry->camera.onvifPath = parsed.path;
             entry->camera.onvifUrl = url;
             entry->camera.endpointUuid = uuid;
-            if (version7) {
-                const char* cursor = uuid + uuidBytes;
-                const auto readField = [&](uint16_t length, String& result) {
-                    if (length == 0 || cursor[length - 1] != '\0' || memchr(cursor, '\0', length - 1) != nullptr)
-                        return false;
-                    result = cursor;
-                    cursor += length;
-                    return true;
-                };
-                if (!readField(record->serialBytes, entry->camera.serialNumber) || !readField(record->manufacturerBytes, entry->camera.manufacturer) || !readField(record->modelBytes, entry->camera.model) || !readField(record->interfaceMacsBytes, entry->camera.interfaceMacs)) {
-                    lastRegistryResult = String("Invalid identity: camera ") + id;
-                    cameraRegistryFullyLoaded = false;
-                    continue;
-                }
-                bool alternateValid = true;
-                for (uint8_t index = 0; index < record->alternateCount; index++) {
-                    String& alternative = entry->alternateOnvifUrls[index];
-                    ParsedUrl parsedAlternative;
-                    alternateValid = readField(record->alternateBytes[index], alternative) && parseHttpUrl(alternative, parsedAlternative) && !parsedAlternative.secure;
-                    if (!alternateValid)
-                        break;
-                    entry->alternateOnvifCount++;
-                }
-                if (!alternateValid) {
-                    lastRegistryResult = String("Invalid alternate addresses: camera ") + id;
-                    cameraRegistryFullyLoaded = false;
-                    continue;
-                }
+            const char* cursor = uuid + uuidBytes;
+            const auto readField = [&](uint16_t length, String& result) {
+                if (length == 0 || cursor[length - 1] != '\0' || memchr(cursor, '\0', length - 1) != nullptr)
+                    return false;
+                result = cursor;
+                cursor += length;
+                return true;
+            };
+            if (!readField(record->serialBytes, entry->camera.serialNumber) || !readField(record->manufacturerBytes, entry->camera.manufacturer) || !readField(record->modelBytes, entry->camera.model) || !readField(record->interfaceMacsBytes, entry->camera.interfaceMacs)) {
+                lastRegistryResult = String("Invalid identity: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
+            }
+            bool alternateValid = true;
+            for (uint8_t index = 0; index < record->alternateCount; index++) {
+                String& alternative = entry->alternateOnvifUrls[index];
+                ParsedUrl parsedAlternative;
+                alternateValid = readField(record->alternateBytes[index], alternative) && parseHttpUrl(alternative, parsedAlternative) && !parsedAlternative.secure;
+                if (!alternateValid)
+                    break;
+                entry->alternateOnvifCount++;
+            }
+            if (!alternateValid) {
+                lastRegistryResult = String("Invalid alternate addresses: camera ") + id;
+                cameraRegistryFullyLoaded = false;
+                continue;
             }
             loadRebootLimiter(*entry);
             *link = std::move(entry);
@@ -1145,83 +1062,9 @@ void loadRuntimeSettings()
     nextCameraId = lastId + 1;
 
     if (!globalValid && cameraRegistryFullyLoaded) {
-        MigrationSettingsBlob migration{};
-        bool migrate = false;
-        if (storage.begin(SETTINGS_NVS_NAMESPACE, true)) {
-            migrate = storage.getBytesLength(SETTINGS_NVS_KEY) == sizeof(migration) && storage.getBytes(SETTINGS_NVS_KEY, &migration, sizeof(migration)) == sizeof(migration) && migration.magic == SETTINGS_MAGIC && migration.schemaVersion == 5 && migration.payloadSize == sizeof(MigrationSettingsV5) && migration.checksum == settingsChecksum(migration.values);
-            storage.end();
-        }
-        std::unique_ptr<CameraContext> entry(new (std::nothrow) CameraContext());
-        if (!entry) {
-            lastRegistryResult = "Not enough memory to migrate the registry";
-            return;
-        }
-        entry->id = 1;
-        entry->settings = makeDefaultRuntimeSettings(true);
-        if (migrate) {
-            memcpy(&globalSettings.cameraAlertLedBlinkIntervalMs, &migration.values.cameraAlertLedBlinkIntervalMs, sizeof(globalSettings.cameraAlertLedBlinkIntervalMs));
-            memcpy(&globalSettings.discoveryTimeoutMs, &migration.values.discoveryTimeoutMs, sizeof(globalSettings.discoveryTimeoutMs));
-            memcpy(&globalSettings.emailRetryIntervalMs, &migration.values.emailRetryIntervalMs, sizeof(globalSettings.emailRetryIntervalMs));
-            memcpy(&globalSettings.enableAutomaticSubnetScan, &migration.values.enableAutomaticSubnetScan, sizeof(globalSettings.enableAutomaticSubnetScan));
-            memcpy(&globalSettings.enableCameraAlertLed, &migration.values.enableCameraAlertLed, sizeof(globalSettings.enableCameraAlertLed));
-            memcpy(&globalSettings.localHostname, &migration.values.localHostname, sizeof(globalSettings.localHostname));
-            memcpy(&globalSettings.rediscoveryIntervalMs, &migration.values.rediscoveryIntervalMs, sizeof(globalSettings.rediscoveryIntervalMs));
-            memcpy(&globalSettings.scanConnectTimeoutMs, &migration.values.scanConnectTimeoutMs, sizeof(globalSettings.scanConnectTimeoutMs));
-            memcpy(&globalSettings.statusRefreshIntervalMs, &migration.values.statusRefreshIntervalMs, sizeof(globalSettings.statusRefreshIntervalMs));
-            memcpy(&globalSettings.subnetScanIntervalMs, &migration.values.subnetScanIntervalMs, sizeof(globalSettings.subnetScanIntervalMs));
-            memcpy(&globalSettings.wifiConnectTimeoutMs, &migration.values.wifiConnectTimeoutMs, sizeof(globalSettings.wifiConnectTimeoutMs));
-            memcpy(&entry->settings.cameraName, &migration.values.cameraName, sizeof(entry->settings.cameraName));
-            memcpy(&entry->settings.cameraPassword, &migration.values.cameraPassword, sizeof(entry->settings.cameraPassword));
-            memcpy(&entry->settings.cameraRtspPort, &migration.values.cameraRtspPort, sizeof(entry->settings.cameraRtspPort));
-            memcpy(&entry->settings.cameraUsername, &migration.values.cameraUsername, sizeof(entry->settings.cameraUsername));
-            memcpy(&entry->settings.emailOnIpChange, &migration.values.emailOnIpChange, sizeof(entry->settings.emailOnIpChange));
-            memcpy(&entry->settings.enableEmailAlerts, &migration.values.enableEmailAlerts, sizeof(entry->settings.enableEmailAlerts));
-            memcpy(&entry->settings.enableOnvifAutoReboot, &migration.values.enableOnvifAutoReboot, sizeof(entry->settings.enableOnvifAutoReboot));
-            memcpy(&entry->settings.failuresBeforeOffline, &migration.values.failuresBeforeOffline, sizeof(entry->settings.failuresBeforeOffline));
-            memcpy(&entry->settings.failuresBeforeRediscovery, &migration.values.failuresBeforeRediscovery, sizeof(entry->settings.failuresBeforeRediscovery));
-            memcpy(&entry->settings.feedMinIntervalMs, &migration.values.feedMinIntervalMs, sizeof(entry->settings.feedMinIntervalMs));
-            memcpy(&entry->settings.feedTargetCycleMs, &migration.values.feedTargetCycleMs, sizeof(entry->settings.feedTargetCycleMs));
-            memcpy(&entry->settings.healthCheckIntervalMs, &migration.values.healthCheckIntervalMs, sizeof(entry->settings.healthCheckIntervalMs));
-            memcpy(&entry->settings.maxOnvifRebootAttemptsPerWindow, &migration.values.maxOnvifRebootAttemptsPerWindow, sizeof(entry->settings.maxOnvifRebootAttemptsPerWindow));
-            memcpy(&entry->settings.onvifRebootCooldownMs, &migration.values.onvifRebootCooldownMs, sizeof(entry->settings.onvifRebootCooldownMs));
-            memcpy(&entry->settings.onvifRebootGraceMs, &migration.values.onvifRebootGraceMs, sizeof(entry->settings.onvifRebootGraceMs));
-            memcpy(&entry->settings.onvifRebootWindowMs, &migration.values.onvifRebootWindowMs, sizeof(entry->settings.onvifRebootWindowMs));
-            memcpy(&entry->settings.serviceResponseTimeoutMs, &migration.values.serviceResponseTimeoutMs, sizeof(entry->settings.serviceResponseTimeoutMs));
-            memcpy(&entry->settings.snapshotFailuresBeforeReresolve, &migration.values.snapshotFailuresBeforeReresolve, sizeof(entry->settings.snapshotFailuresBeforeReresolve));
-            memcpy(&entry->settings.snapshotHttpTimeoutMs, &migration.values.snapshotHttpTimeoutMs, sizeof(entry->settings.snapshotHttpTimeoutMs));
-            memcpy(&entry->settings.snapshotProfileMatch, &migration.values.snapshotProfileMatch, sizeof(entry->settings.snapshotProfileMatch));
-            memcpy(&entry->settings.snapshotResolveRetryIntervalMs, &migration.values.snapshotResolveRetryIntervalMs, sizeof(entry->settings.snapshotResolveRetryIntervalMs));
-            memcpy(&entry->settings.startupGraceMs, &migration.values.startupGraceMs, sizeof(entry->settings.startupGraceMs));
-            memcpy(&entry->settings.successesBeforeRecovery, &migration.values.successesBeforeRecovery, sizeof(entry->settings.successesBeforeRecovery));
-            memcpy(&entry->settings.tcpConnectTimeoutMs, &migration.values.tcpConnectTimeoutMs, sizeof(entry->settings.tcpConnectTimeoutMs));
-            memcpy(&entry->settings.videoFailuresBeforeAlert, &migration.values.videoFailuresBeforeAlert, sizeof(entry->settings.videoFailuresBeforeAlert));
-            memcpy(&entry->settings.videoFailuresBeforeReboot, &migration.values.videoFailuresBeforeReboot, sizeof(entry->settings.videoFailuresBeforeReboot));
-        }
-        String error;
-        if (!validateGlobalSettings(globalSettings, error) || !validateRuntimeSettings(entry->settings, error)) {
-            lastRegistryResult = "Previous configuration invalid; data preserved in NVS";
-            return;
-        }
-        const bool targetLoaded = lastId == 0 && (loadCameraTarget(*entry) || loadCameraIpHint(*entry));
-        if (targetLoaded) {
-            entry->registeredAtMs = millis();
-            entry->lastStateChangeAtMs = entry->registeredAtMs;
-            if (!persistCamera(*entry)) {
-                lastRegistryResult = "Failed to migrate the registry; previous configuration preserved";
-                return;
-            }
-            cameras = std::move(entry);
-            cameraCount = 1;
-            nextCameraId = 2;
-        }
         if (saveGlobalSettingsToNvs(globalSettings)) {
             settingsLoadedFromNvs = true;
-            if ((targetLoaded || lastId != 0) && storage.begin(SETTINGS_NVS_NAMESPACE, false)) {
-                storage.remove(SETTINGS_NVS_KEY);
-                storage.remove(SETTINGS_DEFAULTS_REVISION_KEY);
-                storage.end();
-            }
-            lastRegistryResult = migrate ? "Previous configuration migrated to the camera registry" : "Initial registry ready";
+            lastRegistryResult = "Initial registry ready";
         } else {
             lastRegistryResult = "Failed to write global settings";
         }
@@ -1231,11 +1074,6 @@ void loadRuntimeSettings()
             lastRegistryResult += String("; ") + missingCameraIds + " missing IDs reserved";
     }
     lastSettingsResult = settingsLoadedFromNvs ? "Settings loaded from NVS" : "Using factory values";
-}
-
-void recordRuntimeSettingsContext(const char* source, uint8_t flags)
-{
-    PersistentLog::record(PersistentLog::Event::SettingsContext, PersistentLog::Outcome::Success, source, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, globalSettings.scanConnectTimeoutMs, flags, PersistentLog::Level::Info, true);
 }
 
 String makeSettingsWriteToken()
@@ -1421,9 +1259,6 @@ void resolveActiveIncident(CameraContext& ctx)
         return;
     }
 
-    const IncidentKind resolvedIncident = ctx.activeIncident;
-    const uint32_t incidentDurationMs = ctx.incidentStartedAtMs == 0 ? 0 : millis() - ctx.incidentStartedAtMs;
-
     if (ctx.incidentAlertSent && ctx.settings.enableEmailAlerts) {
         ctx.recoveryIncident = ctx.activeIncident;
         ctx.recoveryIncidentDurationMs = millis() - ctx.incidentStartedAtMs;
@@ -1434,7 +1269,6 @@ void resolveActiveIncident(CameraContext& ctx)
     ctx.incidentAlertSent = false;
     ctx.activeIncident = IncidentKind::None;
     ctx.incidentStartedAtMs = 0;
-    PersistentLog::record(PersistentLog::Event::Incident, PersistentLog::Outcome::Success, incidentName(resolvedIncident), ctx.camera.ip, ctx.camera.onvifPort, 0, incidentDurationMs, static_cast<uint32_t>(resolvedIncident), PersistentLog::FlagScheduled, PersistentLog::Level::Info, true, 0, ctx.id);
 }
 
 void writeCameraAlertLed(bool on)
@@ -1834,7 +1668,7 @@ void setState(CameraContext& ctx, CameraState newState, const String& event)
 
 bool resendConfigured()
 {
-    return String(RESEND_API_KEY).startsWith("re_") && String(RESEND_API_KEY).indexOf("PASTE_YOUR") < 0 && String(RESEND_FROM).indexOf("yourdomain") < 0 && String(ALERT_EMAIL).indexOf("example.com") < 0;
+    return String(RESEND_API_KEY).startsWith("re_") && String(RESEND_FROM).indexOf("example.com") < 0 && String(ALERT_EMAIL).indexOf("example.com") < 0;
 }
 
 class BoundedStringStream : public Stream {
@@ -2005,7 +1839,6 @@ bool sendResendEmail(CameraContext& ctx, const String& subject, const String& ht
         ctx.lastEmailResult = currentTimestamp() + " - sent; HTTP " + String(statusCode) + "; " + responseBody;
 
         Serial.println(ctx.lastEmailResult);
-        PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Success, "resend_email", IPAddress(), 443, statusCode, millis() - startedAtMs, static_cast<uint32_t>(payload.length()), PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
         return true;
     }
 

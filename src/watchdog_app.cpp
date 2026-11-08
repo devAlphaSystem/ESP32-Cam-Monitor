@@ -401,7 +401,6 @@ bool connectToWiFi()
     Serial.printf("Subnet mask: %s\n", WiFi.subnetMask().toString().c_str());
     Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
     wifiWasConnected = true;
-    PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Success, "station", WiFi.gatewayIP(), 0, static_cast<int>(WiFi.status()), millis() - connectStartedAtMs, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
 
     return true;
 }
@@ -655,9 +654,6 @@ void setup()
     Serial.printf("Flash: %u MB\n", ESP.getFlashChipSize() / 1024U / 1024U);
     releaseUnusedBluetoothMemory();
     Serial.printf("Initial free heap: %u bytes\n", ESP.getFreeHeap());
-    PersistentLog::record(PersistentLog::Event::SystemBoot, PersistentLog::Outcome::Success, resetReasonName(esp_reset_reason()), IPAddress(), 0, static_cast<int>(esp_reset_reason()), 0, ESP.getFreeHeap(), PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
-    PersistentLog::record(PersistentLog::Event::RuntimeContext, PersistentLog::Outcome::Success, FIRMWARE_VERSION, IPAddress(), 0, RUNTIME_SETTINGS_SCHEMA_VERSION, 0, RUNTIME_SETTINGS_DEFAULTS_REVISION, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
-    recordRuntimeSettingsContext(settingsLoadedFromNvs ? "nvs" : "factory", PersistentLog::FlagScheduled);
 
     wifiSetupBegin();
     if (!connectToWiFi()) {
@@ -766,9 +762,6 @@ void loop()
             }
         }
     }
-    const SntpReferenceSnapshot sntpReference = snapshotSntpReference();
-    if (sntpReference.synchronized && sntpReference.generation != loggedSntpSynchronizationGeneration)
-        loggedSntpSynchronizationGeneration = sntpReference.generation;
     if (espRestartRequestedAtMs != 0 && millis() - espRestartRequestedAtMs >= ADMIN_RESTART_DELAY_MS) {
         PersistentLog::record(PersistentLog::Event::SystemRestart, PersistentLog::Outcome::Started, "admin_request", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
         PersistentLog::flush();

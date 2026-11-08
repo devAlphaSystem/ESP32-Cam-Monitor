@@ -7,8 +7,6 @@
 namespace PersistentLogFormat {
 
 constexpr uint32_t RECORD_MAGIC = 0x434C4F47UL;
-constexpr uint16_t LEGACY_RECORD_SCHEMA_VERSION = 1;
-constexpr uint16_t CONTEXT_RECORD_SCHEMA_VERSION = 2;
 constexpr uint16_t RECORD_SCHEMA_VERSION = 3;
 constexpr size_t STORED_CONTEXT_BYTES = 8;
 constexpr size_t STORED_DETAIL_CAPACITY = PersistentLog::DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
@@ -58,7 +56,7 @@ inline uint32_t recordChecksum(const StoredRecord& record)
 
 inline bool validRecord(const StoredRecord& record)
 {
-    return record.magic == RECORD_MAGIC && (record.schemaVersion == LEGACY_RECORD_SCHEMA_VERSION || record.schemaVersion == CONTEXT_RECORD_SCHEMA_VERSION || record.schemaVersion == RECORD_SCHEMA_VERSION) && record.checksum == recordChecksum(record);
+    return record.magic == RECORD_MAGIC && record.schemaVersion == RECORD_SCHEMA_VERSION && record.checksum == recordChecksum(record);
 }
 
 inline uint32_t readUint32(const uint8_t* source)

@@ -8,16 +8,16 @@ extern const char WIFI_SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#24262a">
+<meta name="theme-color" content="#0b0b0c">
 <link rel="icon" href="data:,">
 <title>Wi-Fi · Camera Watchdog</title>
 <style>
 *,*::before,*::after{box-sizing:border-box}
 :root{
-  --bg:#18191b;--surface:#202225;--surface-alt:#24262a;--surface-hover:#2d3035;
-  --line:#34373d;--line-strong:#626973;--text:#e2e4e7;--muted:#b4bac3;--dim:#969ea9;
-  --ok:#80b99a;--warn:#d4b078;--bad:#dc949b;--info:#91b4d5;--accent:#8ab0dc;
-  --button-primary:#355b85;--button-primary-hover:#406b9c;--on-primary:#f0f3f7;
+  --bg:#0b0b0c;--surface:#161617;--surface-alt:#1d1d1f;--surface-hover:#252527;
+  --line:#2a2a2d;--line-strong:#6b6b73;--text:#ececee;--muted:#a4a4ab;--dim:#8b8b93;
+  --ok:#80b99a;--warn:#d4b078;--bad:#dc949b;--info:#91b4d5;--accent:#4da3ff;
+  --button-primary:#1f66c7;--button-primary-hover:#2a74d6;--on-primary:#ffffff;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --sans:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
 }
@@ -33,7 +33,7 @@ main{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) ma
 .brand{margin-bottom:20px}
 .brand h1{font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
 .brand p{color:var(--muted);font-size:13px}
-.card{margin-top:16px;padding:18px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.card{margin-top:16px;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .card h2{font-size:15px;font-weight:600;margin-bottom:4px}
 .hint{color:var(--muted);font-size:13px;line-height:1.55}
 .status{display:flex;align-items:center;gap:12px}
@@ -42,27 +42,28 @@ main{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) ma
 .status b{display:block;font-weight:600;overflow-wrap:anywhere}
 .status>div{flex:1;min-width:0}
 .status small{display:block;color:var(--muted);font-size:12px}
-.notice{margin-top:12px;padding:10px 12px;border-left:2px solid var(--info);background:var(--surface-alt);color:var(--muted);font-size:13px;line-height:1.55}
-.notice.warn{border-left-color:var(--warn)}
-.notice.bad{border-left-color:var(--bad);color:var(--text)}
+.notice{margin-top:12px;padding:10px 12px;border:1px solid #2b3d52;border-radius:6px;background:#1a2430;color:var(--muted);font-size:13px;line-height:1.55}
+.notice.warn{border-color:#806b49;background:#2a2419}
+.notice.bad{border-color:#85555b;background:#2a1c1f;color:var(--text)}
+#savedRow:not([hidden]){display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px}
 .head-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line-strong);border-radius:4px;background:var(--surface);color:var(--text);font-weight:500;cursor:pointer;text-decoration:none}
-.btn:hover{background:var(--surface-hover)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--text);font-weight:500;cursor:pointer;text-decoration:none}
+@media(hover:hover){.btn:hover{background:var(--surface-hover)}}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.btn.primary{width:100%;background:var(--button-primary);border-color:#6f98c7;color:var(--on-primary)}
-.btn.primary:hover:not(:disabled){background:var(--button-primary-hover)}
-.btn.small{min-height:36px;padding:0 12px;font-size:13px}
-.btn.link{border:0;background:none;color:var(--accent);padding:0 4px;min-height:36px}
+.btn.primary{width:100%;background:var(--button-primary);border-color:var(--button-primary);color:var(--on-primary)}
+@media(hover:hover){.btn.primary:hover:not(:disabled){background:var(--button-primary-hover);border-color:var(--button-primary-hover)}}
+.btn.small{min-height:40px;padding:0 12px;font-size:13px}
+.btn.link{border:0;background:none;color:var(--accent);padding:0}
 .spin{width:14px;height:14px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:turn .8s linear infinite}
 @keyframes turn{to{transform:rotate(360deg)}}
 .networks{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
-.net{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:1px solid var(--line);border-radius:4px;background:var(--surface-alt);color:var(--text);text-align:left;cursor:pointer}
-.net:hover{background:var(--surface-hover)}
-.net[aria-pressed="true"]{border-color:var(--accent);background:#25303d}
+.net{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--surface-alt);color:var(--text);text-align:left;cursor:pointer}
+@media(hover:hover){.net:hover{background:var(--surface-hover)}}
+.net[aria-pressed="true"]{border-color:var(--accent);background:#1a2430}
 .net-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .net-meta{display:flex;align-items:center;gap:8px;flex:none;color:var(--dim);font-size:12px}
-.tag{padding:1px 6px;border-radius:3px;background:#26323e;color:var(--info);font-size:11px;font-weight:500}
-.tag.ok{background:#24352c;color:var(--ok)}
+.tag{padding:1px 6px;border-radius:4px;background:#1a2430;color:var(--info);font-size:11px;font-weight:500}
+.tag.ok{background:#18261e;color:var(--ok)}
 .lock{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px;flex:none}
 .bars i{width:4px;background:var(--line-strong);border-radius:1px}
@@ -73,11 +74,11 @@ main{max-width:520px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) ma
 .empty{padding:20px 8px;text-align:center;color:var(--dim);font-size:14px}
 .field{margin-top:14px}
 .field label{display:block;margin-bottom:6px;font-size:13px;font-weight:500}
-.field input{width:100%;height:46px;padding:0 12px;border:1px solid var(--line-strong);border-radius:4px;background:var(--surface);color:var(--text);font-size:16px}
+.field input{width:100%;height:46px;padding:0 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px}
 .field input:focus{border-color:var(--accent)}
 .pw{position:relative}
 .pw input{padding-right:84px}
-.pw button{position:absolute;right:4px;top:4px;height:38px;padding:0 12px;border:0;border-radius:3px;background:var(--surface-alt);color:var(--accent);font-size:13px;font-weight:500;cursor:pointer}
+.pw button{position:absolute;right:4px;top:4px;height:38px;padding:0 12px;border:0;border-radius:4px;background:var(--surface-alt);color:var(--accent);font-size:13px;font-weight:500;cursor:pointer}
 .sel-name{display:flex;align-items:center;gap:8px;margin-bottom:2px;font-weight:600;overflow-wrap:anywhere}
 .actions{margin-top:16px;display:flex;flex-direction:column;gap:10px}
 .progress{height:4px;margin:16px 0 12px;background:var(--line);border-radius:2px;overflow:hidden}
@@ -103,7 +104,7 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
     <div><h1>Camera Watchdog</h1><p>Wi-Fi setup</p></div>
   </div>
 
-  <section class="card" id="statusCard" aria-live="polite">
+  <section class="card" aria-live="polite">
     <div class="status" id="statusRow"><span class="dot"></span><div><b id="statusTitle">Checking…</b><small id="statusSub"></small></div><span class="bars" id="statusBars" hidden><i></i><i></i><i></i><i></i></span></div>
     <div class="notice" id="viaNotice" hidden></div>
     <div class="notice warn" id="savedRow" hidden><span id="savedText"></span> <button class="btn link" type="button" id="forgetBtn">Forget saved network</button></div>
@@ -160,7 +161,7 @@ const $ = id => document.getElementById(id);
 const FLAG = 'wd_wifi_test';
 const QUALITY = { excellent: 'Excellent', good: 'Good', fair: 'Fair', weak: 'Weak', very_weak: 'Very weak' };
 const MESSAGES = {
-  network_not_found: 'We could not find that network. Check the name and move the ESP32 closer to the router.',
+  network_not_found: 'That network was not found. Check the name and move the ESP32 closer to the router.',
   wrong_password: 'The password is incorrect. Check it and try again.',
   association_refused: 'The router refused the connection. It may have reached its device limit or use a MAC filter.',
   timeout: 'The connection took too long. Check the password and the signal, and try again.',
@@ -324,7 +325,7 @@ function showResult(test) {
   const ok = test.state === 'success' && test.saved;
   head.className = 'result-icon ' + (ok ? 'ok' : 'bad');
   head.innerHTML = ok ? '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-  head.appendChild(document.createTextNode(ok ? 'Connected and saved!' : 'Could not connect'));
+  head.appendChild(document.createTextNode(ok ? 'Connected and saved' : 'Could not connect'));
   show('resultDetails', test.state === 'success');
   show('resultAgain', !ok);
   show('resultWarn', false);
@@ -365,7 +366,7 @@ async function poll() {
       const test = status.test;
       if (test.state === 'running') {
         const seconds = (test.elapsedMs || 0) / 1000;
-        $('progressText').textContent = test.phase === 'measuring' ? 'Connected! Measuring the signal quality…' : seconds < 4 ? 'Looking for the network…' : seconds < 9 ? 'Authenticating with the router…' : 'Waiting for the router to assign an IP address…';
+        $('progressText').textContent = test.phase === 'measuring' ? 'Connected. Measuring the signal quality…' : seconds < 4 ? 'Looking for the network…' : seconds < 9 ? 'Authenticating with the router…' : 'Waiting for the router to assign an IP address…';
       } else if (test.state === 'success' || test.state === 'failed') {
         showResult(test);
         return;

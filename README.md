@@ -35,7 +35,6 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
    | Field                                                           | What it is for                                                                                                                              |
    | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
    | `WIFI_SSID` and `WIFI_PASSWORD`                                 | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later.                                  |
-   | `CAMERA_ONVIF_USERNAME_VALUE` and `CAMERA_ONVIF_PASSWORD_VALUE` | ONVIF username and password of the camera, used as the default for new cameras. Leave them empty if the camera does not ask for a password. |
    | `DASHBOARD_ADMIN_PASSWORD_VALUE`                                | Password the dashboard asks for before saving settings and running actions. We recommend setting one.                                       |
    | `RESEND_API_KEY`, `RESEND_FROM`, and `ALERT_EMAIL`              | Resend key, sender, and recipient of the alerts. The key starts with `re_`. Without it, the dashboard works and only the emails stay off.   |
 
@@ -77,7 +76,7 @@ To protect the setup network with a password, set `WIFI_SETUP_AP_PASSWORD` in `i
 
 Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab shows every registered camera with its latest image. If you see none, wait for discovery, which runs every 30 seconds by default, or open Settings, Actions, and use Rediscover cameras.
 
-If the camera does not appear, check that it and the ESP32 are on the same subnet and that ONVIF is turned on in the camera app. As an alternative, enter the IP in `CAMERA_IP_HINT` in the file `include/app_config.h` and upload the firmware again.
+If the camera does not appear, check that it and the ESP32 are on the same subnet and that ONVIF is turned on in the camera app.
 
 The sidebar lists the registered cameras with their state. Select a camera there to open it, or to switch the camera that the other tabs show.
 

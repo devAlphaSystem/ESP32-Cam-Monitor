@@ -2,7 +2,6 @@
 
 namespace CameraWatchdog {
 
-void sendJsonResponse(int statusCode, const String& json);
 void appendLiveStreamJson(String& json);
 
 const char* factoryResetStateName()
@@ -610,8 +609,6 @@ String buildStatusJson(CameraContext& ctx)
     json += ctx.inconclusiveHealthChecks;
     json += ",\"consecutiveFailures\":";
     json += ctx.consecutiveFailures;
-    json += ",\"consecutiveImageFailures\":";
-    json += ctx.consecutiveFailures;
     json += ",\"consecutiveControlFailures\":";
     json += ctx.consecutiveControlFailures;
     json += ",\"consecutiveInconclusiveChecks\":";
@@ -698,10 +695,8 @@ String persistentLogTimestamp(const PersistentLog::Entry& entry)
 uint32_t persistentLogTimeoutMs(const PersistentLog::Entry& entry)
 {
     switch (entry.event) {
-        case PersistentLog::Event::TcpScan:
         case PersistentLog::Event::OnvifProbe:
         case PersistentLog::Event::RtspProbe:
-        case PersistentLog::Event::SettingsContext:
             return entry.value;
         default:
             return 0;
@@ -725,7 +720,7 @@ void appendPersistentLogJson(String& json, const PersistentLog::Entry& entry)
     json += entry.cameraId;
     json += ",\"cameraName\":\"";
     const CameraContext* sourceCamera = findCamera(entry.cameraId);
-    appendJsonEscaped(json, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("History without identification") : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
+    appendJsonEscaped(json, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
     json += '"';
     json += ",\"timestamp\":\"";
     json += persistentLogTimestamp(entry);
@@ -816,7 +811,7 @@ void handlePersistentLogs()
     for (; index < total && returned < limit; index++) {
         PersistentLog::Entry entry;
 
-        if (!PersistentLog::readNewest(index, entry) || entry.level == PersistentLog::Level::Info) {
+        if (!PersistentLog::readNewest(index, entry)) {
             continue;
         }
 
@@ -911,7 +906,7 @@ void appendPersistentLogCsv(String& csv, const PersistentLog::Entry& entry)
     csv += entry.cameraId;
     csv += ';';
     const CameraContext* sourceCamera = findCamera(entry.cameraId);
-    appendCsvText(csv, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.schemaVersion < 3 ? String("History without identification") : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
+    appendCsvText(csv, sourceCamera != nullptr ? String(sourceCamera->settings.cameraName) : entry.cameraId == 0 ? String("System") : String("Camera ") + entry.cameraId);
     csv += "\r\n";
 }
 
@@ -935,7 +930,7 @@ void handlePersistentLogsExport()
         const size_t newestOffset = total - chronological - 1;
         PersistentLog::Entry entry;
 
-        if (!PersistentLog::readNewest(newestOffset, entry) || entry.level == PersistentLog::Level::Info) {
+        if (!PersistentLog::readNewest(newestOffset, entry)) {
             continue;
         }
 
@@ -1233,14 +1228,6 @@ bool parseGlobalSettingsRequest(GlobalSettings& candidate, String& error)
     } \
     candidate.field = numericValue
 
-#define READ_U16(field, argument, minimum, maximum) \
-    READ_U32(field, argument, minimum, maximum); \
-    candidate.field = static_cast<uint16_t>(numericValue)
-
-#define READ_U8(field, argument, minimum, maximum) \
-    READ_U32(field, argument, minimum, maximum); \
-    candidate.field = static_cast<uint8_t>(numericValue)
-
 #define READ_BOOL(field, argument) \
     if (!readBooleanSettingArgument(argument, candidate.field, error)) { \
         return false; \
@@ -1257,8 +1244,6 @@ bool parseGlobalSettingsRequest(GlobalSettings& candidate, String& error)
     READ_U32(cameraAlertLedBlinkIntervalMs, "cameraAlertLedBlinkIntervalMs", CAMERA_ALERT_LED_BLINK_INTERVAL_MIN_MS, CAMERA_ALERT_LED_BLINK_INTERVAL_MAX_MS);
     READ_U32(statusRefreshIntervalMs, "statusRefreshIntervalMs", STATUS_REFRESH_INTERVAL_MIN_MS, STATUS_REFRESH_INTERVAL_MAX_MS);
 #undef READ_BOOL
-#undef READ_U8
-#undef READ_U16
 #undef READ_U32
     return validateGlobalSettings(candidate, error);
 }
@@ -1931,14 +1916,6 @@ void handleLiveStart()
     sendJsonResponse(200, json);
 }
 
-void handleLiveStatus()
-{
-    String json;
-    json.reserve(560);
-    appendLiveStreamJson(json);
-    sendJsonResponse(200, json);
-}
-
 bool httpServerRunning = false;
 
 void startHttpServer()
@@ -1987,7 +1964,6 @@ void configureHttpServer()
     });
 
     httpServer.on("/api/live/start", HTTP_GET, handleLiveStart);
-    httpServer.on("/api/live/status", HTTP_GET, handleLiveStatus);
 
     httpServer.on("/api/settings", HTTP_GET, [] {
         bool globalScope = false;
@@ -2036,10 +2012,6 @@ void configureHttpServer()
 
     httpServer.on("/api/actions/reboot-esp32", HTTP_POST, [] {
         handleAdminAction(AdminAction::RestartEsp32);
-    });
-
-    httpServer.on("/health", HTTP_GET, [] {
-        httpServer.send(200, "text/plain", "ok");
     });
 
     httpServer.onNotFound([] {

@@ -207,7 +207,6 @@ void closeAccessPoint(const char* reason)
     apCloseAtMs = 0;
     syncAutoReconnect();
     Serial.printf("Setup network closed (%s).\n", reason);
-    PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Info, "setup_ap_closed", IPAddress(), 0, 0, millis() - apOpenedAtMs, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
 }
 
 void openAccessPoint()
@@ -356,7 +355,6 @@ void tickTest(uint32_t now)
         lastDisconnectReason = 0;
         WiFi.begin(testSsid, strlen(testPassword) > 0 ? testPassword : nullptr);
         Serial.printf("Testing Wi-Fi \"%s\"...\n", testSsid);
-        PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Started, "setup_test", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Info, true);
         return;
     }
     const uint32_t elapsed = now - testStartedAtMs;
@@ -708,7 +706,6 @@ void wifiSetupForgetStored()
         testState = TestState::Idle;
         testSaved = false;
     }
-    PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, "wifi_forgotten", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Info, true);
 }
 
 bool wifiSetupHoldsStation()

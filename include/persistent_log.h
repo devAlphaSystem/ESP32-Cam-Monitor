@@ -42,31 +42,23 @@ enum class Event : uint16_t {
     SystemRestart,
     WifiConnect,
     WifiDisconnect,
-    WifiReconnect,
-    CameraState,
+    CameraState = 5,
     Incident,
     HealthCheck,
     DiscoveryProbe,
     DiscoveryResult,
-    SubnetScan,
-    TcpScan,
-    OnvifProbe,
+    OnvifProbe = 12,
     OnvifSoap,
     SnapshotHttp,
     SnapshotTransfer,
     RtspProbe,
     EmailHttp,
-    SettingsSaved,
-    SettingsReset,
+    SettingsReset = 19,
     AdminAction,
     CameraReboot,
     PtzCommand,
-    SntpSync,
-    RuntimeContext,
-    SettingsContext,
-    CameraTargetLoad,
-    CameraTargetSave,
-    DiscoveryResponse,
+    SettingsContext = 25,
+    DiscoveryResponse = 28,
     LogsCleared
 };
 
@@ -80,7 +72,6 @@ enum Flag : uint8_t {
 };
 
 struct Entry {
-    uint16_t schemaVersion = 0;
     uint32_t sequence = 0;
     uint32_t epochSeconds = 0;
     uint32_t uptimeMs = 0;

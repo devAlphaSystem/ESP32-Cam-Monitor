@@ -1,18 +1,6 @@
 #include "runtime_settings.h"
-#include "secrets.h"
-
-#ifndef CAMERA_ONVIF_USERNAME_VALUE
-#define CAMERA_ONVIF_USERNAME_VALUE ""
-#endif
-
-#ifndef CAMERA_ONVIF_PASSWORD_VALUE
-#define CAMERA_ONVIF_PASSWORD_VALUE ""
-#endif
 
 namespace CameraWatchdog {
-
-static_assert(sizeof(CAMERA_ONVIF_USERNAME_VALUE) - 1 <= CAMERA_USERNAME_MAX_LENGTH, "Initial camera username exceeds the limit");
-static_assert(sizeof(CAMERA_ONVIF_PASSWORD_VALUE) - 1 <= CAMERA_PASSWORD_MAX_LENGTH, "Initial camera password exceeds the limit");
 
 GlobalSettings makeDefaultGlobalSettings()
 {
@@ -31,12 +19,10 @@ GlobalSettings makeDefaultGlobalSettings()
     return values;
 }
 
-RuntimeSettings makeDefaultRuntimeSettings(bool initialCredentials)
+RuntimeSettings makeDefaultRuntimeSettings()
 {
     RuntimeSettings values{};
     copySettingText(values.cameraName, CAMERA_NAME);
-    copySettingText(values.cameraUsername, initialCredentials ? CAMERA_ONVIF_USERNAME_VALUE : "");
-    copySettingText(values.cameraPassword, initialCredentials ? CAMERA_ONVIF_PASSWORD_VALUE : "");
     copySettingText(values.snapshotProfileMatch, CAMERA_SNAPSHOT_PROFILE_MATCH);
     values.cameraRtspPort = CAMERA_RTSP_PORT;
     values.healthCheckIntervalMs = HEALTH_CHECK_INTERVAL_MS;

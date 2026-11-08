@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <memory>
 #include <new>
-#include <esp_heap_caps.h>
 #include <nvs.h>
 #include <sys/time.h>
 #include <time.h>
@@ -35,10 +34,6 @@
 #include "persistent_log.h"
 #include "runtime_settings.h"
 #include "secrets.h"
-
-#ifndef DASHBOARD_ADMIN_PASSWORD_VALUE
-#define DASHBOARD_ADMIN_PASSWORD_VALUE ""
-#endif
 
 namespace CameraWatchdog {
 
@@ -204,8 +199,6 @@ struct OnvifPtzStatus {
 
 struct OnvifDeviceMetadata {
     bool loaded = false;
-    bool scopesLoaded = false;
-    bool timeLoaded = false;
     bool eventPropertiesLoaded = false;
     bool profileT = false;
     bool motionEvents = false;
@@ -315,10 +308,7 @@ struct CameraContext {
     RuntimeSettings settings = makeDefaultRuntimeSettings();
     unsigned long registeredAtMs = 0;
     unsigned long lastPreviewRequestAtMs = 0;
-    unsigned long lastDiscoverySeenAtMs = 0;
     uint32_t lastDiscoveryGeneration = 0;
-    unsigned long lastSuccessfulSnapshotHttpLogAtMs = 0;
-    unsigned long lastSuccessfulSnapshotTransferLogAtMs = 0;
     bool settingsLoadedFromNvs = false;
     bool pendingIpChangeEmail = false;
     std::unique_ptr<CameraContext> next;
@@ -415,7 +405,6 @@ struct CameraContext {
 
 extern WebServer httpServer;
 extern WiFiUDP discoveryUdp;
-extern Preferences preferences;
 extern SemaphoreHandle_t cameraIoMutex;
 extern uint16_t cameraIoDepth;
 
@@ -485,7 +474,6 @@ extern portMUX_TYPE sntpReferenceMux;
 extern bool espSntpSynchronized;
 extern unsigned long espSntpSynchronizedAtMs;
 extern uint32_t espSntpSynchronizationGeneration;
-extern uint32_t loggedSntpSynchronizationGeneration;
 extern esp_err_t bluetoothMemoryReleaseResult;
 extern esp_bt_controller_status_t bluetoothControllerStatusBeforeRelease;
 
@@ -497,7 +485,6 @@ bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values)
 bool saveGlobalSettingsToNvs(const GlobalSettings& values);
 bool validateGlobalSettings(const GlobalSettings& values, String& error);
 void loadRuntimeSettings();
-void recordRuntimeSettingsContext(const char* source, uint8_t flags);
 String makeSettingsWriteToken();
 bool adminPasswordConfigured();
 bool secureTextEquals(const String& supplied, const char* expected);
@@ -544,8 +531,6 @@ void maintainCameraSnapshotHttpSession(CameraContext& ctx);
 void resetCameraSnapshotHttpSession(CameraContext& ctx);
 void invalidateSnapshotTarget(CameraContext& ctx);
 void resetSnapshotProfileFailover(CameraContext& ctx);
-bool loadCameraTarget(CameraContext& ctx);
-bool loadCameraIpHint(CameraContext& ctx);
 bool discoverOnvifCameras(bool manualRequest = false, uint16_t contextId = 0);
 void maintainDiscoveryIdentityCandidates();
 ServiceProbe probeOnvif(CameraContext& ctx, const CameraTarget& target, uint16_t contextId = 0);
@@ -554,7 +539,7 @@ bool probeCameraIdentity(CameraContext& ctx, CameraTarget& target, uint16_t cont
 void maintainCameraClock(CameraContext& ctx);
 void invalidateOnvifServiceCatalog(CameraContext& ctx);
 String limitedOnvifText(String value, size_t maximumLength = 120);
-bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh = false, uint16_t contextId = 0);
+bool resolveOnvifServiceCatalog(CameraContext& ctx, uint16_t contextId = 0);
 void refreshOnvifDeviceMetadata(CameraContext& ctx);
 bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId = 0);
 int onvifPtzPresetIndex(CameraContext& ctx, const String& token);

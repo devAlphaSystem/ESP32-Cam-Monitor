@@ -38,7 +38,6 @@ struct Client {
     int fd = -1;
     bool needKey = true;
     bool discontinuity = true;
-    uint32_t joinedAtMs = 0;
 };
 
 enum class SendResult : uint8_t {
@@ -505,12 +504,9 @@ void acceptClient()
     }
 
     LiveStreamTarget target;
-    uint32_t generation = 0;
     taskENTER_CRITICAL(&targetMux);
     target = publishedTarget;
-    generation = publishedGeneration;
     taskEXIT_CRITICAL(&targetMux);
-    (void)generation;
 
     const char* cameraParameter = strstr(request, "camera=");
     const uint32_t requestedCamera = cameraParameter != nullptr ? static_cast<uint32_t>(strtoul(cameraParameter + 7, nullptr, 10)) : 0;
@@ -554,7 +550,6 @@ void acceptClient()
     slot->fd = fd;
     slot->needKey = true;
     slot->discontinuity = true;
-    slot->joinedAtMs = millis();
     statClientsServed = statClientsServed + 1;
     statClientCount = static_cast<uint8_t>(clientCount());
     Serial.printf("[live] viewer connected (%u active)\n", static_cast<unsigned>(clientCount()));
@@ -708,12 +703,10 @@ bool rtspTransact(const char* method, const char* uri, const char* extraHeaders,
 void captureAuthChallenge()
 {
     char challenge[300];
-    bool digest = false;
     for (size_t occurrence = 0; occurrence < 4; occurrence++) {
         if (!headerValue(headerBuffer, "WWW-Authenticate", challenge, sizeof(challenge), occurrence))
             break;
         if (equalsIgnoreCasePrefix(challenge, "Digest ")) {
-            digest = true;
             parameterValue(challenge + 7, "realm", session.authRealm, sizeof(session.authRealm));
             parameterValue(challenge + 7, "nonce", session.authNonce, sizeof(session.authNonce));
             char qop[32];
@@ -725,7 +718,6 @@ void captureAuthChallenge()
         if (equalsIgnoreCasePrefix(challenge, "Basic"))
             session.authScheme = 'b';
     }
-    (void)digest;
 }
 
 bool parseSdp(const char* sdp, const char* contentBase, const char* requestUrl)
@@ -898,7 +890,10 @@ bool startSession()
         }
         *separator = '\0';
     }
-    snprintf(session.sessionId, sizeof(session.sessionId), "%s", sessionHeader);
+    if (strlcpy(session.sessionId, sessionHeader, sizeof(session.sessionId)) >= sizeof(session.sessionId)) {
+        setLastError("rtsp_setup_failed");
+        return false;
+    }
 
     char transport[120];
     if (headerValue(headerBuffer, "Transport", transport, sizeof(transport))) {

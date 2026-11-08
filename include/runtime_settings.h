@@ -76,6 +76,6 @@ void copySettingText(char (&destination)[Size], const String& source)
 }
 
 GlobalSettings makeDefaultGlobalSettings();
-RuntimeSettings makeDefaultRuntimeSettings(bool initialCredentials = false);
+RuntimeSettings makeDefaultRuntimeSettings();
 
 }

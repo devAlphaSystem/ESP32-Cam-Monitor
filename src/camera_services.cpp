@@ -3,7 +3,6 @@
 
 namespace CameraWatchdog {
 
-constexpr char NVS_NAMESPACE[] = "camwatch";
 constexpr unsigned long ONVIF_CATALOG_FALLBACK_RETRY_MS = 5UL * 60UL * 1000UL;
 constexpr unsigned long ONVIF_PTZ_PRESET_REFRESH_INTERVAL_MS = 60UL * 1000UL;
 constexpr unsigned long ONVIF_PTZ_PRESET_RETRY_INTERVAL_MS = 15UL * 1000UL;
@@ -428,14 +427,9 @@ int openAuthenticatedCameraGet(CameraContext& ctx, const String& url, uint16_t c
         const int statusCode = request.GET();
         const bool requestAccepted = statusCode >= 200 && statusCode < 400;
         const unsigned long attemptFinishedAtMs = millis();
-        const bool logAttempt = !requestAccepted || ctx.lastSuccessfulSnapshotHttpLogAtMs == 0 || attemptFinishedAtMs - ctx.lastSuccessfulSnapshotHttpLogAtMs >= SNAPSHOT_SUCCESS_LOG_INTERVAL_MS;
 
-        if (logAttempt) {
-            PersistentLog::record(PersistentLog::Event::SnapshotHttp, requestAccepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, "camera_jpeg", logEndpoint.ip, logEndpoint.port, statusCode, attemptFinishedAtMs - attemptStartedAtMs, statusCode > 0 ? static_cast<uint32_t>(max(request.getSize(), 0)) : 0, static_cast<uint8_t>(PersistentLog::FlagOutbound | (connectionWasOpen ? PersistentLog::FlagConnectionReused : PersistentLog::FlagNone) | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), requestAccepted || (statusCode == 401 && !authenticationRetry && cameraCredentialsConfigured(ctx)) ? PersistentLog::Level::Info : PersistentLog::Level::Error, false, logContextId, ctx.id);
-
-            if (requestAccepted) {
-                ctx.lastSuccessfulSnapshotHttpLogAtMs = attemptFinishedAtMs;
-            }
+        if (!requestAccepted) {
+            PersistentLog::record(PersistentLog::Event::SnapshotHttp, PersistentLog::Outcome::Failure, "camera_jpeg", logEndpoint.ip, logEndpoint.port, statusCode, attemptFinishedAtMs - attemptStartedAtMs, statusCode > 0 ? static_cast<uint32_t>(max(request.getSize(), 0)) : 0, static_cast<uint8_t>(PersistentLog::FlagOutbound | (connectionWasOpen ? PersistentLog::FlagConnectionReused : PersistentLog::FlagNone) | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), statusCode == 401 && !authenticationRetry && cameraCredentialsConfigured(ctx) ? PersistentLog::Level::Info : PersistentLog::Level::Error, false, logContextId, ctx.id);
         }
 
         if (connectionWasOpen && statusCode > 0) {
@@ -575,23 +569,6 @@ bool extractLocalTag(const String& xml, const char* localName, int fromPosition,
         nextPosition = closeEnd + 1;
         return true;
     }
-}
-
-String firstWhitespaceToken(const String& text)
-{
-    int start = 0;
-
-    while (start < static_cast<int>(text.length()) && isspace(static_cast<unsigned char>(text.charAt(start)))) {
-        start++;
-    }
-
-    int end = start;
-
-    while (end < static_cast<int>(text.length()) && !isspace(static_cast<unsigned char>(text.charAt(end)))) {
-        end++;
-    }
-
-    return text.substring(start, end);
 }
 
 bool containsIgnoreCase(const String& haystack, const String& needle)
@@ -871,71 +848,6 @@ TcpConnectionAttempt connectTcp(WiFiClient& client, const IPAddress& ip, uint16_
     return attempt;
 }
 
-bool loadCameraTarget(CameraContext& ctx)
-{
-    if (!preferences.begin(NVS_NAMESPACE, true)) {
-        PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Skipped, "nvs_open_failed", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info);
-        return false;
-    }
-
-    const String savedUrl = preferences.getString("cam_url", "");
-    const String savedUuid = preferences.getString("cam_uuid", "");
-    const String savedScopes = preferences.getString("cam_scope", "");
-    preferences.end();
-
-    if (savedUrl.isEmpty()) {
-        PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Skipped, "target_not_saved", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info);
-        return false;
-    }
-
-    ParsedUrl parsed;
-
-    if (!parseHttpUrl(savedUrl, parsed) || parsed.secure) {
-        PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Failure, "saved_target_invalid", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Error, true);
-        return false;
-    }
-
-    ctx.camera.valid = true;
-    ctx.camera.ip = parsed.ip;
-    ctx.camera.onvifPort = parsed.port;
-    ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
-    ctx.camera.onvifPath = parsed.path;
-    ctx.camera.onvifUrl = savedUrl;
-    ctx.camera.endpointUuid = savedUuid;
-    ctx.camera.scopes = savedScopes;
-
-    Serial.printf("Camera loaded from NVS: %s:%u\n", ctx.camera.ip.toString().c_str(), ctx.camera.onvifPort);
-    PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Success, "nvs_target", ctx.camera.ip, ctx.camera.onvifPort, 1, 0, ctx.camera.rtspPort, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
-    return true;
-}
-
-bool loadCameraIpHint(CameraContext& ctx)
-{
-    if (String(CAMERA_IP_HINT).isEmpty()) {
-        PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Skipped, "ip_hint_not_configured", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Info);
-        return false;
-    }
-
-    IPAddress hintedIp;
-
-    if (!hintedIp.fromString(CAMERA_IP_HINT)) {
-        Serial.println("CAMERA_IP_HINT is invalid.");
-        PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Failure, "ip_hint_invalid", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagScheduled, PersistentLog::Level::Warning, true);
-        return false;
-    }
-
-    ctx.camera.valid = true;
-    ctx.camera.ip = hintedIp;
-    ctx.camera.onvifPort = ONVIF_PORT_CANDIDATES[0];
-    ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
-    ctx.camera.onvifPath = DEFAULT_ONVIF_PATH;
-    ctx.camera.onvifUrl = makeOnvifUrl(ctx.camera.ip, ctx.camera.onvifPort, ctx.camera.onvifPath);
-
-    Serial.printf("Using CAMERA_IP_HINT: %s\n", ctx.camera.ip.toString().c_str());
-    PersistentLog::record(PersistentLog::Event::CameraTargetLoad, PersistentLog::Outcome::Success, "ip_hint", ctx.camera.ip, ctx.camera.onvifPort, 1, 0, ctx.camera.rtspPort, PersistentLog::FlagScheduled, PersistentLog::Level::Info, true);
-    return true;
-}
-
 String makeMessageUuid()
 {
     char buffer[64];
@@ -1165,7 +1077,6 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
         const IPAddress remoteIp = discoveryUdp.remoteIP();
         const uint16_t remotePort = discoveryUdp.remotePort();
         const bool responseTruncated = static_cast<size_t>(packetSize) > WS_DISCOVERY_BUFFER_SIZE;
-        const size_t candidateCountBefore = discoveredCount;
 
         const size_t bytesToRead = min(static_cast<size_t>(packetSize), WS_DISCOVERY_BUFFER_SIZE);
 
@@ -1178,8 +1089,10 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
 
         discoveryBuffer[bytesRead] = '\0';
         addDiscoveryResponse(String(discoveryBuffer));
-        const size_t addedCandidates = discoveredCount - candidateCountBefore;
-        PersistentLog::record(PersistentLog::Event::DiscoveryResponse, PersistentLog::Outcome::Success, responseTruncated ? "response_truncated" : addedCandidates > 0 ? "candidate_parsed" : "response_received", remoteIp, remotePort, static_cast<int>(addedCandidates), millis() - startedAtMs, static_cast<uint32_t>(bytesRead), logFlags, responseTruncated ? PersistentLog::Level::Warning : PersistentLog::Level::Info, false, logContextId);
+
+        if (responseTruncated) {
+            PersistentLog::record(PersistentLog::Event::DiscoveryResponse, PersistentLog::Outcome::Success, "response_truncated", remoteIp, remotePort, 0, millis() - startedAtMs, static_cast<uint32_t>(bytesRead), logFlags, PersistentLog::Level::Warning, false, logContextId);
+        }
     }
 
     discoveryUdp.stop();
@@ -1639,7 +1552,6 @@ bool recordCameraClockResponse(CameraContext& ctx, const String& responseXml, in
     }
 
     ctx.cameraClockStatus.checked = true;
-    ctx.onvifMetadata.timeLoaded = true;
     ctx.cameraClockStatus.checks++;
     ctx.cameraClockStatus.lastCheckAtMs = millis();
     ctx.cameraClockStatus.roundTripMs = roundTripMs;
@@ -1950,9 +1862,9 @@ bool parseOnvifServices(CameraContext& ctx, const String& servicesXml)
     return true;
 }
 
-bool resolveOnvifServiceCatalog(CameraContext& ctx, bool forceRefresh, uint16_t contextId)
+bool resolveOnvifServiceCatalog(CameraContext& ctx, uint16_t contextId)
 {
-    if (ctx.onvifServices.resolved && !forceRefresh) {
+    if (ctx.onvifServices.resolved) {
         const bool fallbackRetryDue = (ctx.onvifServices.usedMediaFallback || ctx.onvifServices.stale) && millis() - ctx.onvifServices.resolvedAtMs >= ONVIF_CATALOG_FALLBACK_RETRY_MS;
 
         if (!fallbackRetryDue) {
@@ -2134,11 +2046,6 @@ void noteOnvifMetadataFailure(CameraContext& ctx, const char* operation, int sta
     ctx.onvifMetadata.lastResult = String(operation) + " failed; HTTP " + String(statusCode) + "; retrying in 30 s";
 }
 
-void suspendCameraOnIdentityConflict(CameraContext& ctx, const char* reason)
-{
-    suspendCameraForIdentityConflict(ctx, reason);
-}
-
 void refreshOnvifDeviceMetadata(CameraContext& ctx)
 {
     if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED) {
@@ -2219,7 +2126,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             }
 
             if ((!ctx.camera.manufacturer.isEmpty() && !ctx.onvifMetadata.manufacturer.isEmpty() && !ctx.camera.manufacturer.equalsIgnoreCase(ctx.onvifMetadata.manufacturer)) || (!ctx.camera.model.isEmpty() && !ctx.onvifMetadata.model.isEmpty() && !ctx.camera.model.equalsIgnoreCase(ctx.onvifMetadata.model))) {
-                suspendCameraOnIdentityConflict(ctx, "Manufacturer or model changed at this address; access suspended");
+                suspendCameraForIdentityConflict(ctx, "Manufacturer or model changed at this address; access suspended");
                 return;
             }
 
@@ -2227,7 +2134,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             if (extractLocalTag(responseXml, "SerialNumber", 0, value, ignored)) {
                 const String serial = normalizeCameraIdentifier(limitedOnvifText(value, 128));
                 if (!serial.isEmpty() && !ctx.camera.serialNumber.isEmpty() && ctx.camera.serialNumber != serial) {
-                    suspendCameraOnIdentityConflict(ctx, "Serial number changed at this address; access suspended");
+                    suspendCameraForIdentityConflict(ctx, "Serial number changed at this address; access suspended");
                     return;
                 }
                 if (ctx.camera.serialNumber != serial && !serial.isEmpty()) {
@@ -2268,7 +2175,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
             if (extractLocalTag(responseXml, "GUID", 0, value, ignored)) {
                 const String uuid = normalizeCameraIdentifier(limitedOnvifText(value, 128));
                 if (!uuid.isEmpty() && !ctx.camera.endpointUuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
-                    suspendCameraOnIdentityConflict(ctx, "EPR changed at this address; access suspended");
+                    suspendCameraForIdentityConflict(ctx, "EPR changed at this address; access suspended");
                     return;
                 }
                 if (!uuid.isEmpty() && ctx.camera.endpointUuid != uuid) {
@@ -2330,7 +2237,6 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
 
             ctx.onvifMetadata.scopeCount = countOnvifOpeningTags(responseXml, "Scopes");
             ctx.onvifMetadata.profileT = responseXml.indexOf("Profile/T") >= 0 || responseXml.indexOf("Profile%2FT") >= 0;
-            ctx.onvifMetadata.scopesLoaded = true;
             ctx.onvifMetadataStage = OnvifMetadataStage::SystemTime;
             break;
 
@@ -2353,7 +2259,6 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
                 ctx.onvifMetadata.timeZone = limitedOnvifText(value, 48);
             }
 
-            ctx.onvifMetadata.timeLoaded = true;
             ctx.onvifMetadataStage = OnvifMetadataStage::EventProperties;
             break;
         }
@@ -2599,7 +2504,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
 
     ctx.lastSnapshotResolveAttemptAtMs = millis();
 
-    if (!resolveOnvifServiceCatalog(ctx, false, logContextId)) {
+    if (!resolveOnvifServiceCatalog(ctx, logContextId)) {
         ctx.lastSnapshotResult = "ONVIF catalog without a Media1 service";
         return false;
     }
@@ -2781,7 +2686,7 @@ bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTar
         return false;
 
     error = "onvif_media_unavailable";
-    if (!resolveOnvifServiceCatalog(ctx, false, logContextId))
+    if (!resolveOnvifServiceCatalog(ctx, logContextId))
         return false;
 
     const String mediaUrl = ctx.onvifServices.media1.url;
@@ -3434,7 +3339,7 @@ bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId)
     if (!jpegStarted) {
         result.detail = "Response did not start with the JPEG marker FF D8";
     } else if (!completeLength) {
-        result.detail = String("Incomplete transfer; received ") + String(result.bytesRead) + " de " + String(contentLength) + " bytes";
+        result.detail = String("Incomplete transfer; received ") + String(result.bytesRead) + " of " + String(contentLength) + " bytes";
     } else if (jpegEndOffset == 0) {
         result.detail = "Incomplete snapshot; marker FF D9 not received";
     } else if (!jpegEndNearTail) {
@@ -3507,7 +3412,6 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
 
     if (!manualRequest && !ctx.settings.enableOnvifAutoReboot) {
         ctx.lastCameraRebootResult = currentTimestamp() + " - automatic reboot disabled";
-        recordReboot(PersistentLog::Outcome::Skipped, "automatic_disabled", 0, PersistentLog::Level::Info, false);
         return false;
     }
 
@@ -3517,12 +3421,10 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
     if (!manualRequest && now - ctx.registeredAtMs < ctx.settings.startupGraceMs) {
         const unsigned long remainingMs = ctx.settings.startupGraceMs - (now - ctx.registeredAtMs);
         ctx.lastCameraRebootResult = currentTimestamp() + " - reboot waiting for the startup grace period; remaining " + durationText(remainingMs);
-        recordReboot(PersistentLog::Outcome::Skipped, "startup_grace", 0, PersistentLog::Level::Info, false);
         return false;
     }
 
     if (cameraRebootGraceActive(ctx)) {
-        recordReboot(PersistentLog::Outcome::Skipped, "reboot_grace", 0, PersistentLog::Level::Info, false);
         return false;
     }
 
@@ -3661,7 +3563,6 @@ bool requestCameraRebootOnvif(CameraContext& ctx, bool manualRequest, uint16_t c
 
     setState(ctx, CameraState::Recovering, "ONVIF restart requested; waiting for the camera");
     Serial.println(ctx.lastCameraRebootResult);
-    recordReboot(PersistentLog::Outcome::Success, "SystemReboot", statusCode, PersistentLog::Level::Info, true);
     return true;
 }
 
@@ -3870,14 +3771,9 @@ void serveCameraSnapshot(CameraContext& ctx)
     }
 
     const unsigned long transferFinishedAtMs = millis();
-    const bool logTransfer = !validTransfer || ctx.lastSuccessfulSnapshotTransferLogAtMs == 0 || transferFinishedAtMs - ctx.lastSuccessfulSnapshotTransferLogAtMs >= SNAPSHOT_SUCCESS_LOG_INTERVAL_MS;
 
-    if (logTransfer) {
-        PersistentLog::record(PersistentLog::Event::SnapshotTransfer, validTransfer ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, validTransfer ? "browser_jpeg" : browserDisconnected ? "browser_disconnected" : "incomplete_jpeg", browserIp, browserPort, 200, transferFinishedAtMs - snapshotStartedAtMs, static_cast<uint32_t>(bytesTransferred), PersistentLog::FlagNone, PersistentLog::Level::Automatic, false, logContextId, ctx.id);
-
-        if (validTransfer) {
-            ctx.lastSuccessfulSnapshotTransferLogAtMs = transferFinishedAtMs;
-        }
+    if (!validTransfer) {
+        PersistentLog::record(PersistentLog::Event::SnapshotTransfer, PersistentLog::Outcome::Failure, browserDisconnected ? "browser_disconnected" : "incomplete_jpeg", browserIp, browserPort, 200, transferFinishedAtMs - snapshotStartedAtMs, static_cast<uint32_t>(bytesTransferred), PersistentLog::FlagNone, PersistentLog::Level::Automatic, false, logContextId, ctx.id);
     }
 }
 
@@ -3953,12 +3849,11 @@ ServiceProbe probeRtsp(CameraContext& ctx, const IPAddress& ip, uint16_t port, u
     return result;
 }
 
-bool tcpPortOpen(const IPAddress& ip, uint16_t port, uint32_t timeoutMs, uint16_t contextId = 0)
+bool tcpPortOpen(const IPAddress& ip, uint16_t port, uint32_t timeoutMs)
 {
     WiFiClient client;
     const TcpConnectionAttempt connection = connectTcp(client, ip, port, timeoutMs);
     client.stop();
-    PersistentLog::record(PersistentLog::Event::TcpScan, connection.connected ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Info, connection.connected ? "port_open" : connection.detail, ip, port, connection.errorCode, connection.durationMs, timeoutMs, PersistentLog::FlagOutbound, PersistentLog::Level::Info, false, contextId);
     return connection.connected;
 }
 
@@ -3970,7 +3865,6 @@ void maintainSubnetScan()
     static size_t portIndex = 0;
     static bool checkingOnvif = false;
     static uint16_t contextId = 0;
-    static unsigned long startedAtMs = 0;
     static unsigned long lastStepAtMs = 0;
     if (WiFi.status() != WL_CONNECTED || !globalSettings.enableAutomaticSubnetScan) {
         cursor = 0;
@@ -3994,7 +3888,6 @@ void maintainSubnetScan()
             return;
         }
         cursor = network + 1;
-        startedAtMs = millis();
         contextId = allocateLogContextId();
         subnetScanRuns++;
         lastScanResult = "Incremental scan in progress";
@@ -4016,7 +3909,7 @@ void maintainSubnetScan()
             if (ctx->camera.ip == candidateIp)
                 return;
         }
-        if (!tcpPortOpen(candidateIp, CAMERA_RTSP_PORT, globalSettings.scanConnectTimeoutMs, contextId))
+        if (!tcpPortOpen(candidateIp, CAMERA_RTSP_PORT, globalSettings.scanConnectTimeoutMs))
             return;
         checkingOnvif = true;
         portIndex = 0;

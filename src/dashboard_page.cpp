@@ -43,7 +43,7 @@ h2,h3{font-size:14px;font-weight:600;line-height:1.4}
 .brand{display:flex;align-items:center;flex:none;color:var(--text);font-size:15px;font-weight:600;letter-spacing:-.01em;text-decoration:none}
 .tabs{display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}
 .tab,.settings-tab{flex:none;min-height:var(--control-h);padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:14px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s,color .15s}
-.tab:hover,.settings-tab:hover:not(:disabled){color:var(--text);background:var(--surface)}
+@media(hover:hover){.tab:hover,.settings-tab:hover:not(:disabled){color:var(--text);background:var(--surface)}}
 .tab[aria-selected="true"],.settings-tab[aria-selected="true"]{color:var(--text);background:var(--surface-alt);font-weight:600}
 .tab:focus-visible,.settings-tab:focus-visible{outline-offset:-2px}
 .settings-tab:disabled{opacity:.45;cursor:not-allowed}
@@ -59,7 +59,7 @@ h2,h3{font-size:14px;font-weight:600;line-height:1.4}
 .sidebar-h span{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
 .cam-list{display:flex;flex-direction:column;gap:2px;min-height:0;margin:0;padding:0;list-style:none;overflow-y:auto;overscroll-behavior:contain}
 .cam-item{display:grid;grid-template-columns:8px minmax(0,1fr);align-items:center;column-gap:10px;width:100%;min-height:44px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--text);text-align:left;cursor:pointer;transition:background-color .15s}
-.cam-item:hover{background:var(--surface-alt)}
+@media(hover:hover){.cam-item:hover{background:var(--surface-alt)}}
 .cam-item[aria-current="true"]{background:var(--surface-hover)}
 .cam-item[aria-current="true"] .cam-item-name{font-weight:600}
 .cam-item:focus-visible{outline-offset:-2px}
@@ -95,7 +95,7 @@ main{min-width:0;padding:20px 24px 24px}
 .kpi-value{font-size:24px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
 .camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin:16px 0 0;padding:0;list-style:none}
 .camera-card{position:relative;isolation:isolate;display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;transition:border-color .15s}
-.camera-card:hover{border-color:var(--line-strong)}
+@media(hover:hover){.camera-card:hover{border-color:var(--line-strong)}}
 .camera-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:8px 16px}
 .camera-card-head h2{min-width:0}
 .camera-card-open{display:block;max-width:100%;padding:0;border:0;background:none;color:var(--text);font:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -143,7 +143,7 @@ main{min-width:0;padding:20px 24px 24px}
 .dev-diagnostics summary::-webkit-details-marker,.settings-advanced summary::-webkit-details-marker{display:none}
 .dev-diagnostics summary::before,.settings-advanced summary::before{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s}
 .dev-diagnostics[open] summary::before,.settings-advanced[open] summary::before{transform:rotate(45deg)}
-.dev-diagnostics summary:hover,.settings-advanced summary:hover{color:var(--text)}
+@media(hover:hover){.dev-diagnostics summary:hover,.settings-advanced summary:hover{color:var(--text)}}
 .dev-diagnostics summary:focus-visible,.settings-advanced summary:focus-visible{outline-offset:-2px}
 .dev-body{padding:16px;border-top:1px solid var(--line)}
 .dev-list{margin:0}
@@ -185,7 +185,7 @@ main{min-width:0;padding:20px 24px 24px}
 /* Video stage */
 .segmented{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 .segmented button{min-height:30px;padding:0 12px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:500 13px/1 var(--sans);cursor:pointer;transition:background-color .15s,color .15s}
-.segmented button:hover{color:var(--text)}
+@media(hover:hover){.segmented button:hover{color:var(--text)}}
 .segmented button[aria-pressed="true"]{background:var(--surface-hover);color:var(--text)}
 .segmented button:focus-visible{outline-offset:-2px}
 .btn.ptz-open-btn{gap:8px;padding-block:0;white-space:nowrap}
@@ -198,11 +198,14 @@ main{min-width:0;padding:20px 24px 24px}
 .feed-stamp{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:5px 9px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums}
 .feed-stamp:empty{display:none}
 .feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;display:grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff40;border-radius:6px;background:#000000b3;color:#fff;cursor:pointer}
-.feed-fs-btn:hover{background:var(--surface-hover)}
+@media(hover:hover){.feed-fs-btn:hover{background:var(--surface-hover)}}
 .feed-fs-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;background:#000}
+.viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;max-height:none;background:#000}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen{width:100%;height:100%}
-.viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100vh}
+.viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100dvh}
+.viewer-stage:fullscreen .feed-fs-btn,.viewer-stage:-webkit-full-screen .feed-fs-btn,.viewer-stage.fs-fallback .feed-fs-btn{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right))}
+.viewer-stage:fullscreen .live-badge,.viewer-stage:-webkit-full-screen .live-badge,.viewer-stage.fs-fallback .live-badge{top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left))}
+.viewer-stage:fullscreen .feed-stamp,.viewer-stage:-webkit-full-screen .feed-stamp,.viewer-stage.fs-fallback .feed-stamp{left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom))}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
 .viewer-stage video{position:relative;z-index:1;grid-area:1/1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;cursor:zoom-in}
@@ -260,11 +263,11 @@ body.fs-locked{overflow:hidden}
 .settings-savebar .button-row{flex:none}
 .button-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .btn{display:inline-flex;align-items:center;justify-content:center;min-height:var(--control-h);padding:8px 14px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface);color:var(--text);font:500 13px/1.4 var(--sans);text-decoration:none;cursor:pointer;transition:background-color .15s,border-color .15s}
-.btn:hover{background:var(--surface-hover);border-color:var(--muted)}
+@media(hover:hover){.btn:hover{background:var(--surface-hover);border-color:var(--muted)}}
 .btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
-.btn.primary{background:var(--button-primary);border-color:var(--button-primary);color:var(--on-primary)}.btn.primary:hover{background:var(--button-primary-hover);border-color:var(--button-primary-hover)}
-.btn.warn{border-color:#806b49;color:var(--warn)}.btn.warn:hover{background:#2a2419;border-color:var(--warn)}
-.btn.bad{border-color:#85555b;color:var(--bad)}.btn.bad:hover{background:#2a1c1f;border-color:var(--bad)}
+.btn.primary{background:var(--button-primary);border-color:var(--button-primary);color:var(--on-primary)}@media(hover:hover){.btn.primary:hover{background:var(--button-primary-hover);border-color:var(--button-primary-hover)}}
+.btn.warn{border-color:#806b49;color:var(--warn)}@media(hover:hover){.btn.warn:hover{background:#2a2419;border-color:var(--warn)}}
+.btn.bad{border-color:#85555b;color:var(--bad)}@media(hover:hover){.btn.bad:hover{background:#2a1c1f;border-color:var(--bad)}}
 .form-result{min-height:18px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .form-result.ok{color:var(--ok)}.form-result.warn{color:var(--warn)}.form-result.bad{color:var(--bad)}
 .action-grid{margin:-12px 0}
@@ -279,16 +282,16 @@ body.fs-locked{overflow:hidden}
 /* Logs */
 .settings-panel .grid{margin-top:0}
 .logs-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(3,minmax(0,1fr)) auto;align-items:end;gap:16px;padding:16px;border-bottom:1px solid var(--line)}
+.logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(0,1fr)) auto;align-items:end;gap:16px;padding:16px;border-bottom:1px solid var(--line)}
 .logs-toolbar .button-row{flex-wrap:nowrap}
 .logs-table-wrap{overflow:auto;max-height:620px;overscroll-behavior:contain}
 .logs-table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}
 .logs-table th{position:sticky;top:0;z-index:2;padding:12px;background:var(--surface-alt);color:var(--muted);text-align:left;font-size:12px;font-weight:500;border-bottom:1px solid var(--line)}
 .logs-table td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
-.logs-table tbody tr:first-child td{border-top:0}.logs-table tbody tr:hover td{background:var(--surface-hover)}
+.logs-table tbody tr:first-child td{border-top:0}@media(hover:hover){.logs-table tbody tr:hover td{background:var(--surface-hover)}}
 .logs-table .mono{font-size:12px;white-space:nowrap}
 .logs-level{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:500}
-.logs-level.info{color:var(--info);background:#1a2430}.logs-level.warning{color:var(--warn);background:#2a2419}.logs-level.error{color:var(--bad);background:#2a1c1f}
+.logs-level.warning{color:var(--warn);background:#2a2419}.logs-level.error{color:var(--bad);background:#2a1c1f}
 .logs-event{color:var(--text);font-size:13px;white-space:nowrap}
 .logs-detail{max-width:340px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6}
 .logs-flags{display:block;margin-top:4px;color:var(--dim);font-size:11px;line-height:1.6}
@@ -319,7 +322,7 @@ body.fs-locked{overflow:hidden}
 .ptz-filter{flex:none;margin-bottom:16px}
 .ptz-list{min-height:80px;max-height:min(50vh,480px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
 .ptz-list-item{display:flex;align-items:center;gap:14px;padding:12px 14px;border-top:1px solid var(--line)}
-.ptz-list-item:first-child{border:0}.ptz-list-item:hover{background:var(--surface-hover)}
+.ptz-list-item:first-child{border:0}@media(hover:hover){.ptz-list-item:hover{background:var(--surface-hover)}}
 .ptz-list-copy{min-width:0;flex:1}.ptz-list-copy b{display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere}
 .ptz-list-copy span{display:block;margin-top:4px;color:var(--dim);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .ptz-list-item .btn{min-width:60px;flex:none}
@@ -330,9 +333,13 @@ body.fs-locked{overflow:hidden}
   .camera-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"stage" "side"}
   .camera-side{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));grid-template-rows:none}
 }
+@media(max-width:1180px){
+  .camera-side{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .logs-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.logs-toolbar .field:first-child,.logs-toolbar .button-row{grid-column:1/-1}
+}
 @media(max-width:1000px){
   .app-header{gap:16px;padding:0 16px}
-  .app-shell{grid-template-columns:minmax(0,1fr)}
+  .app-shell{grid-template-columns:minmax(0,1fr);align-content:start}
   .app-sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
   .sidebar-nav{flex-direction:row;align-items:center;gap:12px;padding:8px 16px}
   .sidebar-h{flex:none;padding:0}
@@ -342,33 +349,59 @@ body.fs-locked{overflow:hidden}
   .app-sidebar footer{padding:0 16px 8px;border-top:0}
   main{padding:16px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .logs-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.logs-toolbar .field:first-child,.logs-toolbar .button-row{grid-column:1/-1}
   .device-header{gap:16px}
   .action-item{grid-template-columns:minmax(0,1fr) 164px;gap:6px 24px}.action-item span{grid-column:1}.action-item .btn{grid-column:2;grid-row:1/3}
+  .logs-table-wrap{max-height:none;overflow:visible}
+  .logs-table{display:block;min-width:0}
+  .logs-table thead{display:none}
+  .logs-table tbody{display:block}
+  .logs-table tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;padding:12px 16px;border-top:1px solid var(--line)}
+  .logs-table tbody tr:first-child{border-top:0}
+  .logs-table td,.logs-table tbody tr:first-child td,.logs-table tbody tr:hover td{display:block;min-width:0;padding:0;border:0;background:none}
+  .logs-table td:nth-child(1){order:1;flex:1 1 0;white-space:normal}
+  .logs-table td:nth-child(2){order:2}
+  .logs-table td:nth-child(4){order:3;flex:1 0 100%}
+  .logs-table td:nth-child(3){order:4}
+  .logs-table td:nth-child(5){order:5}
+  .logs-table td:nth-child(6){order:6}
+  .logs-table td:nth-child(7){order:7}
+  .logs-table td:nth-child(8){order:8;flex:1 0 100%;max-width:none}
 }
 @media(max-width:860px){
-  .app-header{position:static;flex-wrap:wrap;height:auto;min-height:var(--header-h);row-gap:4px}
+  .app-header{top:-56px;flex-wrap:wrap;height:auto;min-height:var(--header-h);row-gap:4px}
   .brand{min-height:52px}
   .tabs{order:3;width:100%;padding-bottom:6px}
+}
+@media(max-width:860px) and (max-height:500px){
+  .app-header{position:static}
 }
 @media(max-width:680px){
   .app-header{column-gap:12px;padding:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left))}
   .tab,.settings-tab{min-height:44px;font-size:13px}
-  .status-pill{font-size:11px}
+  .tab{flex:1 0 auto;padding:0 8px}
+  .settings-tablist{flex-wrap:wrap;gap:6px;overflow:visible}
+  .settings-tab{padding:0 10px;border:1px solid var(--line)}
+  .settings-tab[aria-selected="true"]{border-color:var(--line-strong)}
+  .settings-tab-divided{margin-left:0}
+  .header-status{flex:1 1 0;min-width:0;justify-content:flex-end;gap:12px}
+  .status-pill{min-width:0;padding:0;border:0;font-size:12px}
+  #deviceStatus{flex:0 1 auto}
+  #deviceStatusText{min-width:0;overflow:hidden;text-overflow:ellipsis}
   .sidebar-nav{padding-inline:max(16px,env(safe-area-inset-left)) max(16px,env(safe-area-inset-right))}
-  main{padding:16px max(16px,env(safe-area-inset-right)) 16px max(16px,env(safe-area-inset-left))}
+  .cam-item-state,.app-sidebar footer{font-size:12px}
+  main{padding:16px max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
   h1{font-size:18px}
   .device-header{display:block}
   .rate{width:100%;margin-top:12px}.rate-label b{font-size:18px}
-  .settings-summary{display:flex;width:fit-content;margin:12px 0 0 auto}
+  .settings-summary{display:flex;width:fit-content;margin:12px 0 0}
   .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .kpi{padding:12px}.kpi-value{font-size:20px}
   .camera-grid{grid-template-columns:minmax(0,1fr)}
   .camera-side{grid-template-columns:minmax(0,1fr)}
   .segmented button{min-height:40px}
-  .live-quality{height:44px}
+  .live-quality{height:44px;font-size:16px}
   .dev-list div{grid-template-columns:1fr;gap:4px}
-  .grid{grid-template-columns:1fr}
+  .grid{grid-template-columns:1fr;grid-auto-rows:auto}
   .chart{height:180px}
   .feed-state{padding:16px;font-size:13px}
   .form-grid>.field{grid-template-columns:minmax(0,1fr)}
@@ -379,11 +412,24 @@ body.fs-locked{overflow:hidden}
   .btn{min-height:44px;padding-inline:12px}
   .field input[type="text"],.field input[type="password"],.field input[type="number"],.field input[type="url"],.field select{height:44px;font-size:16px}
   .action-item{grid-template-columns:1fr;gap:8px}.action-item .btn{grid-column:1;grid-row:auto;justify-self:start;width:auto;margin-top:4px}
+  .diagnostic-output{display:flex;flex-direction:column;gap:8px}
+  .diagnostic-copy{position:static;align-self:flex-end;min-width:0}
   .logs-toolbar{grid-template-columns:1fr 1fr;gap:12px}
-  .logs-toolbar .field:nth-child(4){grid-column:1/-1}.logs-toolbar .button-row .btn{flex:1}.logs-table-wrap{max-height:65vh}
+  .logs-toolbar .button-row .btn{flex:1}
   .modal-overlay{padding:12px}.modal-box{max-height:calc(100dvh - 24px);padding:20px}
   .merge-fields,.merge-records{grid-template-columns:1fr}.merge-record+.merge-record{border-left:0;border-top:1px solid var(--line)}
   .ptz-list-item{padding:12px}
+}
+@media(max-width:340px){
+  #deviceUptime{display:none}
+}
+@media(orientation:landscape) and (max-height:500px){
+  .viewer-stage{max-height:calc(100dvh - 16px)}
+}
+@media(max-width:1000px) and (pointer:coarse){
+  :root{--control-h:44px}
+  .segmented button{min-height:40px}
+  .feed-fs-btn{width:44px;height:44px}
 }
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -516,7 +562,7 @@ body.fs-locked{overflow:hidden}
 <div id="resourcesView" role="tabpanel" tabindex="0" aria-labelledby="resourcesTab" data-view-panel="resources" hidden>
   <section class="device-header" id="resourcesHero">
     <div class="device-copy">
-      <div class="device-title"><h1 class="device-name" id="resourcesChip">ESP32</h1><span class="badge" id="resourcesBadge"><i></i><span id="resourcesState">loading</span></span></div>
+      <div class="device-title"><h1 class="device-name" id="resourcesChip">ESP32</h1><span class="badge"><i></i><span id="resourcesState">loading</span></span></div>
       <div class="device-meta" id="resourcesMeta">Loading device information…</div>
     </div>
     <div class="rate">
@@ -596,7 +642,7 @@ body.fs-locked{overflow:hidden}
 </div>
 
 <div id="settingsView" role="tabpanel" tabindex="0" aria-labelledby="settingsTab" data-view-panel="settings" hidden>
-  <section class="device-header" id="settingsHero" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
+  <section class="device-header" style="--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)">
     <div class="device-copy">
       <div class="device-title"><h1 class="device-name" id="settingsTitle">Device settings</h1></div>
       <div class="device-meta" id="settingsMeta">Values stored in NVS, also validated by the firmware.</div>
@@ -828,16 +874,9 @@ body.fs-locked{overflow:hidden}
                 <option value="settings">Settings</option>
               </select>
             </div>
-            <div class="field">
-              <label for="logsScope">View</label>
-              <select id="logsScope">
-                <option value="diagnostic">Diagnostic</option>
-                <option value="all">All attempts</option>
-              </select>
-            </div>
             <div class="button-row">
               <button class="btn" id="logsRefresh" type="button">Refresh</button>
-              <a class="btn primary" id="logsExport" href="/api/logs/export" download="camera-watchdog-logs.csv">Export full CSV</a>
+              <a class="btn primary" href="/api/logs/export" download="camera-watchdog-logs.csv">Export full CSV</a>
             </div>
           </div>
           <div class="logs-table-wrap">
@@ -1706,7 +1745,6 @@ function settingsDocumentTitle() {
 let selectedCameraId = 0;
 let cameraSelectionManual = false;
 let cameraRegistry = [];
-let registryLoading = null;
 let settingsLoadedKey = '';
 let settingsValues = null;
 let settingsCameraPasswordConfigured = false;
@@ -1931,23 +1969,21 @@ function renderResources(d) {
   $('historyRssi').textContent = d.wifi.connected ? d.wifi.rssi + ' dBm' : 'disconnected';
 }
 
-const LOG_LEVEL_LABELS = { info: 'Info', warning: 'Warning', error: 'Error' };
+const LOG_LEVEL_LABELS = { warning: 'Warning', error: 'Error' };
 const LOG_OUTCOME_LABELS = {
   info: 'information', started: 'started', success: 'success', failure: 'failure', skipped: 'skipped'
 };
 const LOG_EVENT_LABELS = {
   system_boot: 'ESP32 startup', system_restart: 'ESP32 restart',
-  wifi_connect: 'Wi-Fi connection', wifi_disconnect: 'Wi-Fi disconnection', wifi_reconnect: 'Wi-Fi reconnection',
+  wifi_connect: 'Wi-Fi connection', wifi_disconnect: 'Wi-Fi disconnection',
   camera_state: 'Camera state', incident: 'Incident', health_check: 'Health check',
   discovery_probe: 'WS-Discovery send', discovery_response: 'WS-Discovery response',
-  discovery_result: 'Discovery result', subnet_scan: 'Network scan',
-  tcp_scan: 'TCP attempt', onvif_probe: 'ONVIF probe', onvif_soap: 'ONVIF/SOAP request',
+  discovery_result: 'Discovery result',
+  onvif_probe: 'ONVIF probe', onvif_soap: 'ONVIF/SOAP request',
   snapshot_http: 'Snapshot request', snapshot_transfer: 'JPEG transfer', rtsp_probe: 'RTSP probe',
-  email_http: 'Email sending', settings_saved: 'Settings saved', settings_reset: 'Defaults restored',
+  email_http: 'Email sending', settings_reset: 'Defaults restored',
   admin_action: 'Admin action', camera_reboot: 'Camera reboot', ptz_command: 'PTZ command',
-  sntp_sync: 'NTP synchronization', runtime_context: 'Firmware context',
-  settings_context: 'Settings context', camera_target_load: 'Camera target loaded',
-  camera_target_save: 'Camera target saved', logs_cleared: 'Log history cleared'
+  settings_context: 'Settings context', logs_cleared: 'Log history cleared'
 };
 
 function persistentLogFlags(entry) {
@@ -1964,9 +2000,6 @@ function persistentLogFlags(entry) {
 
 function persistentLogStatusLabel(entry) {
   if (!entry.status) return '';
-  if (entry.event === 'runtime_context' || entry.event === 'settings_context') {
-    return 'schema ' + entry.status;
-  }
   const detail = String(entry.detail || '');
   if (
     detail.startsWith('connect_') ||
@@ -1980,11 +2013,7 @@ function persistentLogStatusLabel(entry) {
 
 function persistentLogValueLabel(entry) {
   if (!entry.value || entry.timeoutMs) return '';
-  if (entry.event === 'runtime_context') return 'defaults rev. ' + entry.value;
   if (entry.event === 'logs_cleared') return entry.value + ' records removed';
-  if (entry.event === 'camera_target_load' || entry.event === 'camera_target_save') {
-    return 'RTSP ' + entry.value;
-  }
   if (entry.event === 'discovery_response') return entry.value + ' bytes';
   return 'value ' + entry.value;
 }
@@ -1992,13 +2021,9 @@ function persistentLogValueLabel(entry) {
 function persistentLogMatches(entry) {
   const level = $('logsLevel').value;
   const category = $('logsCategory').value;
-  const scope = $('logsScope').value;
   const query = $('logsSearch').value.trim().toLocaleLowerCase('en-US');
   if (level && entry.level !== level) return false;
   if (category && entry.category !== category) return false;
-  const routineTcpFailure = entry.event === 'tcp_scan' && entry.outcome === 'info' &&
-    ['port_closed', 'connection_refused', 'connect_timeout'].includes(entry.detail);
-  if (scope === 'diagnostic' && routineTcpFailure) return false;
   if (!query) return true;
   const searchable = [
     entry.id, entry.bootId, entry.contextId, entry.cameraId, entry.cameraName, entry.timestamp, entry.timestampUtc,
@@ -2166,7 +2191,7 @@ async function loadPersistentLogs(reset) {
 
 $('logsRefresh').addEventListener('click', () => loadPersistentLogs(true));
 $('logsLoadMore').addEventListener('click', () => loadPersistentLogs(false));
-['logsSearch', 'logsLevel', 'logsCategory', 'logsScope'].forEach(id => {
+['logsSearch', 'logsLevel', 'logsCategory'].forEach(id => {
   $(id).addEventListener(id === 'logsSearch' ? 'input' : 'change', renderPersistentLogs);
 });
 

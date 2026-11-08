@@ -16,7 +16,6 @@ constexpr unsigned long FLUSH_INTERVAL_MS = 1000UL;
 constexpr uint8_t STORAGE_RECOVERY_USAGE_PERCENT = 75;
 constexpr uint32_t STORAGE_OPERATION_MAGIC = 0x4C4F4757UL;
 
-using PersistentLogFormat::LEGACY_RECORD_SCHEMA_VERSION;
 using PersistentLogFormat::RECORD_MAGIC;
 using PersistentLogFormat::RECORD_SCHEMA_VERSION;
 using PersistentLogFormat::STORED_CONTEXT_BYTES;
@@ -80,26 +79,19 @@ Category categoryForEvent(Event event)
     switch (event) {
         case Event::SystemBoot:
         case Event::SystemRestart:
-        case Event::SntpSync:
-        case Event::RuntimeContext:
         case Event::LogsCleared:
             return Category::System;
         case Event::WifiConnect:
         case Event::WifiDisconnect:
-        case Event::WifiReconnect:
             return Category::Wifi;
         case Event::CameraState:
         case Event::Incident:
         case Event::CameraReboot:
         case Event::PtzCommand:
-        case Event::CameraTargetLoad:
-        case Event::CameraTargetSave:
             return Category::Camera;
         case Event::DiscoveryProbe:
         case Event::DiscoveryResponse:
         case Event::DiscoveryResult:
-        case Event::SubnetScan:
-        case Event::TcpScan:
             return Category::Discovery;
         case Event::OnvifProbe:
         case Event::OnvifSoap:
@@ -115,7 +107,6 @@ Category categoryForEvent(Event event)
             return Category::Action;
         case Event::EmailHttp:
             return Category::Notification;
-        case Event::SettingsSaved:
         case Event::SettingsReset:
         case Event::SettingsContext:
             return Category::Settings;
@@ -265,7 +256,6 @@ bool reformatLogStorage()
 void decodeRecord(const StoredRecord& stored, Entry& entry)
 {
     entry = Entry{};
-    entry.schemaVersion = stored.schemaVersion;
     entry.sequence = stored.sequence;
     entry.epochSeconds = stored.epochSeconds;
     entry.uptimeMs = stored.uptimeMs;
@@ -279,18 +269,10 @@ void decodeRecord(const StoredRecord& stored, Entry& entry)
     entry.level = static_cast<Level>(stored.level);
     entry.outcome = static_cast<Outcome>(stored.outcome);
     entry.flags = stored.flags;
-
-    if (stored.schemaVersion == LEGACY_RECORD_SCHEMA_VERSION) {
-        memcpy(entry.detail, stored.payload, DETAIL_CAPACITY);
-    } else {
-        entry.bootId = readUint16(stored.payload);
-        entry.contextId = readUint16(stored.payload + 2);
-        const size_t contextBytes = stored.schemaVersion == PersistentLogFormat::CONTEXT_RECORD_SCHEMA_VERSION ? 4 : STORED_CONTEXT_BYTES;
-        if (stored.schemaVersion == RECORD_SCHEMA_VERSION)
-            entry.cameraId = PersistentLogFormat::readUint32(stored.payload + 4);
-        memcpy(entry.detail, stored.payload + contextBytes, DETAIL_CAPACITY - contextBytes);
-    }
-
+    entry.bootId = readUint16(stored.payload);
+    entry.contextId = readUint16(stored.payload + 2);
+    entry.cameraId = PersistentLogFormat::readUint32(stored.payload + 4);
+    memcpy(entry.detail, stored.payload + STORED_CONTEXT_BYTES, STORED_DETAIL_CAPACITY);
     entry.detail[DETAIL_CAPACITY - 1] = '\0';
 }
 
