@@ -335,7 +335,7 @@ void finishTest(bool success, const char* code)
         testSaved = false;
         WiFi.disconnect(false);
         if (!apActive)
-            holdUntilMs = 0;
+            holdUntilMs = testFinishedAtMs;
         Serial.printf("Wi-Fi test failed (\"%s\"): %s\n", testSsid, testCode);
         PersistentLog::record(PersistentLog::Event::WifiConnect, PersistentLog::Outcome::Failure, testCode, IPAddress(), 0, lastDisconnectReason, testFinishedAtMs - testStartedAtMs, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
     }
@@ -747,6 +747,11 @@ void wifiSetupLoop()
     if (now - lastManagementTickMs < 250)
         return;
     lastManagementTickMs = now;
+
+    if (timeReached(now, holdUntilMs))
+        holdUntilMs = now;
+    if (timeReached(now, apNotBeforeMs))
+        apNotBeforeMs = now;
 
     const bool connected = WiFi.status() == WL_CONNECTED;
     if (!stationTracked || connected != stationConnected) {

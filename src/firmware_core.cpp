@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.24.1";
+const char FIRMWARE_VERSION[] = "0.25.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -91,6 +91,12 @@ bool ensureCameraIoMutex()
     return cameraIoMutex != nullptr;
 }
 
+void handleHttpClient()
+{
+    errno = EWOULDBLOCK;
+    httpServer.handleClient();
+}
+
 bool settingsLoadedFromNvs = false;
 uint32_t settingsRevision = 1;
 uint32_t settingsWriteCount = 0;
@@ -118,6 +124,7 @@ uint16_t nextLogContextId = 1;
 uint32_t heapBeforeBluetoothReleaseBytes = 0;
 uint32_t heapAfterBluetoothReleaseBytes = 0;
 uint32_t bluetoothMemoryReleasedBytes = 0;
+uint32_t sketchSizeBytes = 0;
 
 bool cameraAlertLedOn = false;
 bool cameraAlertLedBlinking = false;
@@ -528,7 +535,7 @@ CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
         return nullptr;
     }
     ParsedUrl parsedTarget;
-    if (!parseHttpUrl(target.onvifUrl, parsedTarget) || parsedTarget.secure || parsedTarget.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsedTarget.path.c_str(), 160, false)) {
+    if (!onvifEndpointAllowed(target.onvifUrl, parsedTarget)) {
         error = "ONVIF destination not allowed";
         return nullptr;
     }
@@ -764,7 +771,8 @@ bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSe
             primary->camera.interfaceMacs = identifiedPrimary.interfaceMacs;
     }
     const auto addEndpoint = [&](const String& url) {
-        if (url.isEmpty() || url == primary->camera.onvifUrl)
+        ParsedUrl parsed;
+        if (url.isEmpty() || url == primary->camera.onvifUrl || !onvifEndpointAllowed(url, parsed))
             return true;
         for (uint8_t index = 0; index < primary->alternateOnvifCount; index++)
             if (primary->alternateOnvifUrls[index] == url)

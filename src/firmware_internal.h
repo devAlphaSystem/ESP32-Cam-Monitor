@@ -409,6 +409,7 @@ extern SemaphoreHandle_t cameraIoMutex;
 extern uint16_t cameraIoDepth;
 
 bool ensureCameraIoMutex();
+void handleHttpClient();
 class CameraIoGuard {
 public:
     explicit CameraIoGuard(TickType_t timeout = 0) : acquired_(ensureCameraIoMutex() && xSemaphoreTakeRecursive(cameraIoMutex, timeout) == pdTRUE)
@@ -461,6 +462,7 @@ extern uint16_t nextLogContextId;
 extern uint32_t heapBeforeBluetoothReleaseBytes;
 extern uint32_t heapAfterBluetoothReleaseBytes;
 extern uint32_t bluetoothMemoryReleasedBytes;
+extern uint32_t sketchSizeBytes;
 
 extern bool cameraAlertLedOn;
 extern bool cameraAlertLedBlinking;
@@ -526,6 +528,7 @@ bool sendIpChangeAlert(CameraContext& ctx, const String& oldIp, const String& ne
 uint16_t allocateLogContextId();
 
 bool parseHttpUrl(const String& url, ParsedUrl& parsed);
+bool onvifEndpointAllowed(const String& url, ParsedUrl& parsed);
 IPAddress uint32ToIp(uint32_t value);
 void maintainCameraSnapshotHttpSession(CameraContext& ctx);
 void resetCameraSnapshotHttpSession(CameraContext& ctx);

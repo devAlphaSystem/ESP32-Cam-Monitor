@@ -115,6 +115,11 @@ bool parseHttpUrl(const String& url, ParsedUrl& parsed)
     return true;
 }
 
+bool onvifEndpointAllowed(const String& url, ParsedUrl& parsed)
+{
+    return parseHttpUrl(url, parsed) && !parsed.secure && parsed.ip != WiFi.localIP() && CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false);
+}
+
 String extractDigestParameter(const String& challenge, const char* name)
 {
     String normalized = challenge;
@@ -947,7 +952,7 @@ void addDiscoveryResponse(const String& xml)
             tokenStart = tokenEnd;
             examined++;
             ParsedUrl parsed;
-            if (!parseHttpUrl(url, parsed) || parsed.secure || parsed.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false) || (!expectedType && !containsIgnoreCase(parsed.path, "onvif")))
+            if (!onvifEndpointAllowed(url, parsed) || (!expectedType && !containsIgnoreCase(parsed.path, "onvif")))
                 continue;
             CameraTarget target;
             target.valid = true;
@@ -1065,7 +1070,7 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
 
     while (millis() - startedAt < globalSettings.discoveryTimeoutMs) {
         updateCameraAlertLed();
-        httpServer.handleClient();
+        handleHttpClient();
 
         const int packetSize = discoveryUdp.parsePacket();
 
@@ -1098,7 +1103,11 @@ bool discoverOnvifCameras(bool manualRequest, uint16_t contextId)
     discoveryUdp.stop();
 
     lastDiscoveryResult = currentTimestamp() + " - candidates=" + String(discoveryIdentityQueueCount) + "; registered=" + String(cameraCount) + "; identification pending";
-    PersistentLog::record(PersistentLog::Event::DiscoveryResult, discoveryIdentityQueueCount > 0 ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, discoveryIdentityQueueCount > 0 ? "identity_pending" : "no_camera_found", IPAddress(), 0, 0, millis() - startedAtMs, discoveryIdentityQueueCount, logFlags, discoveryIdentityQueueCount > 0 ? PersistentLog::Level::Info : PersistentLog::Level::Warning, true, logContextId);
+    bool camerasOnline = cameraCount > 0;
+    for (const CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get())
+        camerasOnline = camerasOnline && ctx->cameraState == CameraState::Online;
+    const bool expectedResult = discoveryIdentityQueueCount > 0 || (!manualRequest && camerasOnline);
+    PersistentLog::record(PersistentLog::Event::DiscoveryResult, discoveryIdentityQueueCount > 0 ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, discoveryIdentityQueueCount > 0 ? "identity_pending" : "no_camera_found", IPAddress(), 0, 0, millis() - startedAtMs, discoveryIdentityQueueCount, logFlags, expectedResult ? PersistentLog::Level::Info : PersistentLog::Level::Warning, true, logContextId);
     return discoveryIdentityQueueCount > 0;
 }
 
@@ -1252,7 +1261,8 @@ bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId)
         for (uint8_t index = 0; index < previousAlternateCount; index++)
             if (ctx.alternateOnvifUrls[index] == previous.onvifUrl)
                 oldEndpointKnown = true;
-        if (!oldEndpointKnown && ctx.alternateOnvifCount < CAMERA_ALTERNATE_ENDPOINT_CAPACITY)
+        ParsedUrl previousParsed;
+        if (!oldEndpointKnown && ctx.alternateOnvifCount < CAMERA_ALTERNATE_ENDPOINT_CAPACITY && onvifEndpointAllowed(previous.onvifUrl, previousParsed))
             ctx.alternateOnvifUrls[ctx.alternateOnvifCount++] = previous.onvifUrl;
         ctx.camera = observed;
         ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
@@ -1285,12 +1295,12 @@ bool switchToAlternateEndpoint(CameraContext& ctx)
 {
     if (ctx.alternateOnvifCount == 0 || ESP.getFreeHeap() < sizeof(CameraContext) + MAX_ONVIF_RESPONSE_SIZE + CAMERA_OPERATION_HEAP_RESERVE || ESP.getMaxAllocHeap() < MAX_ONVIF_RESPONSE_SIZE + 4096 || (ctx.lastAlternateAttemptAtMs != 0 && millis() - ctx.lastAlternateAttemptAtMs < 30000UL))
         return false;
-    ctx.lastAlternateAttemptAtMs = millis();
     const uint8_t index = ctx.nextAlternateIndex % ctx.alternateOnvifCount;
     ctx.nextAlternateIndex = (index + 1) % ctx.alternateOnvifCount;
     ParsedUrl parsed;
-    if (!parseHttpUrl(ctx.alternateOnvifUrls[index], parsed) || parsed.secure || parsed.ip == WiFi.localIP() || !CameraPolicy::safeHttpPath(parsed.path.c_str(), 160, false))
+    if (!onvifEndpointAllowed(ctx.alternateOnvifUrls[index], parsed))
         return false;
+    ctx.lastAlternateAttemptAtMs = millis();
     CameraTarget target = ctx.camera;
     target.ip = parsed.ip;
     target.onvifPort = parsed.port;
@@ -1329,11 +1339,17 @@ bool switchToAlternateEndpoint(CameraContext& ctx)
         return false;
     const CameraTarget previous = ctx.camera;
     const String alternative = ctx.alternateOnvifUrls[index];
+    ParsedUrl previousParsed;
+    const bool keepPrevious = onvifEndpointAllowed(previous.onvifUrl, previousParsed);
     ctx.camera = target;
     ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
-    ctx.alternateOnvifUrls[index] = previous.onvifUrl;
+    ctx.alternateOnvifUrls[index] = keepPrevious ? previous.onvifUrl : ctx.alternateOnvifUrls[ctx.alternateOnvifCount - 1];
+    if (!keepPrevious)
+        ctx.alternateOnvifUrls[--ctx.alternateOnvifCount] = String();
     if (!persistCamera(ctx)) {
         ctx.camera = previous;
+        if (!keepPrevious)
+            ctx.alternateOnvifUrls[ctx.alternateOnvifCount++] = ctx.alternateOnvifUrls[index];
         ctx.alternateOnvifUrls[index] = alternative;
         return false;
     }
@@ -2698,8 +2714,6 @@ bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTar
     String bestToken;
     String bestName;
     uint32_t bestPixels = 0;
-    uint32_t bestWidth = 0;
-    uint32_t bestHeight = 0;
     bool haveBest = false;
     int searchPosition = 0;
 
@@ -2758,8 +2772,6 @@ bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTar
         bestToken = token;
         bestName = name;
         bestPixels = pixels;
-        bestWidth = width;
-        bestHeight = height;
         haveBest = true;
     }
 
@@ -2828,12 +2840,15 @@ bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTar
     for (size_t index = 0; index < 4; index++)
         target.ip[index] = ctx.camera.ip[index];
     target.port = port;
-    target.width = static_cast<uint16_t>(min<uint32_t>(bestWidth, 65535));
-    target.height = static_cast<uint16_t>(min<uint32_t>(bestHeight, 65535));
     target.highQuality = highQuality;
     target.resolvedAtMs = millis();
     strlcpy(target.path, path.c_str(), sizeof(target.path));
-    strlcpy(target.profileName, bestName.c_str(), sizeof(target.profileName));
+    if (strlcpy(target.profileName, bestName.c_str(), sizeof(target.profileName)) >= sizeof(target.profileName)) {
+        size_t end = sizeof(target.profileName) - 1;
+        while (end > 0 && (static_cast<uint8_t>(bestName[end]) & 0xC0) == 0x80)
+            end--;
+        target.profileName[end] = '\0';
+    }
     error = "";
     return true;
 }
@@ -3053,7 +3068,9 @@ bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
 
 void maintainOnvifPtzPresets(CameraContext& ctx)
 {
-    if (ctx.lastPreviewRequestAtMs == 0 || millis() - ctx.lastPreviewRequestAtMs > 120000UL)
+    const LiveStreamStats live = liveStreamStats();
+    const bool liveViewerConnected = live.clients > 0 && live.cameraId == ctx.id;
+    if (!liveViewerConnected && (ctx.lastPreviewRequestAtMs == 0 || millis() - ctx.lastPreviewRequestAtMs > 120000UL))
         return;
     if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED || !ctx.onvifServices.resolved || !ctx.onvifServices.ptz.available || cameraRebootGraceActive(ctx) || healthCheckInProgress) {
         return;
@@ -3838,7 +3855,7 @@ ServiceProbe probeRtsp(CameraContext& ctx, const IPAddress& ip, uint16_t port, u
             break;
         }
 
-        httpServer.handleClient();
+        handleHttpClient();
         delay(1);
     }
 

@@ -113,6 +113,8 @@ const char* eventName(Event event)
             return "discovery_response";
         case Event::LogsCleared:
             return "logs_cleared";
+        case Event::LiveSession:
+            return "live_session";
     }
 
     return "unknown";

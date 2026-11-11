@@ -16,8 +16,6 @@ struct LiveStreamTarget {
     uint32_t cameraId = 0;
     uint8_t ip[4] = {0, 0, 0, 0};
     uint16_t port = 554;
-    uint16_t width = 0;
-    uint16_t height = 0;
     bool highQuality = false;
     unsigned long resolvedAtMs = 0;
     char path[LIVE_STREAM_PATH_CAPACITY] = {0};
@@ -38,8 +36,6 @@ struct LiveStreamStats {
     LiveStreamState state = LiveStreamState::Idle;
     uint32_t cameraId = 0;
     uint8_t clients = 0;
-    uint16_t width = 0;
-    uint16_t height = 0;
     uint16_t framesPerSecond = 0;
     uint32_t kilobitsPerSecond = 0;
     uint32_t sessionsStarted = 0;
@@ -66,6 +62,8 @@ bool liveStreamCopyTarget(LiveStreamTarget& target);
 LiveStreamStats liveStreamStats();
 
 bool liveStreamDeliveredRecently(uint32_t cameraId, uint32_t windowMs, uint32_t* framesInWindow = nullptr);
+
+void liveStreamRecordPendingFailure();
 
 const char* liveStreamStateName(LiveStreamState state);
 

@@ -11,18 +11,23 @@ namespace {
 
 constexpr size_t RX_CAPACITY = 4096;
 constexpr size_t TX_CAPACITY = 1800;
+constexpr size_t RING_CAPACITY = 16384;
 constexpr size_t REQUEST_CAPACITY = 1024;
 constexpr size_t HEADER_CAPACITY = 1024;
 constexpr size_t BODY_CAPACITY = 1536;
 constexpr size_t URL_CAPACITY = 512;
 constexpr size_t PARAM_SET_CAPACITY = 128;
+static_assert((RING_CAPACITY & (RING_CAPACITY - 1)) == 0, "RING_CAPACITY must be a power of two");
 
 constexpr uint32_t RTSP_CONNECT_TIMEOUT_MS = 2500;
 constexpr uint32_t RTSP_TRANSACTION_TIMEOUT_MS = 3500;
 constexpr uint32_t RTSP_STALL_TIMEOUT_MS = 6000;
 constexpr uint32_t RTSP_DEFAULT_KEEPALIVE_MS = 20000;
+constexpr uint8_t RTSP_READS_PER_PASS = 8;
 constexpr uint32_t SESSION_IDLE_GRACE_MS = 4000;
-constexpr uint32_t CLIENT_WRITE_WAIT_MS = 200;
+constexpr uint32_t FAILURE_BURST_IDLE_MS = 60000;
+constexpr uint32_t FAILURE_BURST_STREAMING_MS = 30000;
+constexpr uint32_t BACKPRESSURE_LIMIT_MS = 750;
 constexpr uint32_t CLIENT_WRITE_TIMEOUT_MS = 1500;
 constexpr uint32_t HANDSHAKE_WAIT_MS = 400;
 constexpr uint32_t RETRY_BASE_MS = 1500;
@@ -37,13 +42,13 @@ constexpr uint8_t FLAG_DISCONTINUITY = 0x02;
 struct Client {
     int fd = -1;
     bool needKey = true;
-    bool discontinuity = true;
-};
-
-enum class SendResult : uint8_t {
-    Sent,
-    Dropped,
-    Closed
+    uint32_t cursor = 0;
+    uint32_t runEnd = 0;
+    uint32_t frameEnd = 0;
+    unsigned long progressAtMs = 0;
+    size_t prefixLength = 0;
+    size_t prefixSent = 0;
+    uint8_t prefix[TX_CAPACITY];
 };
 
 Client clients[LIVE_STREAM_MAX_CLIENTS];
@@ -81,7 +86,10 @@ Session session;
 uint8_t rxBuffer[RX_CAPACITY];
 size_t rxLength = 0;
 uint8_t txBuffer[TX_CAPACITY];
-uint8_t paramBuffer[TX_CAPACITY];
+uint8_t* ring = nullptr;
+uint32_t ringHead = 0;
+unsigned long blockedSinceMs = 0;
+size_t blockedBytes = 0;
 char requestBuffer[REQUEST_CAPACITY];
 char headerBuffer[HEADER_CAPACITY];
 char bodyBuffer[BODY_CAPACITY];
@@ -91,11 +99,28 @@ size_t spsCacheLength = 0;
 size_t ppsCacheLength = 0;
 
 unsigned long idleSinceMs = 0;
-unsigned long retryAtMs = 0;
+unsigned long lastFailureAtMs = 0;
+uint32_t retryBackoffMs = 0;
 uint8_t consecutiveFailures = 0;
+bool failureBurstOpen = false;
+
+struct FailureReport {
+    uint32_t cameraId = 0;
+    uint8_t ip[4] = {0, 0, 0, 0};
+    uint16_t port = 0;
+    int status = 0;
+    uint32_t streamedMs = 0;
+    uint32_t failures = 0;
+    const char* error = "";
+};
+
+portMUX_TYPE failureMux = portMUX_INITIALIZER_UNLOCKED;
+FailureReport pendingFailure;
+bool failurePending = false;
 
 volatile LiveStreamState stateValue = LiveStreamState::Idle;
 const char* volatile lastErrorText = "";
+int lastErrorStatus = 0;
 volatile uint32_t statSessionsStarted = 0;
 volatile uint32_t statSessionFailures = 0;
 volatile uint32_t statFrames = 0;
@@ -210,9 +235,10 @@ bool parameterValue(const char* text, const char* key, char* out, size_t capacit
     return false;
 }
 
-void setLastError(const char* text)
+void setLastError(const char* text, int status = 0)
 {
     lastErrorText = text;
+    lastErrorStatus = status;
 }
 
 void closeSocket(int& fd)
@@ -340,15 +366,16 @@ void closeClient(Client& client)
 {
     closeSocket(client.fd);
     client.needKey = true;
-    client.discontinuity = true;
     statClientCount = static_cast<uint8_t>(clientCount());
 }
 
 void flagClientsForResync()
 {
     for (Client& client : clients) {
+        if (client.needKey)
+            continue;
         client.needKey = true;
-        client.discontinuity = true;
+        client.runEnd = ringHead;
     }
 }
 
@@ -357,9 +384,50 @@ void closeAllClients(const char* reason)
     for (Client& client : clients) {
         if (client.fd < 0)
             continue;
-        sendCloseFrame(client.fd, reason);
+        if (client.cursor == client.frameEnd && client.prefixSent == client.prefixLength)
+            sendCloseFrame(client.fd, reason);
         closeClient(client);
     }
+}
+
+uint8_t ringByte(uint32_t position)
+{
+    return ring[position & (RING_CAPACITY - 1)];
+}
+
+size_t ringFrameLength(uint32_t position)
+{
+    const uint8_t length = ringByte(position + 1);
+    return length < 126 ? 2 + length : 4 + ((static_cast<size_t>(ringByte(position + 2)) << 8) | ringByte(position + 3));
+}
+
+void ringWrite(const uint8_t* data, size_t length)
+{
+    const size_t offset = ringHead & (RING_CAPACITY - 1);
+    const size_t first = min(length, RING_CAPACITY - offset);
+    memcpy(ring + offset, data, first);
+    memcpy(ring, data + first, length - first);
+    ringHead += length;
+}
+
+uint32_t clientLimit(const Client& client)
+{
+    return client.needKey ? client.runEnd : ringHead;
+}
+
+bool clientPending(const Client& client)
+{
+    return client.prefixSent < client.prefixLength || client.cursor != clientLimit(client);
+}
+
+size_t ringFree()
+{
+    uint32_t used = 0;
+    for (const Client& client : clients) {
+        if (client.fd >= 0 && client.cursor != clientLimit(client))
+            used = max(used, ringHead - client.cursor);
+    }
+    return RING_CAPACITY - used;
 }
 
 size_t buildBinaryFrame(uint8_t* out, size_t capacity, uint8_t flags, uint32_t timestamp, const uint8_t* payload, size_t payloadLength, size_t& flagsIndex)
@@ -378,59 +446,80 @@ size_t buildBinaryFrame(uint8_t* out, size_t capacity, uint8_t flags, uint32_t t
     return headerLength + messageLength;
 }
 
-SendResult sendToClient(Client& client, const uint8_t* frame, size_t length)
-{
-    if (!waitSocket(client.fd, true, CLIENT_WRITE_WAIT_MS))
-        return SendResult::Dropped;
-    if (!sendAll(client.fd, frame, length, CLIENT_WRITE_TIMEOUT_MS))
-        return SendResult::Closed;
-    addToClients(length);
-    return SendResult::Sent;
-}
-
 void dispatchPacket(uint8_t firstNal, bool marker, uint32_t timestamp, const uint8_t* payload, size_t payloadLength)
 {
     size_t flagsIndex = 0;
-    const uint8_t baseFlags = marker ? FLAG_MARKER : 0;
-    const size_t frameLength = buildBinaryFrame(txBuffer, sizeof(txBuffer), baseFlags, timestamp, payload, payloadLength, flagsIndex);
+    const size_t frameLength = buildBinaryFrame(txBuffer, sizeof(txBuffer), marker ? FLAG_MARKER : 0, timestamp, payload, payloadLength, flagsIndex);
     if (frameLength == 0)
         return;
+    const uint32_t framePosition = ringHead;
+    ringWrite(txBuffer, frameLength);
 
     for (Client& client : clients) {
-        if (client.fd < 0)
+        if (client.fd < 0 || !client.needKey || client.cursor != client.runEnd || client.prefixSent != client.prefixLength)
             continue;
-
-        if (client.needKey) {
-            if (firstNal == 7) {
-                client.needKey = false;
-            } else if (firstNal == 5 && spsCacheLength != 0 && ppsCacheLength != 0) {
-                size_t paramFlagsIndex = 0;
-                const size_t spsLength = buildBinaryFrame(paramBuffer, sizeof(paramBuffer), FLAG_DISCONTINUITY, timestamp, spsCache, spsCacheLength, paramFlagsIndex);
-                if (spsLength == 0 || sendToClient(client, paramBuffer, spsLength) != SendResult::Sent)
-                    continue;
-                const size_t ppsLength = buildBinaryFrame(paramBuffer, sizeof(paramBuffer), 0, timestamp, ppsCache, ppsCacheLength, paramFlagsIndex);
-                if (ppsLength == 0 || sendToClient(client, paramBuffer, ppsLength) != SendResult::Sent) {
-                    client.needKey = true;
-                    continue;
-                }
-                client.needKey = false;
-                client.discontinuity = false;
-            } else {
-                continue;
-            }
-        }
-
-        txBuffer[flagsIndex] = baseFlags | (client.discontinuity ? FLAG_DISCONTINUITY : 0);
-        const SendResult result = sendToClient(client, txBuffer, frameLength);
-        if (result == SendResult::Sent) {
-            client.discontinuity = false;
-        } else if (result == SendResult::Dropped) {
-            client.needKey = true;
-            client.discontinuity = true;
-            statDropped = statDropped + 1;
+        if (firstNal == 7) {
+            memcpy(client.prefix, txBuffer, flagsIndex + 1);
+            client.prefix[flagsIndex] |= FLAG_DISCONTINUITY;
+            client.prefixLength = flagsIndex + 1;
+            client.cursor = framePosition + flagsIndex + 1;
+            client.frameEnd = framePosition + frameLength;
+        } else if (firstNal == 5 && spsCacheLength != 0 && ppsCacheLength != 0) {
+            size_t ignored = 0;
+            const size_t spsLength = buildBinaryFrame(client.prefix, sizeof(client.prefix), FLAG_DISCONTINUITY, timestamp, spsCache, spsCacheLength, ignored);
+            client.prefixLength = spsLength + buildBinaryFrame(client.prefix + spsLength, sizeof(client.prefix) - spsLength, 0, timestamp, ppsCache, ppsCacheLength, ignored);
+            client.cursor = framePosition;
+            client.frameEnd = framePosition;
         } else {
-            closeClient(client);
+            continue;
         }
+        client.prefixSent = 0;
+        client.needKey = false;
+    }
+}
+
+void flushClient(Client& client, unsigned long now)
+{
+    while (clientPending(client)) {
+        const bool fromPrefix = client.prefixSent < client.prefixLength;
+        const size_t offset = client.cursor & (RING_CAPACITY - 1);
+        const uint8_t* data = fromPrefix ? client.prefix + client.prefixSent : ring + offset;
+        const size_t length = fromPrefix ? client.prefixLength - client.prefixSent : min<size_t>(clientLimit(client) - client.cursor, RING_CAPACITY - offset);
+        const int written = lwip_send(client.fd, data, length, 0);
+        if (written <= 0) {
+            if ((written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || (client.needKey && now - client.progressAtMs >= CLIENT_WRITE_TIMEOUT_MS))
+                closeClient(client);
+            return;
+        }
+        client.progressAtMs = now;
+        addToClients(static_cast<size_t>(written));
+        if (fromPrefix) {
+            client.prefixSent += static_cast<size_t>(written);
+            continue;
+        }
+        client.cursor += static_cast<uint32_t>(written);
+        while (static_cast<int32_t>(client.cursor - client.frameEnd) > 0)
+            client.frameEnd += ringFrameLength(client.frameEnd);
+    }
+    client.progressAtMs = now;
+}
+
+void relieveBackpressure()
+{
+    for (Client& client : clients) {
+        if (client.fd < 0 || client.cursor == clientLimit(client) || ringHead - client.cursor + blockedBytes <= RING_CAPACITY)
+            continue;
+        const size_t unsent = client.prefixLength - client.prefixSent;
+        const size_t remainder = client.frameEnd - client.cursor;
+        memmove(client.prefix, client.prefix + client.prefixSent, unsent);
+        for (size_t index = 0; index < remainder; index++)
+            client.prefix[unsent + index] = ringByte(client.cursor + index);
+        client.prefixLength = unsent + remainder;
+        client.prefixSent = 0;
+        client.cursor = client.frameEnd;
+        client.runEnd = client.frameEnd;
+        client.needKey = true;
+        statDropped = statDropped + 1;
     }
 }
 
@@ -540,16 +629,22 @@ void acceptClient()
         return;
     }
 
-    char hello[150];
-    snprintf(hello, sizeof(hello), "{\"type\":\"hello\",\"profile\":\"%s\",\"width\":%u,\"height\":%u,\"hq\":%s}", target.profileName, static_cast<unsigned>(target.width), static_cast<unsigned>(target.height), target.highQuality ? "true" : "false");
-    if (!sendTextFrame(fd, 0x1, hello)) {
+    String hello = "{\"type\":\"hello\",\"profile\":\"";
+    appendJsonEscaped(hello, String(target.profileName));
+    hello += target.highQuality ? "\",\"hq\":true}" : "\",\"hq\":false}";
+    if (!sendTextFrame(fd, 0x1, hello.c_str())) {
         lwip_close(fd);
         return;
     }
 
     slot->fd = fd;
     slot->needKey = true;
-    slot->discontinuity = true;
+    slot->cursor = ringHead;
+    slot->runEnd = ringHead;
+    slot->frameEnd = ringHead;
+    slot->prefixLength = 0;
+    slot->prefixSent = 0;
+    slot->progressAtMs = millis();
     statClientsServed = statClientsServed + 1;
     statClientCount = static_cast<uint8_t>(clientCount());
     Serial.printf("[live] viewer connected (%u active)\n", static_cast<unsigned>(clientCount()));
@@ -723,8 +818,10 @@ void captureAuthChallenge()
 bool parseSdp(const char* sdp, const char* contentBase, const char* requestUrl)
 {
     const char* video = strstr(sdp, "m=video");
-    if (video == nullptr)
+    if (video == nullptr) {
+        setLastError("rtsp_sdp_invalid");
         return false;
+    }
     const char* sectionEnd = strstr(video + 7, "\nm=");
     char section[BODY_CAPACITY];
     const size_t sectionLength = min(sectionEnd != nullptr ? static_cast<size_t>(sectionEnd - video) : strlen(video), sizeof(section) - 1);
@@ -759,8 +856,10 @@ bool parseSdp(const char* sdp, const char* contentBase, const char* requestUrl)
         const size_t baseLength = strlen(base);
         const bool needsSlash = baseLength > 0 && base[baseLength - 1] != '/' && control[0] != '\0' && control[0] != '/';
         const int written = snprintf(session.controlUrl, sizeof(session.controlUrl), "%s%s%s", base, needsSlash ? "/" : "", control[0] == '*' ? "" : control);
-        if (written <= 0 || static_cast<size_t>(written) >= sizeof(session.controlUrl))
+        if (written <= 0 || static_cast<size_t>(written) >= sizeof(session.controlUrl)) {
+            setLastError("rtsp_sdp_invalid");
             return false;
+        }
     }
     return true;
 }
@@ -789,6 +888,7 @@ void stopSession(LiveStreamState nextState, const char* error)
     session.sessionId[0] = '\0';
     session.authScheme = 0;
     rxLength = 0;
+    blockedSinceMs = 0;
     spsCacheLength = 0;
     ppsCacheLength = 0;
     stateValue = nextState;
@@ -803,7 +903,9 @@ void stopSession(LiveStreamState nextState, const char* error)
 
 bool startSession()
 {
-    if (ESP.getFreeHeap() < MINIMUM_FREE_HEAP_BYTES) {
+    if (ring == nullptr && ESP.getFreeHeap() >= MINIMUM_FREE_HEAP_BYTES + RING_CAPACITY)
+        ring = static_cast<uint8_t*>(malloc(RING_CAPACITY));
+    if (ring == nullptr || ESP.getFreeHeap() < MINIMUM_FREE_HEAP_BYTES) {
         setLastError("low_memory");
         return false;
     }
@@ -838,46 +940,43 @@ bool startSession()
 
     Reply reply;
     if (!rtspTransact("DESCRIBE", session.url, "Accept: application/sdp\r\n", reply)) {
-        setLastError("rtsp_describe_failed");
+        setLastError("rtsp_describe_failed", reply.status);
         return false;
     }
     if (reply.status == 401) {
         captureAuthChallenge();
         if (session.authScheme == 0 || target.username[0] == '\0') {
-            setLastError("rtsp_auth_required");
+            setLastError("rtsp_auth_required", reply.status);
             return false;
         }
         if (!rtspTransact("DESCRIBE", session.url, "Accept: application/sdp\r\n", reply)) {
-            setLastError("rtsp_describe_failed");
+            setLastError("rtsp_describe_failed", reply.status);
             return false;
         }
     }
     if (reply.status == 401 || reply.status == 403) {
-        setLastError("rtsp_auth_rejected");
+        setLastError("rtsp_auth_rejected", reply.status);
         return false;
     }
     if (reply.status != 200) {
-        setLastError("rtsp_describe_failed");
+        setLastError("rtsp_describe_failed", reply.status);
         return false;
     }
 
     char contentBase[URL_CAPACITY] = {0};
     if (!headerValue(headerBuffer, "Content-Base", contentBase, sizeof(contentBase)))
         headerValue(headerBuffer, "Content-Location", contentBase, sizeof(contentBase));
-    if (!parseSdp(bodyBuffer, contentBase, session.url)) {
-        if (lastErrorText[0] == '\0')
-            setLastError("rtsp_sdp_invalid");
+    if (!parseSdp(bodyBuffer, contentBase, session.url))
         return false;
-    }
     snprintf(session.url, sizeof(session.url), "%s", contentBase[0] != '\0' ? contentBase : session.url);
 
     if (!rtspTransact("SETUP", session.controlUrl, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n", reply) || reply.status != 200) {
-        setLastError(reply.status == 461 ? "rtsp_transport_unsupported" : "rtsp_setup_failed");
+        setLastError(reply.status == 461 ? "rtsp_transport_unsupported" : "rtsp_setup_failed", reply.status);
         return false;
     }
     char sessionHeader[96];
     if (!headerValue(headerBuffer, "Session", sessionHeader, sizeof(sessionHeader))) {
-        setLastError("rtsp_setup_failed");
+        setLastError("rtsp_setup_failed", reply.status);
         return false;
     }
     char* separator = strchr(sessionHeader, ';');
@@ -891,7 +990,7 @@ bool startSession()
         *separator = '\0';
     }
     if (strlcpy(session.sessionId, sessionHeader, sizeof(session.sessionId)) >= sizeof(session.sessionId)) {
-        setLastError("rtsp_setup_failed");
+        setLastError("rtsp_setup_failed", reply.status);
         return false;
     }
 
@@ -905,7 +1004,7 @@ bool startSession()
     char sessionLine[80];
     snprintf(sessionLine, sizeof(sessionLine), "Session: %s\r\nRange: npt=0.000-\r\n", session.sessionId);
     if (!rtspTransact("PLAY", session.url, sessionLine, reply) || reply.status != 200) {
-        setLastError("rtsp_play_failed");
+        setLastError("rtsp_play_failed", reply.status);
         return false;
     }
 
@@ -920,7 +1019,7 @@ bool startSession()
     rateWindowStartedAtMs = session.startedAtMs;
     rateFrames = 0;
     rateBytes = fromCameraTotal;
-    Serial.printf("[live] RTSP session active: camera %lu, profile %s, %ux%u\n", static_cast<unsigned long>(target.cameraId), target.profileName, static_cast<unsigned>(target.width), static_cast<unsigned>(target.height));
+    Serial.printf("[live] RTSP session active: camera %lu, profile %s\n", static_cast<unsigned long>(target.cameraId), target.profileName);
     return true;
 }
 
@@ -986,26 +1085,10 @@ void handleRtpPacket(const uint8_t* packet, size_t length)
     dispatchPacket(firstNal, marker, timestamp, payload, payloadLength);
 }
 
-bool pumpRtsp()
+bool parseRx()
 {
-    if (rxLength < sizeof(rxBuffer)) {
-        const int count = lwip_recv(session.fd, rxBuffer + rxLength, sizeof(rxBuffer) - rxLength, 0);
-        if (count == 0) {
-            setLastError("camera_stream_closed");
-            return false;
-        }
-        if (count < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                setLastError("camera_stream_closed");
-                return false;
-            }
-        } else {
-            rxLength += static_cast<size_t>(count);
-            addFromCamera(static_cast<size_t>(count));
-        }
-    }
-
     size_t position = 0;
+    bool blocked = false;
     while (position < rxLength) {
         if (rxBuffer[position] == '$') {
             if (rxLength - position < 4)
@@ -1017,8 +1100,14 @@ bool pumpRtsp()
             }
             if (rxLength - position < packetLength + 4)
                 break;
-            if (rxBuffer[position + 1] == session.videoChannel)
+            if (rxBuffer[position + 1] == session.videoChannel) {
+                if (ringFree() < packetLength) {
+                    blocked = true;
+                    blockedBytes = packetLength;
+                    break;
+                }
                 handleRtpPacket(rxBuffer + position + 4, packetLength);
+            }
             position += packetLength + 4;
         } else if (rxLength - position >= 5 && memcmp(rxBuffer + position, "RTSP/", 5) == 0) {
             size_t end = 0;
@@ -1054,7 +1143,31 @@ bool pumpRtsp()
     }
     if (position > 0)
         consumeRx(position);
+    if (!blocked)
+        blockedSinceMs = 0;
+    else if (blockedSinceMs == 0)
+        blockedSinceMs = millis();
     return true;
+}
+
+bool pumpRtsp()
+{
+    for (uint8_t reads = 0; reads < RTSP_READS_PER_PASS; reads++) {
+        if (!parseRx())
+            return false;
+        if (blockedSinceMs != 0 || rxLength == sizeof(rxBuffer))
+            return true;
+        const int count = lwip_recv(session.fd, rxBuffer + rxLength, sizeof(rxBuffer) - rxLength, 0);
+        if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            setLastError("camera_stream_closed");
+            return false;
+        }
+        if (count < 0)
+            return true;
+        rxLength += static_cast<size_t>(count);
+        addFromCamera(static_cast<size_t>(count));
+    }
+    return parseRx();
 }
 
 void updateRates(unsigned long now)
@@ -1069,15 +1182,38 @@ void updateRates(unsigned long now)
     rateWindowStartedAtMs = now;
 }
 
+void reportFailure(const char* error)
+{
+    FailureReport report;
+    report.status = lastErrorStatus;
+    report.streamedMs = session.active ? static_cast<uint32_t>(millis() - session.startedAtMs) : 0;
+    report.failures = statSessionFailures;
+    report.error = error;
+    taskENTER_CRITICAL(&targetMux);
+    report.cameraId = publishedTarget.cameraId;
+    memcpy(report.ip, publishedTarget.ip, sizeof(report.ip));
+    report.port = publishedTarget.port;
+    taskEXIT_CRITICAL(&targetMux);
+    taskENTER_CRITICAL(&failureMux);
+    pendingFailure = report;
+    failurePending = true;
+    taskEXIT_CRITICAL(&failureMux);
+}
+
 void handleSessionFailure()
 {
     statSessionFailures = statSessionFailures + 1;
     if (consecutiveFailures < 255)
         consecutiveFailures++;
     const uint32_t backoff = min<uint32_t>(RETRY_MAX_MS, RETRY_BASE_MS << min<uint8_t>(consecutiveFailures - 1, 3));
-    retryAtMs = millis() + backoff;
+    lastFailureAtMs = millis();
+    retryBackoffMs = backoff;
     const char* error = lastErrorText[0] != '\0' ? lastErrorText : "unknown";
     Serial.printf("[live] RTSP session failure: %s (attempt %u)\n", error, static_cast<unsigned>(consecutiveFailures));
+    if (!failureBurstOpen) {
+        failureBurstOpen = true;
+        reportFailure(error);
+    }
     stopSession(LiveStreamState::Retrying, error);
     if (consecutiveFailures >= FAILURES_BEFORE_NOTIFYING_CLIENTS) {
         stateValue = LiveStreamState::Failed;
@@ -1123,6 +1259,8 @@ void liveTask(void*)
             idleSinceMs = 0;
         else if (idleSinceMs == 0)
             idleSinceMs = now;
+        else if (failureBurstOpen && now - idleSinceMs >= FAILURE_BURST_IDLE_MS)
+            failureBurstOpen = false;
 
         uint32_t currentGeneration = 0;
         taskENTER_CRITICAL(&targetMux);
@@ -1132,12 +1270,13 @@ void liveTask(void*)
         if (session.active && session.generation != currentGeneration)
             stopSession(LiveStreamState::Idle, nullptr);
 
-        if (session.active && viewers == 0 && idleSinceMs != 0 && now - idleSinceMs >= SESSION_IDLE_GRACE_MS) {
-            stopSession(LiveStreamState::Idle, nullptr);
+        if (viewers == 0 && idleSinceMs != 0 && now - idleSinceMs >= SESSION_IDLE_GRACE_MS) {
+            if (session.active)
+                stopSession(LiveStreamState::Idle, nullptr);
             consecutiveFailures = 0;
         }
 
-        if (!session.active && viewers > 0 && static_cast<long>(now - retryAtMs) >= 0) {
+        if (!session.active && viewers > 0 && now - lastFailureAtMs >= retryBackoffMs) {
             if (startSession()) {
                 consecutiveFailures = 0;
             } else {
@@ -1147,17 +1286,26 @@ void liveTask(void*)
             stateValue = LiveStreamState::Idle;
         }
 
+        if (ring != nullptr && !session.active && viewers == 0) {
+            free(ring);
+            ring = nullptr;
+        }
+
         fd_set readSet;
+        fd_set writeSet;
         FD_ZERO(&readSet);
+        FD_ZERO(&writeSet);
         int highest = listenFd;
         FD_SET(listenFd, &readSet);
-        if (session.active) {
+        if (session.active && blockedSinceMs == 0) {
             FD_SET(session.fd, &readSet);
             highest = max(highest, session.fd);
         }
         for (const Client& client : clients) {
             if (client.fd >= 0) {
                 FD_SET(client.fd, &readSet);
+                if (clientPending(client))
+                    FD_SET(client.fd, &writeSet);
                 highest = max(highest, client.fd);
             }
         }
@@ -1165,7 +1313,7 @@ void liveTask(void*)
         timeval timeout;
         timeout.tv_sec = 0;
         timeout.tv_usec = 40000;
-        const int ready = lwip_select(highest + 1, &readSet, nullptr, nullptr, &timeout);
+        const int ready = lwip_select(highest + 1, &readSet, &writeSet, nullptr, &timeout);
 
         if (ready > 0) {
             if (FD_ISSET(listenFd, &readSet))
@@ -1174,11 +1322,18 @@ void liveTask(void*)
                 if (client.fd >= 0 && FD_ISSET(client.fd, &readSet))
                     readClient(client);
             }
-            if (session.active && FD_ISSET(session.fd, &readSet) && !pumpRtsp())
-                handleSessionFailure();
         } else if (ready < 0) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+        if (session.active && (blockedSinceMs != 0 || (ready > 0 && FD_ISSET(session.fd, &readSet))) && !pumpRtsp())
+            handleSessionFailure();
+        const unsigned long flushedAtMs = millis();
+        for (Client& client : clients) {
+            if (client.fd >= 0)
+                flushClient(client, flushedAtMs);
+        }
+        if (blockedSinceMs != 0 && flushedAtMs - blockedSinceMs >= BACKPRESSURE_LIMIT_MS)
+            relieveBackpressure();
 
         if (session.active) {
             const unsigned long current = millis();
@@ -1191,6 +1346,8 @@ void liveTask(void*)
                 handleSessionFailure();
             } else {
                 updateRates(current);
+                if (failureBurstOpen && session.lastPacketAtMs - session.startedAtMs >= FAILURE_BURST_STREAMING_MS)
+                    failureBurstOpen = false;
             }
         }
 
@@ -1271,8 +1428,6 @@ LiveStreamStats liveStreamStats()
 
     taskENTER_CRITICAL(&targetMux);
     stats.cameraId = publishedTarget.cameraId;
-    stats.width = publishedTarget.width;
-    stats.height = publishedTarget.height;
     memcpy(stats.profileName, publishedTarget.profileName, sizeof(stats.profileName));
     taskEXIT_CRITICAL(&targetMux);
     return stats;
@@ -1290,6 +1445,19 @@ bool liveStreamDeliveredRecently(uint32_t cameraId, uint32_t windowMs, uint32_t*
     if (framesInWindow != nullptr)
         *framesInWindow = statFps;
     return true;
+}
+
+void liveStreamRecordPendingFailure()
+{
+    FailureReport report;
+    taskENTER_CRITICAL(&failureMux);
+    const bool pending = failurePending;
+    report = pendingFailure;
+    failurePending = false;
+    taskEXIT_CRITICAL(&failureMux);
+    if (!pending)
+        return;
+    PersistentLog::record(PersistentLog::Event::LiveSession, PersistentLog::Outcome::Failure, report.error, IPAddress(report.ip[0], report.ip[1], report.ip[2], report.ip[3]), report.port, report.status, report.streamedMs, report.failures, PersistentLog::FlagOutbound, PersistentLog::Level::Warning, false, 0, report.cameraId);
 }
 
 }

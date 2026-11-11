@@ -43,7 +43,7 @@ bool cameraControlResponded(CameraContext& ctx, uint16_t contextId = 0)
             return true;
     }
 
-    httpServer.handleClient();
+    handleHttpClient();
     ctx.lastRtspProbe = probeRtsp(ctx, ctx.camera.ip, ctx.camera.rtspPort, logContextId);
     ctx.lastRtspProbeAttempted = true;
 
@@ -652,6 +652,7 @@ void setup()
     Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
     Serial.printf("Chip: %s rev. %u\n", ESP.getChipModel(), ESP.getChipRevision());
     Serial.printf("Flash: %u MB\n", ESP.getFlashChipSize() / 1024U / 1024U);
+    sketchSizeBytes = ESP.getSketchSize();
     releaseUnusedBluetoothMemory();
     Serial.printf("Initial free heap: %u bytes\n", ESP.getFreeHeap());
 
@@ -702,13 +703,14 @@ void loop()
         return;
     }
 
+    liveStreamRecordPendingFailure();
     PersistentLog::maintain();
     updateCameraAlertLed();
     wifiSetupLoop();
     maintainWiFi();
     initializeConnectedServices();
     if (connectedServicesInitialized || httpServerRunning)
-        httpServer.handleClient();
+        handleHttpClient();
     if (factoryResetRequestedAtMs != 0)
         return;
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get())

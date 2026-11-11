@@ -100,6 +100,7 @@ Category categoryForEvent(Event event)
         case Event::SnapshotTransfer:
             return Category::Snapshot;
         case Event::RtspProbe:
+        case Event::LiveSession:
             return Category::Rtsp;
         case Event::HealthCheck:
             return Category::Health;

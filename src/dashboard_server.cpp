@@ -88,13 +88,12 @@ String buildStatusJson(CameraContext& ctx)
     json += "\"chipBytes\":";
     json += ESP.getFlashChipSize();
     json += ",\"sketchBytes\":";
-    json += ESP.getSketchSize();
+    json += sketchSizeBytes;
     json += ",\"freeSketchBytes\":";
     {
         const esp_partition_t* runningPartition = esp_ota_get_running_partition();
         const uint32_t partitionBytes = runningPartition ? runningPartition->size : 0;
-        const uint32_t sketchBytes = ESP.getSketchSize();
-        json += (partitionBytes > sketchBytes) ? (partitionBytes - sketchBytes) : 0;
+        json += (partitionBytes > sketchSizeBytes) ? (partitionBytes - sketchSizeBytes) : 0;
     }
     json += "},\"chip\":{";
     json += "\"model\":\"";
@@ -1820,11 +1819,7 @@ void appendLiveStreamJson(String& json)
     json += stats.clients;
     json += ",\"profile\":\"";
     appendJsonEscaped(json, String(stats.profileName));
-    json += "\",\"width\":";
-    json += stats.width;
-    json += ",\"height\":";
-    json += stats.height;
-    json += ",\"framesPerSecond\":";
+    json += "\",\"framesPerSecond\":";
     json += stats.framesPerSecond;
     json += ",\"kilobitsPerSecond\":";
     json += stats.kilobitsPerSecond;
@@ -1863,6 +1858,7 @@ void handleLiveStart()
     if (ctx == nullptr)
         return;
 
+    ctx->lastPreviewRequestAtMs = millis();
     const bool highQuality = httpServer.arg("quality") == "high";
     LiveStreamTarget target;
     bool haveTarget = liveStreamCopyTarget(target);
@@ -1906,11 +1902,7 @@ void handleLiveStart()
     json += target.cameraId;
     json += ",\"profile\":\"";
     appendJsonEscaped(json, String(target.profileName));
-    json += "\",\"width\":";
-    json += target.width;
-    json += ",\"height\":";
-    json += target.height;
-    json += ",\"quality\":\"";
+    json += "\",\"quality\":\"";
     json += target.highQuality ? "high" : "fluid";
     json += "\"}";
     sendJsonResponse(200, json);

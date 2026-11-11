@@ -59,7 +59,8 @@ enum class Event : uint16_t {
     PtzCommand,
     SettingsContext = 25,
     DiscoveryResponse = 28,
-    LogsCleared
+    LogsCleared,
+    LiveSession
 };
 
 enum Flag : uint8_t {

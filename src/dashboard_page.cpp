@@ -496,7 +496,7 @@ body.fs-locked{overflow:hidden}
       <button class="btn ptz-open-btn" type="button" id="ptzMenuButton" aria-haspopup="dialog" aria-controls="ptzPresetModal" disabled>PTZ presets <span class="ptz-count" id="ptzPresetCount">—</span></button>
     </div>
     <div class="viewer-stage" id="cameraStage" data-mode="live">
-      <video id="liveVideo" data-source="live" muted playsinline autoplay disablepictureinpicture></video>
+      <video id="liveVideo" data-source="live" muted playsinline disablepictureinpicture></video>
       <img id="cameraFeed" data-source="snapshot" alt="JPEG preview of the monitored camera" decoding="async" hidden>
       <div class="feed-state" id="liveState" data-source="live"><div><span id="liveStateText">Connecting to the camera…</span><br><button class="btn" type="button" id="liveRetry" hidden>Try again</button></div></div>
       <div class="feed-state" id="feedState" data-source="snapshot" hidden>Loading the first camera frame…</div>
@@ -1976,7 +1976,8 @@ const LOG_EVENT_LABELS = {
   snapshot_http: 'Snapshot request', snapshot_transfer: 'JPEG transfer', rtsp_probe: 'RTSP probe',
   email_http: 'Email sending', settings_reset: 'Defaults restored',
   admin_action: 'Admin action', camera_reboot: 'Camera reboot', ptz_command: 'PTZ command',
-  settings_context: 'Settings context', logs_cleared: 'Log history cleared'
+  settings_context: 'Settings context', logs_cleared: 'Log history cleared',
+  live_session: 'Live video session'
 };
 
 function persistentLogFlags(entry) {
@@ -2008,6 +2009,7 @@ function persistentLogValueLabel(entry) {
   if (!entry.value || entry.timeoutMs) return '';
   if (entry.event === 'logs_cleared') return entry.value + ' records removed';
   if (entry.event === 'discovery_response') return entry.value + ' bytes';
+  if (entry.event === 'live_session') return plural(entry.value, 'failure since startup', 'failures since startup');
   return 'value ' + entry.value;
 }
 
@@ -3507,6 +3509,9 @@ const LivePlayer = (() => {
   const CLOCK = 90000;
   const MIN_DELTA = 1500;
   const MAX_DELTA = 22500;
+  const HOLD_WINDOW = 30000;
+  const HOLD_SLACK = 0.1;
+  const HOLD_MAX = 1;
   const ERROR_TEXT = {
     live_in_use: 'Another viewer is watching a different camera or quality. Close that stream and try again.',
     busy: 'The ESP32 is busy checking the camera. Trying again…',
@@ -3517,6 +3522,7 @@ const LivePlayer = (() => {
     no_h264_profile: 'The camera does not offer an H.264 video profile.',
     invalid_stream_uri: 'The camera announced an invalid video address.',
     relay_unavailable: 'The ESP32 could not start the video relay.',
+    no_target: 'The ESP32 has no video address for this camera yet.',
     camera_unreachable: 'Could not connect to the RTSP video of the camera.',
     rtsp_describe_failed: 'The camera refused the RTSP video description.',
     rtsp_setup_failed: 'The camera refused the RTSP video setup.',
@@ -3524,6 +3530,8 @@ const LivePlayer = (() => {
     rtsp_auth_required: 'The camera requires a username and password for the video. Set up the camera credentials.',
     rtsp_auth_rejected: 'The camera rejected the credentials used for the video.',
     rtsp_transport_unsupported: 'The camera does not accept RTSP video over TCP.',
+    rtsp_sdp_invalid: 'The camera sent an invalid RTSP video description.',
+    rtsp_protocol_error: 'The camera sent RTSP video data the ESP32 could not read.',
     camera_codec_not_h264: 'The camera is not sending H.264 on this profile.',
     camera_stream_closed: 'The camera ended the video.',
     camera_stream_stalled: 'The camera stopped sending video.',
@@ -3532,7 +3540,7 @@ const LivePlayer = (() => {
     unsupported: 'This browser does not support Media Source Extensions with H.264.',
     stalled: 'The video stopped arriving. Reconnecting…'
   };
-  const NO_RETRY = new Set(['unsupported', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_auth_required', 'rtsp_auth_rejected', 'invalid_stream_uri']);
+  const NO_RETRY = new Set(['unsupported', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_sdp_invalid', 'rtsp_auth_required', 'rtsp_auth_rejected', 'rtsp_transport_unsupported', 'invalid_stream_uri', 'camera_required', 'invalid_camera', 'camera_not_found', 'camera_merged']);
 
   const concat = chunks => {
     let size = 0;
@@ -3580,8 +3588,20 @@ const LivePlayer = (() => {
     return Uint8Array.from(out);
   };
 
+  const escapeRbsp = rbsp => {
+    const out = [];
+    let zeroRun = 0;
+    for (const byte of rbsp) {
+      if (zeroRun >= 2 && byte <= 3) { out.push(3); zeroRun = 0; }
+      out.push(byte);
+      zeroRun = byte === 0 ? zeroRun + 1 : 0;
+    }
+    return Uint8Array.from(out);
+  };
+
   const parseSps = nal => {
-    const reader = new BitReader(unescapeRbsp(nal.subarray(1)));
+    const rbsp = unescapeRbsp(nal.subarray(1));
+    const reader = new BitReader(rbsp);
     const profile = reader.bits(8);
     reader.bits(8);
     reader.bits(8);
@@ -3618,7 +3638,7 @@ const LivePlayer = (() => {
       const cycle = reader.ue();
       for (let i = 0; i < cycle; i++) reader.se();
     }
-    reader.ue();
+    const refFrames = reader.ue();
     reader.bit();
     const widthMbs = reader.ue() + 1;
     const heightUnits = reader.ue() + 1;
@@ -3632,8 +3652,46 @@ const LivePlayer = (() => {
     return {
       width: widthMbs * 16 - (cropLeft + cropRight) * unitX,
       height: (2 - frameMbsOnly) * heightUnits * 16 - (cropTop + cropBottom) * unitY,
-      profile, chroma, lumaDepth, chromaDepth
+      profile, chroma, lumaDepth, chromaDepth, pocType, refFrames, rbsp, vuiAt: reader.position
     };
+  };
+
+  const skipHrd = reader => {
+    const count = reader.ue() + 1;
+    reader.bits(8);
+    for (let i = 0; i < count; i++) { reader.ue(); reader.ue(); reader.bit(); }
+    reader.bits(20);
+  };
+
+  const lowDelaySps = (nal, info) => {
+    if (info.pocType !== 2 && info.profile !== 66) return nal;
+    const reader = new BitReader(info.rbsp);
+    reader.position = info.vuiAt;
+    const vui = reader.bit();
+    let end = info.vuiAt;
+    if (vui) {
+      if (reader.bit() && reader.bits(8) === 255) reader.bits(32);
+      if (reader.bit()) reader.bit();
+      if (reader.bit()) { reader.bits(4); if (reader.bit()) reader.bits(24); }
+      if (reader.bit()) { reader.ue(); reader.ue(); }
+      if (reader.bit()) { reader.bits(32); reader.bits(32); reader.bit(); }
+      const nalHrd = reader.bit();
+      if (nalHrd) skipHrd(reader);
+      const vclHrd = reader.bit();
+      if (vclHrd) skipHrd(reader);
+      if (nalHrd || vclHrd) reader.bit();
+      reader.bit();
+      end = reader.position;
+      if (reader.bit()) return nal;
+    }
+    if (!reader.bit()) throw new Error('sps_invalid');
+    while (reader.position < info.rbsp.length * 8) { if (reader.bit()) throw new Error('sps_invalid'); }
+    const ue = value => { const code = (value + 1).toString(2); return '0'.repeat(code.length - 1) + code; };
+    const head = Array.from(info.rbsp, byte => byte.toString(2).padStart(8, '0')).join('').slice(0, end);
+    // bitstream_restriction_flag, motion_vectors_over_pic_boundaries_flag, max_bytes_per_pic_denom, max_bits_per_mb_denom, log2_max_mv_length_horizontal, log2_max_mv_length_vertical, max_num_reorder_frames, max_dec_frame_buffering, rbsp_stop_one_bit
+    const code = head + (vui ? '' : '1' + '0'.repeat(8)) + '11' + [2, 1, 16, 16, 0, Math.max(info.refFrames, 1)].map(ue).join('') + '1';
+    const bytes = code.padEnd(Math.ceil(code.length / 8) * 8, '0').match(/.{8}/g);
+    return concat([nal.subarray(0, 1), escapeRbsp(Uint8Array.from(bytes, byte => parseInt(byte, 2)))]);
   };
 
   const hex2 = value => value.toString(16).padStart(2, '0');
@@ -3694,6 +3752,11 @@ const LivePlayer = (() => {
         this.retryDelay = 1000;
         hooks.state('live', '');
       });
+      video.addEventListener('waiting', () => {
+        if (!this.playing || video.seeking || this.cushioned()) return;
+        this.playing = false;
+        video.pause();
+      });
     }
 
     reset() {
@@ -3728,6 +3791,8 @@ const LivePlayer = (() => {
       this.lastTime = -1;
       this.lastTimeAt = performance.now();
       this.playing = false;
+      this.gaps = [];
+      this.frameAt = 0;
     }
 
     supported() {
@@ -3848,7 +3913,6 @@ const LivePlayer = (() => {
 
     hello(message) {
       if (message && message.type === 'hello') {
-        this.profile = message;
         this.hooks.info(message);
       }
     }
@@ -3874,7 +3938,7 @@ const LivePlayer = (() => {
       const flags = data[0];
       const timestamp = ((data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4]) >>> 0;
       const payload = data.subarray(5);
-      if (flags & 2) { this.fragment = null; this.units = []; this.unitTimestamp = null; this.waitingForKey = true; }
+      if (flags & 2) { this.fragment = null; this.units = []; this.unitTimestamp = null; this.waitingForKey = true; this.frameAt = performance.now(); }
       if (this.unitTimestamp !== null && timestamp !== this.unitTimestamp && this.units.length) this.finishUnit();
       this.unitTimestamp = timestamp;
       const type = payload[0] & 31;
@@ -3941,6 +4005,9 @@ const LivePlayer = (() => {
       this.queue.push(buildFragment(++this.sequence, this.decodeTime, duration, sample, idr));
       this.decodeTime += duration;
       this.frames++;
+      const now = performance.now();
+      if (this.frameAt && now - this.frameAt > HOLD_SLACK * 1000) this.gaps.push([now, (now - this.frameAt) / 1000]);
+      this.frameAt = now;
       this.statFrames++;
       this.pump();
     }
@@ -3959,8 +4026,8 @@ const LivePlayer = (() => {
     }
 
     initialize() {
-      let info;
-      try { info = parseSps(this.sps); } catch (error) { info = { width: (this.profile && this.profile.width) || 704, height: (this.profile && this.profile.height) || 576, profile: this.sps[1], chroma: 1, lumaDepth: 8, chromaDepth: 8 }; }
+      let info = null;
+      try { info = parseSps(this.sps); } catch (error) {}
       this.dimensions = info;
       const codec = 'avc1.' + hex2(this.sps[1]) + hex2(this.sps[2]) + hex2(this.sps[3]);
       const mime = 'video/mp4; codecs="' + codec + '"';
@@ -3970,14 +4037,17 @@ const LivePlayer = (() => {
       this.source = source;
       this.objectUrl = URL.createObjectURL(source);
       this.video.src = this.objectUrl;
-      const init = buildInit(this.sps, this.pps, info);
+      let sps = this.sps;
+      if (info) { try { sps = lowDelaySps(this.sps, info); } catch (error) {} }
+      // The avc1 sample entry needs a size even when the SPS could not be read; the decoder takes the real one from the SPS.
+      const init = buildInit(sps, this.pps, info || { width: 704, height: 576, profile: this.sps[1], chroma: 1, lumaDepth: 8, chromaDepth: 8 });
       const generation = this.generation;
       source.addEventListener('sourceopen', () => {
         if (generation !== this.generation || this.buffer) return;
         try {
           this.buffer = source.addSourceBuffer(mime);
           this.buffer.mode = 'segments';
-          this.buffer.addEventListener('updateend', () => this.pump());
+          this.buffer.addEventListener('updateend', () => { this.pump(); this.resume(); });
           this.buffer.addEventListener('error', () => { if (generation === this.generation) this.restart('stalled'); });
           this.buffer.appendBuffer(init);
           this.mediaReady = true;
@@ -3985,7 +4055,6 @@ const LivePlayer = (() => {
           this.restart('stalled');
         }
       }, { once: true });
-      this.hooks.dimensions(info);
     }
 
     pump() {
@@ -4003,6 +4072,22 @@ const LivePlayer = (() => {
           this.restart('stalled');
         }
       }
+    }
+
+    cushion(now) {
+      while (this.gaps.length && now - this.gaps[0][0] > HOLD_WINDOW) this.gaps.shift();
+      return Math.min(HOLD_MAX, Math.max(0, ...this.gaps.map(gap => gap[1] - HOLD_SLACK)));
+    }
+
+    cushioned() {
+      const buffered = this.video.buffered;
+      return buffered.length > 0 && buffered.end(buffered.length - 1) - this.video.currentTime >= this.cushion(performance.now());
+    }
+
+    resume() {
+      const video = this.video;
+      if (!video.paused || this.playing || this.frames <= 2) return;
+      if (this.cushioned()) video.play().catch(() => {});
     }
 
     trim(force) {
@@ -4032,29 +4117,30 @@ const LivePlayer = (() => {
 
       if (this.socket && now - this.lastDataAt > 6000) { this.restart('stalled'); return; }
 
+      const hold = this.cushion(now);
       const buffered = video.buffered;
       let lag = 0;
       if (buffered.length) {
         const end = buffered.end(buffered.length - 1);
         lag = Math.max(0, end - video.currentTime);
-        if (video.paused && this.frames > 2 && !this.playing) video.play().catch(() => {});
-        if (lag > 1.5) {
-          video.currentTime = end - 0.12;
+        this.resume();
+        if (lag > hold + 1.5) {
+          video.currentTime = end - hold - 0.12;
           this.catchingUp = false;
           video.playbackRate = 1;
-        } else if (lag > 0.5) {
+        } else if (lag > hold + 0.5) {
           this.catchingUp = true;
-        } else if (lag < 0.22) {
+        } else if (lag < hold + 0.22) {
           this.catchingUp = false;
         }
-        const rate = this.catchingUp ? Math.min(1.5, 1 + (lag - 0.2) * 0.8) : 1;
+        const rate = this.catchingUp ? Math.min(1.5, 1 + (lag - hold - 0.2) * 0.8) : 1;
         if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
 
-        if (video.currentTime !== this.lastTime) {
+        if (video.currentTime !== this.lastTime || video.paused) {
           this.lastTime = video.currentTime;
           this.lastTimeAt = now;
-        } else if (now - this.lastTimeAt > 2500 && lag > 0.3 && !video.paused) {
-          video.currentTime = Math.max(buffered.start(buffered.length - 1), end - 0.12);
+        } else if (now - this.lastTimeAt > 2500 && lag > hold + 0.3) {
+          video.currentTime = Math.max(buffered.start(buffered.length - 1), end - hold - 0.12);
           this.lastTimeAt = now;
         }
       }
@@ -4106,11 +4192,10 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
   info(message) {
     liveProfileText = message.profile || 'from the camera';
   },
-  dimensions() {},
   stats(values) {
-    if (!values.width || !liveVideo.classList.contains('ready')) return;
+    if (!liveVideo.classList.contains('ready')) return;
     $('liveMeta').textContent = 'H.264 · profile ' + liveProfileText
-      + ' · ' + values.width + '×' + values.height
+      + (values.width ? ' · ' + values.width + '×' + values.height : '')
       + ' · ' + Math.round(values.fps) + ' fps · ' + Math.round(values.kbps) + ' kbps'
       + ' · lag ' + values.lag.toFixed(1) + ' s · ' + values.frames + ' frames';
   }
