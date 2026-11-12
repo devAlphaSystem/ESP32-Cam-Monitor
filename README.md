@@ -46,6 +46,8 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
 
    In Visual Studio Code, the same command is the Upload button in the PlatformIO bottom bar. If the upload fails, hold the BOOT button on the board while PlatformIO connects, and release it when the upload starts.
 
+   On Windows, you can also double-click `install.bat` in the project root after preparing `include/secrets.h`. Enter the ESP32 COM port, such as `COM3`, and confirm with Y. The installer builds and uploads the Watchdog firmware while preserving saved settings, Wi-Fi credentials, and logs. Answering N cancels without changing the board.
+
 5. Open the serial monitor to see the dashboard address.
 
    ```

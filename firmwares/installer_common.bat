@@ -6,12 +6,20 @@ set "PROJECT_DIR=%~2"
 
 if /i "%INSTALL_MODE%"=="minimal" goto mode_valid
 if /i "%INSTALL_MODE%"=="zeroed" goto mode_valid
+if /i "%INSTALL_MODE%"=="watchdog" goto mode_valid
 
 echo.
 echo ERROR: invalid installation mode.
 goto failure
 
 :mode_valid
+set "FIRMWARE_NAME=MINIMAL"
+set "INSTALL_STEPS=3"
+if /i "%INSTALL_MODE%"=="watchdog" (
+    set "FIRMWARE_NAME=WATCHDOG"
+    set "INSTALL_STEPS=2"
+)
+
 if not defined PROJECT_DIR (
     echo.
     echo ERROR: installer folder not provided.
@@ -22,7 +30,15 @@ call :find_platformio
 if errorlevel 1 goto platformio_missing
 
 cls
-if /i "%INSTALL_MODE%"=="minimal" (
+if /i "%INSTALL_MODE%"=="watchdog" (
+    title ESP32 - Install Watchdog firmware
+    echo ============================================================
+    echo                 ESP32 - WATCHDOG FIRMWARE
+    echo ============================================================
+    echo.
+    echo This process builds and flashes the Watchdog firmware.
+    echo Saved settings, Wi-Fi credentials and logs are preserved.
+) else if /i "%INSTALL_MODE%"=="minimal" (
     title ESP32 - Install minimal firmware
     echo ============================================================
     echo                 ESP32 - MINIMAL FIRMWARE
@@ -57,7 +73,9 @@ if not defined ESP32_PORT (
 
 echo.
 echo Selected port: %ESP32_PORT%
-if /i "%INSTALL_MODE%"=="minimal" (
+if /i "%INSTALL_MODE%"=="watchdog" (
+    echo Action: install the Watchdog firmware and preserve saved data.
+) else if /i "%INSTALL_MODE%"=="minimal" (
     echo Action: erase the entire flash and install the minimal firmware.
 ) else (
     echo Action: erase the entire flash and leave the ESP32 without firmware.
@@ -66,17 +84,19 @@ echo.
 choice /c YN /n /m "Confirm the operation? [Y/N]: "
 if errorlevel 2 goto cancelled
 
-if /i "%INSTALL_MODE%"=="minimal" goto install_minimal
-goto erase_only
+if /i "%INSTALL_MODE%"=="zeroed" goto erase_only
+goto install_firmware
 
-:install_minimal
+:install_firmware
 echo.
 echo ------------------------------------------------------------
-echo STEP 1/3 - BUILD MINIMAL FIRMWARE
+echo STEP 1/%INSTALL_STEPS% - BUILD %FIRMWARE_NAME% FIRMWARE
 echo ------------------------------------------------------------
 call :run_platformio build
 if errorlevel 1 goto build_failed
 echo     Build complete.
+
+if /i "%INSTALL_MODE%"=="watchdog" goto upload_firmware
 
 echo.
 echo ------------------------------------------------------------
@@ -85,9 +105,10 @@ echo ------------------------------------------------------------
 call :run_platformio erase
 if errorlevel 1 goto erase_failed
 
+:upload_firmware
 echo.
 echo ------------------------------------------------------------
-echo STEP 3/3 - FLASH MINIMAL FIRMWARE ON %ESP32_PORT%
+echo STEP %INSTALL_STEPS%/%INSTALL_STEPS% - FLASH %FIRMWARE_NAME% FIRMWARE ON %ESP32_PORT%
 echo ------------------------------------------------------------
 call :run_platformio upload
 if errorlevel 1 goto upload_failed
@@ -95,7 +116,11 @@ if errorlevel 1 goto upload_failed
 echo.
 echo ============================================================
 echo RESULT: DONE
-echo Flash erased and minimal firmware flashed successfully.
+if /i "%INSTALL_MODE%"=="watchdog" (
+    echo Watchdog firmware flashed successfully. Saved data preserved.
+) else (
+    echo Flash erased and minimal firmware flashed successfully.
+)
 echo ============================================================
 goto success
 
@@ -162,7 +187,11 @@ goto failure
 echo.
 echo ============================================================
 echo RESULT: FLASHING FAILED
-echo The flash was erased, but the firmware was not flashed.
+if /i "%INSTALL_MODE%"=="watchdog" (
+    echo The Watchdog firmware upload did not complete.
+) else (
+    echo The flash was erased, but the firmware was not flashed.
+)
 echo Run the installer again after checking the USB connection.
 echo ============================================================
 goto failure
