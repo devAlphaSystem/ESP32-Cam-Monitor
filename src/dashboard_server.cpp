@@ -1,4 +1,5 @@
 #include "firmware_internal.h"
+#include <esp_wifi.h>
 
 namespace CameraWatchdog {
 
@@ -147,6 +148,12 @@ String buildStatusJson(CameraContext& ctx)
     json += WiFi.gatewayIP().toString();
     json += "\",\"rssi\":";
     json += WiFi.RSSI();
+    wifi_ps_type_t powerSave = WIFI_PS_NONE;
+    int8_t txPower = 0;
+    json += ",\"powerSaveMode\":";
+    json += esp_wifi_get_ps(&powerSave) == ESP_OK ? String(static_cast<int>(powerSave)) : String("null");
+    json += ",\"maxTxPowerDbm\":";
+    json += esp_wifi_get_max_tx_power(&txPower) == ESP_OK ? String(static_cast<float>(txPower) / 4.0f, 2) : String("null");
     json += "},";
 
     json += "\"alertLed\":{\"configured\":";
@@ -1820,7 +1827,32 @@ void appendLiveStreamJson(String& json)
     json += ",\"profile\":\"";
     appendJsonEscaped(json, String(stats.profileName));
     json += "\",\"framesPerSecond\":";
-    json += stats.framesPerSecond;
+    json += String(stats.framesPerSecond, 2);
+    json += ",\"transport\":\"";
+    json += stats.udpTransport ? "rtp_udp" : "rtsp_tcp";
+    json += "\",\"relayBufferedBytes\":";
+    json += stats.relayBufferedBytes;
+    json += ",\"relayHighWaterBytes\":";
+    json += stats.relayHighWaterBytes;
+    json += ",\"largestFrameBytes\":";
+    json += stats.largestFrameBytes;
+    json += ",\"rtpCumulativeLoss\":";
+    json += stats.rtpCumulativeLoss;
+    json += ",\"resyncEvents\":";
+    json += stats.resyncEvents;
+    json += ",\"transportReason\":\"";
+    json += stats.transportReason;
+    json += '"';
+    json += ",\"viewerWriteBlocks\":";
+    json += stats.viewerWriteBlocks;
+    json += ",\"viewerWriteBlockedMs\":";
+    json += stats.viewerWriteBlockedMs;
+    json += ",\"viewerWriteWaitMaxMs\":";
+    json += stats.viewerWriteWaitMaxMs;
+    json += ",\"viewerSendCallMaxMs\":";
+    json += stats.viewerSendCallMaxMs;
+    json += ",\"taskStackMinimumBytes\":";
+    json += stats.taskStackMinimumBytes;
     json += ",\"kilobitsPerSecond\":";
     json += stats.kilobitsPerSecond;
     json += ",\"sessionsStarted\":";

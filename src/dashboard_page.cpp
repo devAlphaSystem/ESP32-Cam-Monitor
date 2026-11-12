@@ -274,6 +274,7 @@ body.fs-locked{overflow:hidden}
 .diagnostic-output{position:relative}
 .diagnostic-copy{position:absolute;top:12px;right:12px;z-index:1;min-width:144px}
 #raw{margin:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
+#liveDiagnostics{margin:16px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
 
 /* Logs */
 .settings-panel .grid{margin-top:0}
@@ -540,7 +541,7 @@ body.fs-locked{overflow:hidden}
 </div>
 
 <details class="dev-diagnostics">
-  <summary>Development diagnostics<a class="dev-link" href="#diagnostics">Open the full JSON in Settings &gt; Diagnostics</a></summary>
+  <summary>Development diagnostics</summary>
   <div class="dev-body">
     <dl class="dev-list">
       <div><dt>ONVIF probe</dt><dd id="m-onvif">—</dd></div>
@@ -553,6 +554,7 @@ body.fs-locked{overflow:hidden}
       <div><dt>Snapshot media</dt><dd id="feedMeta">JPEG frames from the selected camera</dd></div>
       <div><dt>Live media</dt><dd id="liveMeta">H.264 video from the selected camera</dd></div>
     </dl>
+    <pre id="liveDiagnostics">Waiting for live diagnostics…</pre>
   </div>
 </details>
 
@@ -3440,6 +3442,7 @@ function render(d) {
   );
 
   $('raw').textContent = JSON.stringify(d, null, 2);
+  $('liveDiagnostics').textContent = JSON.stringify(d.live, null, 2);
   $('copyDiagnostics').disabled = false;
   $('foot').textContent = 'ESP32 Camera Watchdog · ' + d.firmwareVersion;
   $('deviceUptime').textContent = 'uptime ' + duration(d.uptimeSeconds);
@@ -3509,9 +3512,9 @@ const LivePlayer = (() => {
   const CLOCK = 90000;
   const MIN_DELTA = 1500;
   const MAX_DELTA = 22500;
-  const HOLD_WINDOW = 30000;
-  const HOLD_SLACK = 0.1;
-  const HOLD_MAX = 1;
+  const FPS_WINDOW = 5000;
+  const MAX_PENDING_BYTES = 4 * 1024 * 1024;
+  const MAX_PENDING_FRAMES = 60;
   const ERROR_TEXT = {
     live_in_use: 'Another viewer is watching a different camera or quality. Close that stream and try again.',
     busy: 'The ESP32 is busy checking the camera. Trying again…',
@@ -3529,7 +3532,7 @@ const LivePlayer = (() => {
     rtsp_play_failed: 'The camera refused to start the RTSP video.',
     rtsp_auth_required: 'The camera requires a username and password for the video. Set up the camera credentials.',
     rtsp_auth_rejected: 'The camera rejected the credentials used for the video.',
-    rtsp_transport_unsupported: 'The camera does not accept RTSP video over TCP.',
+    rtsp_transport_unsupported: 'The camera does not accept a supported RTSP video transport.',
     rtsp_sdp_invalid: 'The camera sent an invalid RTSP video description.',
     rtsp_protocol_error: 'The camera sent RTSP video data the ESP32 could not read.',
     camera_codec_not_h264: 'The camera is not sending H.264 on this profile.',
@@ -3538,9 +3541,10 @@ const LivePlayer = (() => {
     low_memory: 'The ESP32 has little free memory for the video.',
     device_unreachable: 'No response from the ESP32.',
     unsupported: 'This browser does not support Media Source Extensions with H.264.',
-    stalled: 'The video stopped arriving. Reconnecting…'
+    stalled: 'The video stopped arriving. Reconnecting…',
+    playback_overloaded: 'The browser could not keep up with the video. Close other video tabs and retry.'
   };
-  const NO_RETRY = new Set(['unsupported', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_sdp_invalid', 'rtsp_auth_required', 'rtsp_auth_rejected', 'rtsp_transport_unsupported', 'invalid_stream_uri', 'camera_required', 'invalid_camera', 'camera_not_found', 'camera_merged']);
+  const NO_RETRY = new Set(['unsupported', 'playback_overloaded', 'no_h264_profile', 'camera_codec_not_h264', 'rtsp_sdp_invalid', 'rtsp_auth_required', 'rtsp_auth_rejected', 'rtsp_transport_unsupported', 'invalid_stream_uri', 'camera_required', 'invalid_camera', 'camera_not_found', 'camera_merged']);
 
   const concat = chunks => {
     let size = 0;
@@ -3753,9 +3757,9 @@ const LivePlayer = (() => {
         hooks.state('live', '');
       });
       video.addEventListener('waiting', () => {
-        if (!this.playing || video.seeking || this.cushioned()) return;
+        if (!this.initialized || video.seeking) return;
         this.playing = false;
-        video.pause();
+        hooks.state('buffering', 'Waiting for video from the camera…');
       });
     }
 
@@ -3782,7 +3786,7 @@ const LivePlayer = (() => {
       this.frames = 0;
       this.bytes = 0;
       this.lastDataAt = 0;
-      this.statFrames = 0;
+      this.frameTimes = [];
       this.statBytes = 0;
       this.statAt = performance.now();
       this.fps = 0;
@@ -3791,8 +3795,6 @@ const LivePlayer = (() => {
       this.lastTime = -1;
       this.lastTimeAt = performance.now();
       this.playing = false;
-      this.gaps = [];
-      this.frameAt = 0;
     }
 
     supported() {
@@ -3920,6 +3922,7 @@ const LivePlayer = (() => {
     fail(code, detail) {
       const known = ERROR_TEXT[code] || detail || 'Failed to stream the video.';
       const fatal = NO_RETRY.has(code);
+      this.generation++;
       this.stopInternal();
       const generation = this.generation;
       this.hooks.error(code, known, fatal);
@@ -3938,8 +3941,11 @@ const LivePlayer = (() => {
       const flags = data[0];
       const timestamp = ((data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4]) >>> 0;
       const payload = data.subarray(5);
-      if (flags & 2) { this.fragment = null; this.units = []; this.unitTimestamp = null; this.waitingForKey = true; this.frameAt = performance.now(); }
-      if (this.unitTimestamp !== null && timestamp !== this.unitTimestamp && this.units.length) this.finishUnit();
+      if (flags & 2) { this.fragment = null; this.units = []; this.unitTimestamp = null; this.waitingForKey = true; }
+      if (this.unitTimestamp !== null && timestamp !== this.unitTimestamp) {
+        if (this.fragment) { this.fragment = null; this.units = []; this.waitingForKey = true; }
+        else if (this.units.length) this.finishUnit();
+      }
       this.unitTimestamp = timestamp;
       const type = payload[0] & 31;
       if (type >= 1 && type <= 23) {
@@ -3963,10 +3969,12 @@ const LivePlayer = (() => {
     }
 
     finishUnit() {
+      const generation = this.generation;
       const units = this.units;
       const timestamp = this.unitTimestamp;
       this.units = [];
       this.unitTimestamp = null;
+      if (this.fragment) { this.fragment = null; this.waitingForKey = true; return; }
       let idr = false;
       const slices = [];
       for (const unit of units) {
@@ -3976,10 +3984,16 @@ const LivePlayer = (() => {
         else if (type === 5) { idr = true; slices.push(unit); }
         else if (type === 1) slices.push(unit);
       }
+      if (generation !== this.generation) return;
       if (!slices.length || timestamp === null) return;
+      if (idr && !slices.some(slice => (slice[0] & 31) === 5 && slice.length > 1 && (slice[1] & 0x80))) {
+        this.waitingForKey = true;
+        return;
+      }
       if (!this.initialized) {
         if (!idr || !this.sps || !this.pps) return;
         this.initialize();
+        if (!this.initialized) return;
       }
       if (idr) this.waitingForKey = false;
       if (this.waitingForKey) return;
@@ -4002,13 +4016,16 @@ const LivePlayer = (() => {
       this.lastTimestamp = timestamp;
       const duration = this.lastDelta;
       this.lastDelta = delta;
-      this.queue.push(buildFragment(++this.sequence, this.decodeTime, duration, sample, idr));
+      const fragment = buildFragment(++this.sequence, this.decodeTime, duration, sample, idr);
+      if (this.queue.length >= MAX_PENDING_FRAMES || this.queue.reduce((bytes, item) => bytes + item.byteLength, 0) + fragment.byteLength > MAX_PENDING_BYTES) {
+        this.fail('playback_overloaded');
+        return;
+      }
+      this.queue.push(fragment);
       this.decodeTime += duration;
       this.frames++;
       const now = performance.now();
-      if (this.frameAt && now - this.frameAt > HOLD_SLACK * 1000) this.gaps.push([now, (now - this.frameAt) / 1000]);
-      this.frameAt = now;
-      this.statFrames++;
+      this.frameTimes.push(now);
       this.pump();
     }
 
@@ -4060,34 +4077,33 @@ const LivePlayer = (() => {
     pump() {
       const buffer = this.buffer;
       if (!buffer || !this.mediaReady || buffer.updating || !this.queue.length || this.source.readyState !== 'open') return;
-      const batch = this.queue.length > 1 ? concat(this.queue) : this.queue[0];
+      const pending = this.queue;
+      const batch = pending.length > 1 ? concat(pending) : pending[0];
       this.queue = [];
       try {
         buffer.appendBuffer(batch);
       } catch (error) {
         if (error && error.name === 'QuotaExceededError') {
           this.trim(true);
-          this.queue.unshift(batch);
+          this.queue = pending.concat(this.queue);
         } else {
           this.restart('stalled');
         }
       }
     }
 
-    cushion(now) {
-      while (this.gaps.length && now - this.gaps[0][0] > HOLD_WINDOW) this.gaps.shift();
-      return Math.min(HOLD_MAX, Math.max(0, ...this.gaps.map(gap => gap[1] - HOLD_SLACK)));
-    }
-
-    cushioned() {
-      const buffered = this.video.buffered;
-      return buffered.length > 0 && buffered.end(buffered.length - 1) - this.video.currentTime >= this.cushion(performance.now());
-    }
-
     resume() {
       const video = this.video;
-      if (!video.paused || this.playing || this.frames <= 2) return;
-      if (this.cushioned()) video.play().catch(() => {});
+      if (!video.paused || !this.initialized || !this.frames || !video.buffered.length) return;
+      if (video.buffered.end(video.buffered.length - 1) > video.currentTime) video.play().catch(() => {});
+    }
+
+    cushion() {
+      let reserve = 0;
+      for (let index = 1; index < this.frameTimes.length; index++) {
+        reserve = Math.max(reserve, (this.frameTimes[index] - this.frameTimes[index - 1]) / 1000 - 0.1);
+      }
+      return Math.min(0.75, Math.max(0, reserve));
     }
 
     trim(force) {
@@ -4107,9 +4123,9 @@ const LivePlayer = (() => {
 
       if (now - this.statAt >= 1000) {
         const seconds = (now - this.statAt) / 1000;
-        this.fps = this.statFrames / seconds;
+        while (this.frameTimes.length > 1 && now - this.frameTimes[1] > FPS_WINDOW) this.frameTimes.shift();
+        this.fps = this.frameTimes.length > 1 ? (this.frameTimes.length - 1) * 1000 / Math.min(FPS_WINDOW, Math.max(1000, now - this.frameTimes[0])) : 0;
         this.kbps = this.statBytes * 8 / seconds / 1000;
-        this.statFrames = 0;
         this.statBytes = 0;
         this.statAt = now;
         this.trim(false);
@@ -4117,7 +4133,7 @@ const LivePlayer = (() => {
 
       if (this.socket && now - this.lastDataAt > 6000) { this.restart('stalled'); return; }
 
-      const hold = this.cushion(now);
+      const hold = this.cushion();
       const buffered = video.buffered;
       let lag = 0;
       if (buffered.length) {
@@ -4156,6 +4172,7 @@ let liveStartedFor = 0;
 let liveStartedQuality = '';
 let liveQuality = 'fluid';
 let liveProfileText = '';
+let liveFatalSource = null;
 
 function setLiveOverlay(text, showRetry) {
   $('liveState').classList.toggle('hidden', !text);
@@ -4163,9 +4180,9 @@ function setLiveOverlay(text, showRetry) {
   $('liveRetry').hidden = !showRetry;
 }
 
-function setLiveBadge(on) {
+function setLiveBadge(on, text) {
   $('liveBadge').classList.toggle('on', on);
-  $('liveBadgeText').textContent = on ? 'LIVE' : 'NO SIGNAL';
+  $('liveBadgeText').textContent = text || (on ? 'LIVE' : 'NO SIGNAL');
 }
 
 const livePlayer = new LivePlayer.Player(liveVideo, {
@@ -4180,6 +4197,10 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
       setLiveOverlay(text || 'Connecting to the camera…', false);
       setLiveBadge(false);
       $('liveStamp').textContent = 'connecting';
+    } else if (kind === 'buffering') {
+      setLiveOverlay(text, false);
+      setLiveBadge(false, 'BUFFERING');
+      $('liveStamp').textContent = 'waiting for video';
     }
   },
   error(code, text, fatal) {
@@ -4187,7 +4208,7 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
     setLiveBadge(false);
     setLiveOverlay(fatal ? text : text + ' Reconnecting…', fatal);
     $('liveStamp').textContent = fatal ? 'stream interrupted' : 'reconnecting';
-    if (fatal) liveStartedFor = 0;
+    if (fatal) liveFatalSource = { cameraId: liveStartedFor, quality: liveStartedQuality };
   },
   info(message) {
     liveProfileText = message.profile || 'from the camera';
@@ -4196,14 +4217,16 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
     if (!liveVideo.classList.contains('ready')) return;
     $('liveMeta').textContent = 'H.264 · profile ' + liveProfileText
       + (values.width ? ' · ' + values.width + '×' + values.height : '')
-      + ' · ' + Math.round(values.fps) + ' fps · ' + Math.round(values.kbps) + ' kbps'
-      + ' · lag ' + values.lag.toFixed(1) + ' s · ' + values.frames + ' frames';
+      + ' · ' + (values.fps && values.fps < 10 ? values.fps.toFixed(1) : Math.round(values.fps)) + ' fps · ' + Math.round(values.kbps) + ' kbps'
+      + ' · buffer ' + values.lag.toFixed(1) + ' s · ' + values.frames + ' frames';
   }
 });
 
 function startLive() {
   if (!liveModeActive() || document.hidden || !selectedCameraId) return;
+  if (liveFatalSource && liveFatalSource.cameraId === selectedCameraId && liveFatalSource.quality === liveQuality) return;
   if (liveStartedFor === selectedCameraId && liveStartedQuality === liveQuality) return;
+  liveFatalSource = null;
   liveStartedFor = selectedCameraId;
   liveStartedQuality = liveQuality;
   liveVideo.classList.remove('ready');
@@ -4225,7 +4248,7 @@ $('liveQuality').addEventListener('change', () => {
   stopLive();
   startLive();
 });
-$('liveRetry').addEventListener('click', () => { stopLive(); startLive(); });
+$('liveRetry').addEventListener('click', () => { liveFatalSource = null; stopLive(); startLive(); });
 window.addEventListener('pagehide', () => livePlayer.stop());
 
 function activateView(name, updateHash) {

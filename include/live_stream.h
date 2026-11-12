@@ -36,7 +36,19 @@ struct LiveStreamStats {
     LiveStreamState state = LiveStreamState::Idle;
     uint32_t cameraId = 0;
     uint8_t clients = 0;
-    uint16_t framesPerSecond = 0;
+    float framesPerSecond = 0;
+    bool udpTransport = false;
+    uint32_t relayBufferedBytes = 0;
+    uint32_t relayHighWaterBytes = 0;
+    uint32_t largestFrameBytes = 0;
+    int32_t rtpCumulativeLoss = 0;
+    uint32_t resyncEvents = 0;
+    const char* transportReason = "";
+    uint32_t viewerWriteBlocks = 0;
+    uint32_t viewerWriteBlockedMs = 0;
+    uint32_t viewerWriteWaitMaxMs = 0;
+    uint32_t viewerSendCallMaxMs = 0;
+    uint32_t taskStackMinimumBytes = 0;
     uint32_t kilobitsPerSecond = 0;
     uint32_t sessionsStarted = 0;
     uint32_t sessionFailures = 0;
@@ -61,7 +73,7 @@ bool liveStreamCopyTarget(LiveStreamTarget& target);
 
 LiveStreamStats liveStreamStats();
 
-bool liveStreamDeliveredRecently(uint32_t cameraId, uint32_t windowMs, uint32_t* framesInWindow = nullptr);
+bool liveStreamDeliveredRecently(uint32_t cameraId, uint32_t windowMs, float* framesPerSecond = nullptr);
 
 void liveStreamRecordPendingFailure();
 

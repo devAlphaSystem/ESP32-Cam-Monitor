@@ -113,12 +113,16 @@ The default values are a check every 15 seconds, a grace period of 90 seconds af
 
 ### Live video
 
-The Camera tab opens on Live, which uses the H.264 stream of the camera over RTSP. The ESP32 relays the packets to the browser on port 81 without decoding anything, and the browser plays the video. Snapshot, next to Live, shows JPEG images instead.
+The Camera tab opens on Live, which negotiates the H.264 stream over RTSP. Standard uses interleaved TCP. High resolution first tries RTP over UDP and uses TCP when UDP cannot be negotiated, when no RTP arrives, or after repeated relay overflows. That choice stays with the current camera and quality until the target changes, and its reason appears in the live diagnostics. The ESP32 relays the packets to the browser on port 81 without decoding anything, and the browser plays the video. Snapshot, next to Live, shows JPEG images instead.
 
-- The Standard quality uses the smallest H.264 profile of the camera with at least 640 by 360 pixels. The High resolution quality uses the largest profile and may stutter, because the camera sends that stream in bursts.
+- The Standard quality uses the smallest H.264 profile of the camera with at least 640 by 360 pixels. The High resolution quality uses the largest profile. Its bitrate and keyframe size must fit the capacity of the camera, Wi-Fi, and ESP32; a large keyframe can still delay the video.
 - The ESP32 opens one session at a time, so two viewers can only watch the same camera at the same quality.
 - Cameras that send only H.265 do not work on Live. Use Snapshot for them.
 - The video stops by itself when you switch to Snapshot or leave the Camera tab, and the camera is free again.
+- Development diagnostics on the Camera tab shows the current live JSON without stopping the video. It includes the negotiated transport and reason, fractional receive FPS over the last five rate samples, queued relay bytes, largest received frame, current RTP cumulative loss, and resync events. RTP cumulative loss follows RTCP semantics and can be negative when duplicate packets arrive; resync events accumulate since boot. The buffer shown by the player is available playback time, not capture-to-screen delay.
+- The player keeps a playback reserve based on recent frame gaps, capped at 0.75 seconds. Catch-up preserves that reserve so a burst of frames does not empty the buffer before the next keyframe. Playback still resumes as soon as data is available, without a forced pause timer.
+- The JSON also reports viewer socket write waits, send call duration, minimum free relay stack in bytes, actual Wi-Fi power-save mode, and maximum TX power. Write-block count, total blocked time, maximum write wait, and maximum send call time accumulate since boot. Waits measure elapsed wall time until write progress or closure, including any relay work between retries; they are not TCP RTT measurements.
+- When viewer writes free relay space, the relay retries a buffered RTP packet before waiting for socket readiness. This avoids an idle wait while a complete packet can already be forwarded.
 
 ### Security
 

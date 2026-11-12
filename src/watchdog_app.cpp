@@ -186,7 +186,7 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         return;
     }
 
-    uint32_t liveFramesPerSecond = 0;
+    float liveFramesPerSecond = 0;
     if (liveStreamDeliveredRecently(ctx.id, ctx.settings.healthCheckIntervalMs, &liveFramesPerSecond)) {
         ctx.totalHealthChecks++;
         ctx.previewHealthEvidenceUses++;
