@@ -5,7 +5,7 @@
 
 namespace PersistentLog {
 
-constexpr size_t CAPACITY = 7500;
+constexpr size_t CAPACITY = 2500;
 constexpr size_t DETAIL_CAPACITY = 36;
 
 enum class Level : uint8_t {

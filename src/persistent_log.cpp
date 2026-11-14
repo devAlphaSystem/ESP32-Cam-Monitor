@@ -16,8 +16,6 @@ constexpr unsigned long FLUSH_INTERVAL_MS = 1000UL;
 constexpr uint8_t STORAGE_RECOVERY_USAGE_PERCENT = 75;
 constexpr uint32_t STORAGE_OPERATION_MAGIC = 0x4C4F4757UL;
 
-using PersistentLogFormat::RECORD_MAGIC;
-using PersistentLogFormat::RECORD_SCHEMA_VERSION;
 using PersistentLogFormat::STORED_CONTEXT_BYTES;
 using PersistentLogFormat::STORED_DETAIL_CAPACITY;
 using PersistentLogFormat::StoredRecord;
@@ -266,7 +264,7 @@ void decodeRecord(const StoredRecord& stored, Entry& entry)
     entry.targetPort = stored.targetPort;
     entry.statusCode = stored.statusCode;
     entry.event = static_cast<Event>(stored.event);
-    entry.category = static_cast<Category>(stored.category);
+    entry.category = categoryForEvent(entry.event);
     entry.level = static_cast<Level>(stored.level);
     entry.outcome = static_cast<Outcome>(stored.outcome);
     entry.flags = stored.flags;
@@ -350,7 +348,6 @@ void record(Event event, Outcome outcome, const char* detail, const IPAddress& t
 
     StoredRecord& stored = writeQueue[queuedRecords++];
     stored = StoredRecord{};
-    stored.magic = RECORD_MAGIC;
     stored.sequence = nextSequence;
     nextSequence = nextSequence == UINT32_MAX ? 1 : nextSequence + 1;
 
@@ -362,10 +359,7 @@ void record(Event event, Outcome outcome, const char* detail, const IPAddress& t
     stored.value = value;
     stored.targetPort = targetPort;
     stored.statusCode = static_cast<int16_t>(constrain(statusCode, static_cast<int>(INT16_MIN), static_cast<int>(INT16_MAX)));
-    stored.event = static_cast<uint16_t>(event);
-    stored.schemaVersion = RECORD_SCHEMA_VERSION;
-    stored.category = static_cast<uint8_t>(categoryForEvent(event));
-
+    stored.event = static_cast<uint8_t>(event);
     stored.level = static_cast<uint8_t>(level);
     stored.outcome = static_cast<uint8_t>(outcome);
     stored.flags = flags;

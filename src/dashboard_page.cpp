@@ -822,7 +822,7 @@ body.fs-locked{overflow:hidden}
           <article class="card">
             <div class="card-h">Stored records</div>
             <div class="card-v info" id="logsCount">—</div>
-            <div class="card-m" id="logsCountMeta">circular limit of 7,500 records</div>
+            <div class="card-m" id="logsCountMeta">circular limit of 2,500 records</div>
             <div class="meter"><i id="logsCountMeter"></i></div>
           </article>
           <article class="card">

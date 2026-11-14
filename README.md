@@ -10,7 +10,7 @@ Camera Watchdog runs on an ESP32 connected to your local network and watches IP 
 - Sends email alerts through the Resend service when the camera goes down, comes back, or changes IP.
 - Shows live H.264 video in the browser, with up to two viewers at the same time.
 - Moves the camera to PTZ presets saved on the camera.
-- Keeps a history of up to 7,500 warnings and errors in a dedicated partition. The history survives restarts and can be exported as CSV.
+- Keeps a history of up to 2,500 warnings and errors in a dedicated partition. The history survives restarts and can be exported as CSV.
 - Opens its own Wi-Fi network for setup when no Wi-Fi is configured or when it loses the connection for more than 2 minutes.
 - Blinks the blue LED of the board, on GPIO 2, while the camera is not online.
 

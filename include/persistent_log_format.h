@@ -6,13 +6,11 @@
 
 namespace PersistentLogFormat {
 
-constexpr uint32_t RECORD_MAGIC = 0x434C4F47UL;
-constexpr uint16_t RECORD_SCHEMA_VERSION = 3;
+constexpr uint16_t RECORD_SCHEMA_VERSION = 4;
 constexpr size_t STORED_CONTEXT_BYTES = 8;
 constexpr size_t STORED_DETAIL_CAPACITY = PersistentLog::DETAIL_CAPACITY - STORED_CONTEXT_BYTES;
 
 struct StoredRecord {
-    uint32_t magic;
     uint32_t sequence;
     uint32_t epochSeconds;
     uint32_t uptimeMs;
@@ -21,9 +19,7 @@ struct StoredRecord {
     uint32_t value;
     uint16_t targetPort;
     int16_t statusCode;
-    uint16_t event;
-    uint16_t schemaVersion;
-    uint8_t category;
+    uint8_t event;
     uint8_t level;
     uint8_t outcome;
     uint8_t flags;
@@ -32,14 +28,15 @@ struct StoredRecord {
 };
 
 static_assert(PersistentLog::DETAIL_CAPACITY > STORED_CONTEXT_BYTES + 1, "The persistent payload must reserve space for the detail");
-static_assert(sizeof(StoredRecord) == 80, "The persistent record must be exactly 80 bytes");
-static_assert(offsetof(StoredRecord, checksum) == 76, "The checksum must stay at the end of the persistent record");
-static_assert(PersistentLog::CAPACITY * sizeof(StoredRecord) == 600000, "The circular file must leave headroom for LittleFS");
+static_assert(static_cast<uint16_t>(PersistentLog::Event::LiveSession) <= UINT8_MAX, "The persistent record stores the event in one byte");
+static_assert(sizeof(StoredRecord) == 72, "The persistent record must be exactly 72 bytes");
+static_assert(offsetof(StoredRecord, checksum) == 68, "The checksum must stay at the end of the persistent record");
+static_assert(PersistentLog::CAPACITY * sizeof(StoredRecord) == 180000, "The circular file must leave headroom for LittleFS");
 
 inline uint32_t checksumBytes(const void* values, size_t valueSize)
 {
     const uint8_t* bytes = static_cast<const uint8_t*>(values);
-    uint32_t hash = 2166136261UL;
+    uint32_t hash = 2166136261UL ^ RECORD_SCHEMA_VERSION;
 
     for (size_t index = 0; index < valueSize; index++) {
         hash ^= bytes[index];
@@ -56,7 +53,7 @@ inline uint32_t recordChecksum(const StoredRecord& record)
 
 inline bool validRecord(const StoredRecord& record)
 {
-    return record.magic == RECORD_MAGIC && record.schemaVersion == RECORD_SCHEMA_VERSION && record.checksum == recordChecksum(record);
+    return record.checksum == recordChecksum(record);
 }
 
 inline uint32_t readUint32(const uint8_t* source)
