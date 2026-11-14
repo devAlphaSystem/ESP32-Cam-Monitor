@@ -49,7 +49,15 @@ struct RuntimeSettings {
     char cameraPassword[CAMERA_PASSWORD_MAX_LENGTH + 1];
 };
 
+struct DeviceSecrets {
+    char adminPassword[ADMIN_PASSWORD_MAX_LENGTH + 1];
+    char resendApiKey[RESEND_API_KEY_MAX_LENGTH + 1];
+    char resendFrom[RESEND_FROM_MAX_LENGTH + 1];
+    char alertEmail[ALERT_EMAIL_MAX_LENGTH + 1];
+};
+
 static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings exceeded the planned limit");
+static_assert(sizeof(DeviceSecrets) <= 512, "DeviceSecrets exceeded the planned limit");
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)

@@ -678,6 +678,11 @@ void wifiSetupBegin()
     Serial.printf("Wi-Fi: %s\n", storedValid ? "credentials saved from the dashboard found" : (strlen(WIFI_SSID) > 0 ? "using firmware credentials" : "no credentials configured"));
 }
 
+bool wifiSetupConnectedWithStoredCredential()
+{
+    return storedValid && WiFi.status() == WL_CONNECTED && WiFi.SSID() == storedCredential.ssid && WiFi.psk() == storedCredential.password;
+}
+
 size_t wifiCredentialCandidates(WifiCredential* candidates)
 {
     size_t count = 0;

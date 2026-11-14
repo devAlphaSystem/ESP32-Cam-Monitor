@@ -55,6 +55,8 @@ struct Client {
 
 Client clients[LIVE_STREAM_MAX_CLIENTS];
 int listenFd = -1;
+volatile bool suspendRequested = false;
+volatile bool relaySuspended = false;
 TaskHandle_t taskHandle = nullptr;
 portMUX_TYPE targetMux = portMUX_INITIALIZER_UNLOCKED;
 LiveStreamTarget publishedTarget;
@@ -1633,6 +1635,27 @@ void liveTask(void*)
     Serial.printf("[live] video relay listening on port %u\n", static_cast<unsigned>(LIVE_STREAM_PORT));
 
     while (true) {
+        if (suspendRequested) {
+            if (!relaySuspended) {
+                closeAllClients("firmware_update");
+                stopSession(LiveStreamState::Idle, nullptr);
+                free(ring);
+                ring = nullptr;
+                closeSocket(listenFd);
+                relaySuspended = true;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
+        if (relaySuspended) {
+            if (!openListenSocket()) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
+            relaySuspended = false;
+        }
+
         const unsigned long now = millis();
         const size_t viewers = clientCount();
         statClientCount = static_cast<uint8_t>(viewers);
@@ -1798,6 +1821,16 @@ bool liveStreamBegin()
         return false;
     }
     return true;
+}
+
+void liveStreamSetSuspended(bool suspended)
+{
+    suspendRequested = suspended;
+}
+
+bool liveStreamSuspended()
+{
+    return taskHandle == nullptr || relaySuspended;
 }
 
 void liveStreamSetTarget(const LiveStreamTarget& target)

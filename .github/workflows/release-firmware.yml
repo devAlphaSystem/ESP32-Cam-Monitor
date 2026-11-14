@@ -1,0 +1,78 @@
+name: Release firmware
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read the firmware version
+        id: version
+        run: |
+          version=$(sed -n 's/^const char FIRMWARE_VERSION\[\] = "\(.*\)";/\1/p' src/firmware_core.cpp)
+          if [ -z "$version" ]; then
+            echo "FIRMWARE_VERSION was not found in src/firmware_core.cpp" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "The tag ${GITHUB_REF_NAME} does not match FIRMWARE_VERSION ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build the firmware
+        run: |
+          cp include/secrets.example.h include/secrets.h
+          pio run
+
+      - name: Create the manifest
+        run: |
+          notes=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            notes="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          fi
+          python scripts/make_update_manifest.py .pio/build/esp32dev/firmware.bin "${{ steps.version.outputs.version }}" site "$notes"
+
+      - name: Attach the firmware to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: site/firmware-${{ steps.version.outputs.version }}.bin
+          generate_release_notes: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

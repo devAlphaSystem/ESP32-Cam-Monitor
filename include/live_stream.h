@@ -67,6 +67,10 @@ struct LiveStreamStats {
 
 bool liveStreamBegin();
 
+void liveStreamSetSuspended(bool suspended);
+
+bool liveStreamSuspended();
+
 void liveStreamSetTarget(const LiveStreamTarget& target);
 
 bool liveStreamCopyTarget(LiveStreamTarget& target);

@@ -1,5 +1,6 @@
 #include "firmware_internal.h"
 #include <esp_wifi.h>
+#include <lwip/sockets.h>
 
 namespace CameraWatchdog {
 
@@ -975,8 +976,13 @@ void sendApiError(int statusCode, const char* code, const String& detail)
     sendJsonResponse(statusCode, json);
 }
 
-bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
+bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck, bool blockDuringFirmwareUpdate)
 {
+    if (blockDuringFirmwareUpdate && firmwareUpdateMaintenanceActive()) {
+        error = "Firmware update in progress";
+        return false;
+    }
+
     if (blockDuringHealthCheck && (healthCheckInProgress || registryBusy || cameraIoDepth != 0)) {
         error = "Health check in progress; try again";
         return false;
@@ -992,11 +998,21 @@ bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck)
         return false;
     }
 
-    if (adminPasswordConfigured() && (!httpServer.hasArg("adminPassword") || !secureTextEquals(httpServer.arg("adminPassword"), DASHBOARD_ADMIN_PASSWORD_VALUE))) {
+    if (adminPasswordConfigured() && (!httpServer.hasArg("adminPassword") || !secureTextEquals(httpServer.arg("adminPassword"), deviceSecrets.adminPassword))) {
         error = "Incorrect admin password";
         return false;
     }
 
+    return true;
+}
+
+bool rejectDuringFirmwareUpdate()
+{
+    if (!firmwareUpdateMaintenanceActive()) {
+        return false;
+    }
+
+    sendApiError(503, "update_in_progress", "Firmware update in progress");
     return true;
 }
 
@@ -1254,6 +1270,80 @@ bool parseGlobalSettingsRequest(GlobalSettings& candidate, String& error)
     return validateGlobalSettings(candidate, error);
 }
 
+bool parseDeviceSecretsRequest(DeviceSecrets& candidate, String& error)
+{
+    String textValue;
+    String action;
+
+    if (!readStringSettingArgument("adminPasswordAction", 4, 7, action, error, false)) {
+        return false;
+    }
+
+    if (!readStringSettingArgument("newAdminPassword", 0, ADMIN_PASSWORD_MAX_LENGTH, textValue, error, false)) {
+        return false;
+    }
+
+    if (action == "replace") {
+        if (textValue.length() < ADMIN_PASSWORD_MIN_LENGTH) {
+            error = String("The admin password needs at least ") + ADMIN_PASSWORD_MIN_LENGTH + " characters";
+            return false;
+        }
+        copySettingText(candidate.adminPassword, textValue);
+    } else if (action == "keep") {
+        if (!textValue.isEmpty()) {
+            error = "Select replace password to send a new admin password";
+            return false;
+        }
+    } else {
+        error = "Invalid admin password action";
+        return false;
+    }
+
+    if (!readStringSettingArgument("resendKeyAction", 4, 7, action, error, false)) {
+        return false;
+    }
+
+    if (!readStringSettingArgument("resendKey", 0, RESEND_API_KEY_MAX_LENGTH, textValue, error)) {
+        return false;
+    }
+
+    if (action == "replace") {
+        if (!textValue.startsWith("re_")) {
+            error = "The Resend API key starts with re_";
+            return false;
+        }
+        copySettingText(candidate.resendApiKey, textValue);
+    } else if (action == "keep" || action == "clear") {
+        if (!textValue.isEmpty()) {
+            error = "Select replace key to send a new Resend API key";
+            return false;
+        }
+        if (action == "clear") {
+            copySettingText(candidate.resendApiKey, "");
+        }
+    } else {
+        error = "Invalid Resend key action";
+        return false;
+    }
+
+    if (!readStringSettingArgument("resendFrom", 0, RESEND_FROM_MAX_LENGTH, textValue, error)) {
+        return false;
+    }
+    copySettingText(candidate.resendFrom, textValue);
+
+    if (!readStringSettingArgument("alertEmail", 0, ALERT_EMAIL_MAX_LENGTH, textValue, error)) {
+        return false;
+    }
+    copySettingText(candidate.alertEmail, textValue);
+
+    if (candidate.resendApiKey[0] != '\0' && (strchr(candidate.resendFrom, '@') == nullptr || strchr(candidate.alertEmail, '@') == nullptr)) {
+        error = "The sender and the recipient need an email address when a Resend key is set";
+        return false;
+    }
+
+    return true;
+}
+
 String buildSettingsJson(CameraContext* ctx)
 {
     String json;
@@ -1280,6 +1370,8 @@ String buildSettingsJson(CameraContext* ctx)
     json += settingsWriteToken;
     json += "\",\"cameraPasswordConfigured\":";
     json += ctx != nullptr && ctx->settings.cameraPassword[0] != '\0' ? "true" : "false";
+    json += ",\"resendKeyConfigured\":";
+    json += deviceSecrets.resendApiKey[0] != '\0' ? "true" : "false";
     json += "},\"values\":{";
     if (ctx == nullptr) {
         json += "\"wifiConnectTimeoutMs\":";
@@ -1305,6 +1397,14 @@ String buildSettingsJson(CameraContext* ctx)
         json += ",\"localHostname\":";
         json += '"';
         appendJsonEscaped(json, globalSettings.localHostname);
+        json += '"';
+        json += ",\"resendFrom\":";
+        json += '"';
+        appendJsonEscaped(json, deviceSecrets.resendFrom);
+        json += '"';
+        json += ",\"alertEmail\":";
+        json += '"';
+        appendJsonEscaped(json, deviceSecrets.alertEmail);
         json += '"';
     } else {
         json += "\"cameraName\":";
@@ -1411,7 +1511,9 @@ void handleCameraRegistry()
     json.reserve(1024);
     json += "{\"ok\":true,\"firmwareVersion\":\"";
     json += FIRMWARE_VERSION;
-    json += "\",\"revision\":";
+    json += "\",\"updateInProgress\":";
+    json += firmwareUpdateMaintenanceActive() ? "true" : "false";
+    json += ",\"revision\":";
     json += registryRevision;
     json += ",\"total\":";
     json += cameraCount;
@@ -1515,12 +1617,18 @@ void handleSaveSettings()
             sendApiError(422, "invalid_settings", error);
             return;
         }
-        if (!saveGlobalSettingsToNvs(candidate)) {
+        DeviceSecrets secretsCandidate = deviceSecrets;
+        if (!parseDeviceSecretsRequest(secretsCandidate, error)) {
+            sendApiError(422, "invalid_settings", error);
+            return;
+        }
+        if (!saveGlobalSettingsToNvs(candidate) || !saveDeviceSecretsToNvs(secretsCandidate)) {
             sendApiError(500, "nvs_write_failed", "Failed to write global settings");
             return;
         }
         const GlobalSettings previous = globalSettings;
         globalSettings = candidate;
+        deviceSecrets = secretsCandidate;
         settingsLoadedFromNvs = true;
         applyGlobalSettings(previous);
     } else {
@@ -1884,8 +1992,117 @@ void appendLiveStreamJson(String& json)
     json += "}";
 }
 
+void handleFirmwareUpdatePrepare()
+{
+    String error;
+
+    if (!authorizeDashboardMutation(error, true, false)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+
+    if (factoryResetRequestedAtMs != 0 || currentAdminAction() != AdminAction::None) {
+        sendApiError(409, "action_busy", "Wait for the running action to finish before updating");
+        return;
+    }
+
+    if (!firmwareUpdateConfirmed()) {
+        sendApiError(409, "update_unconfirmed", "The running firmware is still being verified. Wait a minute before updating again");
+        return;
+    }
+
+    if (!adminPasswordConfigured()) {
+        sendApiError(403, "admin_password_required", "Set an admin password in Settings before updating the firmware");
+        return;
+    }
+
+    if (!wifiSetupConnectedWithStoredCredential()) {
+        sendApiError(409, "wifi_not_saved", "The ESP32 must be connected to a Wi-Fi network saved from the dashboard. Save it under Settings, Device, Choose another Wi-Fi network. The published firmware does not include the Wi-Fi from secrets.h");
+        return;
+    }
+
+    const String sha256 = httpServer.arg("sha256");
+
+    if (!firmwareUpdateValidSha256(sha256)) {
+        sendApiError(422, "invalid_checksum", "The firmware checksum must have 64 hexadecimal characters");
+        return;
+    }
+
+    String uploadToken;
+
+    if (!firmwareUpdateEnterMaintenance(sha256, uploadToken)) {
+        sendApiError(503, "relay_busy", "The video relay is still closing; try again in a few seconds");
+        return;
+    }
+
+    String json = "{\"ok\":true,\"uploadToken\":\"";
+    json += uploadToken;
+    json += "\"}";
+    sendJsonResponse(200, json);
+}
+
+void handleFirmwareUpdateCancel()
+{
+    String error;
+
+    if (!authorizeDashboardMutation(error, false, false)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+
+    firmwareUpdateLeaveMaintenance();
+    sendJsonResponse(200, "{\"ok\":true}");
+}
+
+void enableUploadKeepAlive(int fd)
+{
+    const int enabled = 1;
+    const int idleSeconds = 10;
+    const int intervalSeconds = 5;
+    const int probes = 3;
+    lwip_setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled));
+    lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idleSeconds, sizeof(idleSeconds));
+    lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intervalSeconds, sizeof(intervalSeconds));
+    lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &probes, sizeof(probes));
+}
+
+void handleFirmwareUpload()
+{
+    HTTPUpload& upload = httpServer.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        if (firmwareUploadStart(httpServer.arg("uploadToken"))) {
+            enableUploadKeepAlive(httpServer.client().fd());
+        } else {
+            httpServer.closeCurrentClient();
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        firmwareUploadWrite(upload.buf, upload.currentSize);
+    } else if (upload.status == UPLOAD_FILE_END) {
+        firmwareUploadEnd();
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        firmwareUploadAbort();
+    }
+}
+
+void handleFirmwareUploadResult()
+{
+    String error;
+
+    if (!firmwareUploadResult(error)) {
+        sendApiError(422, "update_failed", error);
+        return;
+    }
+
+    lastAdminActionResult = "Firmware installed; the ESP32 will restart";
+    sendJsonResponse(200, "{\"ok\":true,\"message\":\"Firmware installed; the ESP32 will restart\"}");
+}
+
 void handleLiveStart()
 {
+    if (rejectDuringFirmwareUpdate())
+        return;
+
     CameraContext* ctx = requestedCamera();
     if (ctx == nullptr)
         return;
@@ -1981,7 +2198,24 @@ void configureHttpServer()
         handlePersistentLogsExport();
     });
 
+    httpServer.on("/api/update/status", HTTP_GET, [] {
+        String json = "{\"ok\":true,\"version\":\"";
+        json += FIRMWARE_VERSION;
+        json += "\",\"maintenance\":";
+        json += firmwareUpdateMaintenanceActive() ? "true" : "false";
+        json += ",\"confirmed\":";
+        json += firmwareUpdateConfirmed() ? "true" : "false";
+        json += '}';
+        sendJsonResponse(200, json);
+    });
+
+    httpServer.on("/api/update/prepare", HTTP_POST, handleFirmwareUpdatePrepare);
+    httpServer.on("/api/update/cancel", HTTP_POST, handleFirmwareUpdateCancel);
+    httpServer.on("/api/update/upload", HTTP_POST, handleFirmwareUploadResult, handleFirmwareUpload);
+
     httpServer.on("/api/camera/snapshot", HTTP_GET, [] {
+        if (rejectDuringFirmwareUpdate())
+            return;
         CameraContext* ctx = requestedCamera();
         if (ctx != nullptr)
             serveCameraSnapshot(*ctx);

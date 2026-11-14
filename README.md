@@ -32,11 +32,11 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
 
 3. Fill in `include/secrets.h`.
 
-   | Field                                              | What it is for                                                                                                                            |
-   | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-   | `WIFI_SSID` and `WIFI_PASSWORD`                    | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later.                                |
-   | `DASHBOARD_ADMIN_PASSWORD_VALUE`                   | Password the dashboard asks for before saving settings and running actions. We recommend setting one.                                     |
-   | `RESEND_API_KEY`, `RESEND_FROM`, and `ALERT_EMAIL` | Resend key, sender, and recipient of the alerts. The key starts with `re_`. Without it, the dashboard works and only the emails stay off. |
+   | Field                           | What it is for                                                                                             |
+   | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+   | `WIFI_SSID` and `WIFI_PASSWORD` | Wi-Fi name and password. You can leave them empty, because you can set up the Wi-Fi from your phone later. |
+
+   The admin password and the Resend email settings are not in this file. After the first start, set them in the dashboard under Settings, Device, Security and alerts. The admin password is the password the dashboard asks for before saving settings and running actions, and we recommend setting one. The Resend key starts with `re_`. Without it, the dashboard works and only the emails stay off.
 
 4. Connect the ESP32 by USB and upload the firmware.
 
@@ -57,6 +57,35 @@ Email, NTP time, and dated messages need internet access. Monitoring, the dashbo
    The ESP32 prints the IP and the address `http://camera-watchdog.local/` as soon as it connects to Wi-Fi.
 
 To update the firmware later, run `pio run -t upload` again. The script `scripts/preserve_nvs_upload.py` stops the upload from erasing the saved settings.
+
+## Updating from the dashboard
+
+The flash has two firmware slots, so the dashboard can install a new version without a cable. A board that still runs firmware from before the two slots needs one upload by USB first, because the partition table changed. The log history is erased on that first boot, and the admin password and Resend settings now live in the dashboard, so set them again.
+
+When a new version is published, a banner appears at the top of the dashboard, and Settings, Actions, Firmware shows an Update button. The ESP32 never updates by itself.
+
+1. Open Settings, Actions, and select the Update button.
+2. Read the warnings, type the admin password, and confirm.
+3. The ESP32 stops talking to the cameras and closes the live video. Your browser downloads the firmware from GitHub Pages and sends it to the ESP32, and the modal shows the progress.
+4. The ESP32 checks the SHA-256 of the file, writes it to the second slot, and restarts. The page reloads by itself and shows a success message.
+
+An error at any step appears in the modal, and the ESP32 goes back to monitoring the cameras. If the new firmware does not start, or does not stay up for 20 seconds, the ESP32 returns to the previous version by itself. Settings, cameras, Wi-Fi, and logs stay as they are.
+
+Before the first update, set an admin password under Settings, Device, Security and alerts, because a board without a password lets anyone on the network change settings, and the update refuses to run without one. Also save the Wi-Fi network from the dashboard, under Settings, Device, Choose another Wi-Fi network. The published firmware has no Wi-Fi from `secrets.h`, so a board that only knows its network from that file would not reconnect after the update. The update refuses to run until the ESP32 is connected through a network saved from the dashboard.
+
+The ESP32 checks the file against the checksum sent by the dashboard and does not verify a signature, and the dashboard uses plain HTTP. Anyone who knows the admin password can install any firmware, so use the update only on a network you trust.
+
+The computer that opens the dashboard needs internet access.
+
+## Publishing a firmware version
+
+This section is for people who maintain a copy of the project.
+
+1. Set `FIRMWARE_VERSION` in `src/firmware_core.cpp` to the new version, for example `0.26.1`, and commit.
+2. Create a tag with the same number and a `v` prefix, and push it: `git tag v0.26.1`, then `git push origin v0.26.1`.
+3. The workflow in `.github/workflows/release-firmware.yml` builds the firmware with the example `secrets.h`, creates a GitHub release with the file, and publishes `manifest.json` and `firmware-0.26.1.bin` on GitHub Pages. The build stops if the tag and `FIRMWARE_VERSION` differ.
+
+Before the first release, open the repository settings, go to Pages, and set Source to GitHub Actions. Then go to Environments, open `github-pages`, and under Deployment branches and tags add a rule for the tag pattern `v*`, because the default rule only accepts the default branch and rejects tag deployments. A manual run of the workflow only builds, and never publishes. The dashboard reads `https://devalphasystem.github.io/ESP32-Cam-Monitor/manifest.json`. In a fork, change `UPDATE_MANIFEST_URL` in `src/dashboard_page.cpp`.
 
 ## Setting up Wi-Fi from your phone
 
@@ -128,7 +157,7 @@ The Camera tab opens on Live, which negotiates the H.264 stream over RTSP. Stand
 
 ### Security
 
-The dashboard uses HTTP, without encryption, and is meant for the local network. Do not open port 80 or 81 on the router to the internet. Set `DASHBOARD_ADMIN_PASSWORD_VALUE` so that no one on your network can change settings or restart cameras.
+The dashboard uses HTTP, without encryption, and is meant for the local network. Do not open port 80 or 81 on the router to the internet. Set an admin password under Settings, Device, Security and alerts, so that no one on your network can change settings, restart cameras, or install firmware.
 
 ## Support firmwares
 
@@ -164,7 +193,11 @@ Erases the entire flash, including the bootloader, settings, NVS, and logs. The 
 - The camera is not found. See the section on setting up the dashboard, and check that the camera accepts ONVIF without IP blocking.
 - The live video stutters. Switch the quality to Standard and close other tabs that are watching the camera.
 - The upload fails. Replace the USB cable, check the port in `upload_port`, and hold the BOOT button during the connection.
-- I forgot the admin password. Change `DASHBOARD_ADMIN_PASSWORD_VALUE` in `secrets.h` and upload the firmware again.
+- I forgot the admin password. The password is saved in the ESP32 memory with the cameras, settings, and saved Wi-Fi networks. To clear it, connect the ESP32 by USB and erase that memory, then set everything up again. On Windows, replace `COM3` with the port of the board:
+
+  ```
+  "%USERPROFILE%\.platformio\penv\Scripts\python.exe" "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --port COM3 erase_region 0x9000 0x6000
+  ```
 
 ## License
 

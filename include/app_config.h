@@ -15,6 +15,12 @@ constexpr size_t CAMERA_NAME_MAX_LENGTH = 48;
 constexpr size_t CAMERA_USERNAME_MAX_LENGTH = 64;
 constexpr size_t CAMERA_PASSWORD_MAX_LENGTH = 128;
 
+constexpr size_t ADMIN_PASSWORD_MIN_LENGTH = 8;
+constexpr size_t ADMIN_PASSWORD_MAX_LENGTH = 64;
+constexpr size_t RESEND_API_KEY_MAX_LENGTH = 96;
+constexpr size_t RESEND_FROM_MAX_LENGTH = 128;
+constexpr size_t ALERT_EMAIL_MAX_LENGTH = 128;
+
 constexpr char CAMERA_SNAPSHOT_PROFILE_MATCH[] = "snap";
 constexpr size_t SNAPSHOT_PROFILE_MATCH_MAX_LENGTH = 32;
 

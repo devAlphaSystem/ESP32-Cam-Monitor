@@ -303,6 +303,11 @@ body.fs-locked{overflow:hidden}
 .modal-box h3{font-size:18px}
 .modal-desc{margin:10px 0 20px;color:var(--muted);font-size:13px;line-height:1.7}
 .modal-actions{justify-content:flex-end;margin-top:22px}
+.update-banner{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 16px;padding:10px 20px;background:rgba(14,165,233,.14);border-bottom:1px solid rgba(14,165,233,.32);font-size:13px}
+.update-banner.ok{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.32)}
+.update-warnings{margin:0 0 16px;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.7}
+.update-progress .meter{height:8px;margin:0 0 10px;border-radius:4px}
+.update-progress .meter i{transition:width .2s ease}
 .merge-modal-box{max-width:620px}
 .merge-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .merge-review{margin-top:20px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
@@ -445,6 +450,10 @@ body.fs-locked{overflow:hidden}
   </nav>
   <div class="header-status"><div class="status-pill" id="deviceStatus"><span class="beat"></span><span id="deviceStatusText">connecting…</span></div><div class="status-pill" id="deviceUptime">uptime —</div></div>
 </header>
+<div class="update-banner" id="firmwareUpdateBanner" role="status" hidden>
+  <span id="firmwareUpdateBannerText"></span>
+  <button class="btn primary" type="button" id="firmwareUpdateBannerButton">View update</button>
+</div>
 <div class="app-shell">
 <aside class="app-sidebar">
   <nav class="sidebar-nav" aria-label="Cameras">
@@ -678,6 +687,17 @@ body.fs-locked{overflow:hidden}
             <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox" role="switch"><label for="cfgLedEnabled"><b>Enable status LED</b><span>Blinks when Wi-Fi is disconnected, a camera is offline or recovering, or an incident is active.</span></label></div></div>
           </div>
         </div>
+        <div class="settings-group">
+          <h3>Security and alerts</h3>
+          <div class="form-grid">
+            <div class="field"><label for="cfgAdminPasswordAction">Admin password</label><select id="cfgAdminPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option></select><small id="cfgAdminPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
+            <div class="field"><label for="cfgAdminPassword">New admin password <span>8 to 64 characters</span></label><input id="cfgAdminPassword" type="password" maxlength="64" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. It protects every change and action in the dashboard.</small></div>
+            <div class="field"><label for="cfgResendKeyAction">Resend API key</label><select id="cfgResendKeyAction"><option value="keep">Keep the current key</option><option value="replace">Set or replace the key</option><option value="clear">Remove the key</option></select><small id="cfgResendKeyStatus" aria-live="polite">Waiting for the query.</small></div>
+            <div class="field"><label for="cfgResendKey">New Resend API key</label><input id="cfgResendKey" type="password" maxlength="96" autocomplete="new-password" placeholder="re_" disabled><small>Choose Set or replace to enter a key. It starts with re_ and is never shown again.</small></div>
+            <div class="field"><label for="cfgResendFrom">Alert sender <span>up to 128 characters</span></label><input id="cfgResendFrom" type="text" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Camera Watchdog &lt;watchdog@your-domain.com&gt;"><small>Sender address registered in Resend.</small></div>
+            <div class="field"><label for="cfgAlertEmail">Alert recipient <span>up to 128 characters</span></label><input id="cfgAlertEmail" type="text" inputmode="email" maxlength="128" autocomplete="off" spellcheck="false" placeholder="recipient@your-domain.com"><small>Receives the alert emails. Without a Resend key, emails stay off.</small></div>
+          </div>
+        </div>
         <details class="settings-advanced">
           <summary>Discovery settings</summary>
           <div class="dev-body">
@@ -788,6 +808,12 @@ body.fs-locked{overflow:hidden}
             <div class="action-item" id="mergeAction" hidden><b>Merge registrations</b><span>Merges confirmed records of the same camera, choosing which ID and which settings stay.</span><button class="btn" type="button" id="mergeOpen">Review registrations</button></div>
           </div>
         </div>
+        <div class="settings-group">
+          <h3>Firmware</h3>
+          <div class="action-grid">
+            <div class="action-item"><b>Installed version</b><span id="firmwareUpdateText">Waiting for the device.</span><button class="btn primary" type="button" id="firmwareUpdateOpen" disabled>Check for updates</button></div>
+          </div>
+        </div>
         <details class="settings-advanced">
           <summary>Camera maintenance</summary>
           <div class="dev-body">
@@ -803,7 +829,7 @@ body.fs-locked{overflow:hidden}
             <div class="action-grid">
               <div class="action-item"><b>Restart ESP32</b><span>Restarts only the watchdog, without cutting power to the camera.</span><button class="btn bad" type="button" data-admin-action="reboot-esp32" disabled>Restart ESP32</button></div>
               <div class="action-item"><b>Clear logs</b><span>Removes the previous history and keeps only the clearing marker.</span><button class="btn bad" type="button" data-admin-action="clear-logs" disabled>Clear logs</button></div>
-              <div class="action-item"><b>Erase ESP32 data</b><span>Erases cameras, settings, saved Wi-Fi networks, and logs, then restarts the ESP32. Firmware and built-in credentials stay.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
+              <div class="action-item"><b>Erase ESP32 data</b><span>Erases cameras, settings, the admin password, the Resend key, the alert email, saved Wi-Fi networks, and logs, then restarts the ESP32. The firmware and the Wi-Fi network built into it, if any, stay. Without a built-in Wi-Fi network, the dashboard stays unreachable after the restart until you join the ESP32 setup network (Camera-Watchdog followed by four characters) and choose a Wi-Fi network again.</span><button class="btn bad" type="button" id="factoryResetOpen" disabled>Erase all data</button></div>
             </div>
           </div>
         </details>
@@ -956,6 +982,30 @@ body.fs-locked{overflow:hidden}
   </div>
 </div>
 
+<div class="modal-overlay" id="firmwareUpdateModal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="firmwareUpdateTitle" aria-describedby="firmwareUpdateDesc">
+    <h3 id="firmwareUpdateTitle">Update firmware</h3>
+    <p class="modal-desc" id="firmwareUpdateDesc"></p>
+    <ul class="update-warnings" id="firmwareUpdateWarnings">
+      <li>The ESP32 stops talking to the cameras during the update. Health checks, alerts, and camera restarts stay paused until it finishes.</li>
+      <li>Live video and previews stop, and the dashboard stops refreshing.</li>
+      <li>The update takes about one to two minutes. At the end, the ESP32 restarts and this page reloads by itself.</li>
+      <li>Do not close this page, change networks, or cut the power until it finishes.</li>
+      <li>Settings, cameras, Wi-Fi, and logs are kept. If the new firmware does not start, the ESP32 returns to the previous version by itself.</li>
+    </ul>
+    <div class="update-progress" id="firmwareUpdateProgress" hidden>
+      <div class="meter"><i id="firmwareUpdateMeter" role="progressbar" aria-label="Firmware update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></i></div>
+      <div class="form-result" id="firmwareUpdateStage" role="status" aria-live="polite"></div>
+    </div>
+    <div class="field" id="firmwareUpdatePasswordField"><label for="firmwareUpdatePassword">Admin password</label><input id="firmwareUpdatePassword" type="password" maxlength="96" autocomplete="current-password"></div>
+    <div class="form-result bad" id="firmwareUpdateError" role="alert" hidden></div>
+    <div class="button-row modal-actions">
+      <button class="btn" type="button" id="firmwareUpdateCancel">Cancel</button>
+      <button class="btn primary" type="button" id="firmwareUpdateConfirm">Install update</button>
+    </div>
+  </div>
+</div>
+
 </main>
 </div>
 
@@ -1062,6 +1112,9 @@ function updateSettingsScope() {
   });
   $('cfgCameraPasswordAction').disabled = blocked || globalScope;
   updateCameraCredentialFields();
+  $('cfgAdminPasswordAction').disabled = blocked || !globalScope;
+  $('cfgResendKeyAction').disabled = blocked || !globalScope;
+  updateSecretFields();
   updateSettingsHero();
 }
 
@@ -1218,7 +1271,7 @@ function requestCardPreview(card) {
 }
 
 function enqueueOverviewPreviews() {
-  if (activeView !== 'overview' || document.hidden) return;
+  if (activeView !== 'overview' || document.hidden || firmwareUpdateRunning) return;
   cameraRegistry.forEach(camera => {
     const card = overviewPreviews.cards.get(camera.id);
     if (card && card.requestedPass !== overviewPreviews.pass) requestCardPreview(card);
@@ -1233,7 +1286,7 @@ function schedulePreviewPump(delay) {
 function pumpOverviewPreviews() {
   clearTimeout(overviewPreviews.pumpTimer);
   overviewPreviews.pumpTimer = null;
-  if (overviewPreviews.inFlight || activeView !== 'overview' || document.hidden) return;
+  if (overviewPreviews.inFlight || activeView !== 'overview' || document.hidden || firmwareUpdateRunning) return;
   if (statusLoading) {
     if (overviewPreviews.queue.length) schedulePreviewPump(150);
     return;
@@ -1453,6 +1506,12 @@ function renderOverview(payload) {
   if (actionsSectionActive() && payload.adminAction && !factoryResetResult) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
   $('foot').textContent = 'ESP32 Camera Watchdog · ' + payload.firmwareVersion;
   $('deviceUptime').textContent = 'uptime ' + duration(payload.uptimeSeconds);
+  deviceUpdateInProgress = Boolean(payload.updateInProgress);
+  if (currentFirmwareVersion !== payload.firmwareVersion) {
+    currentFirmwareVersion = payload.firmwareVersion;
+    checkFirmwareUpdate();
+  }
+  updateFirmwareControls();
 }
 
 let mergeOptionsKey = '';
@@ -1743,10 +1802,19 @@ let cameraRegistry = [];
 let settingsLoadedKey = '';
 let settingsValues = null;
 let settingsCameraPasswordConfigured = false;
+let settingsResendKeyConfigured = false;
+let currentFirmwareVersion = '';
+let deviceUpdateInProgress = false;
+let firmwareUpdateInfo = null;
+let firmwareUpdateMessage = '';
+let firmwareUpdateNotice = '';
+let firmwareUpdateChecking = false;
+let firmwareUpdateRunning = false;
+let firmwareMutationEnabled = false;
 let settingsRequestGeneration = 0;
 let settingsDirty = false;
 let persistentLogsNextOffset = 0;
-const GLOBAL_SETTING_FIELDS = new Set(["cameraAlertLedBlinkIntervalMs", "discoveryTimeoutMs", "emailRetryIntervalMs", "enableAutomaticSubnetScan", "enableCameraAlertLed", "localHostname", "rediscoveryIntervalMs", "scanConnectTimeoutMs", "statusRefreshIntervalMs", "subnetScanIntervalMs", "wifiConnectTimeoutMs"]);
+const GLOBAL_SETTING_FIELDS = new Set(["alertEmail", "cameraAlertLedBlinkIntervalMs", "discoveryTimeoutMs", "emailRetryIntervalMs", "enableAutomaticSubnetScan", "enableCameraAlertLed", "localHostname", "rediscoveryIntervalMs", "resendFrom", "scanConnectTimeoutMs", "statusRefreshIntervalMs", "subnetScanIntervalMs", "wifiConnectTimeoutMs"]);
 const PRESERVED_SETTING_FIELDS = ['wifiConnectTimeoutMs', 'emailRetryIntervalMs', 'cameraAlertLedBlinkIntervalMs', 'snapshotResolveRetryIntervalMs', 'snapshotFailuresBeforeReresolve'];
 let feedMinimumIntervalMs = 5000;
 let feedTargetCycleMs = 5000;
@@ -2333,7 +2401,7 @@ async function waitForFeedIdle() {
 
 function scheduleFeed(delay) {
   clearTimeout(feedTimer);
-  if (document.hidden || !snapshotModeActive() || feedPausedForPtz || feedActivationPending) return;
+  if (document.hidden || !snapshotModeActive() || feedPausedForPtz || feedActivationPending || firmwareUpdateRunning) return;
   feedTimer = setTimeout(() => {
     feedTimer = null;
     loadFeed();
@@ -2341,7 +2409,7 @@ function scheduleFeed(delay) {
 }
 
 function loadFeed() {
-  if (document.hidden || !snapshotModeActive() || feedLoading || feedPausedForPtz || feedActivationPending) return;
+  if (document.hidden || !snapshotModeActive() || feedLoading || feedPausedForPtz || feedActivationPending || firmwareUpdateRunning) return;
   if (statusLoading) {
     scheduleFeed(250);
     return;
@@ -2564,13 +2632,14 @@ document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab =>
 function validateSettingsForm() {
   Object.values(SETTINGS_FIELDS).forEach(descriptor => $(descriptor.id).setCustomValidity(''));
   $('cfgCameraPassword').setCustomValidity('');
-  [['cfgCameraUsername', 64], ['cfgCameraPassword', 128]].forEach(([id, limit]) => {
+  [['cfgCameraUsername', 64], ['cfgCameraPassword', 128], ['cfgAdminPassword', 64], ['cfgResendKey', 96], ['cfgResendFrom', 128, true], ['cfgAlertEmail', 128, true]].forEach(([id, limit, trimmed]) => {
     const input = $(id);
+    const text = trimmed ? input.value.trim() : input.value;
     let error = '';
     if (!input.disabled) {
-      if (new TextEncoder().encode(input.value).length > limit) {
+      if (new TextEncoder().encode(text).length > limit) {
         error = 'The limit is ' + limit + ' bytes; accented characters can take more than one byte.';
-      } else if (/[\u0000-\u001F\u007F]/.test(input.value)) {
+      } else if (/[\u0000-\u001F\u007F]/.test(text)) {
         error = 'Do not use control characters.';
       } else if (id === 'cfgCameraUsername' && input.value.includes(':')) {
         error = 'The username cannot contain a colon.';
@@ -2589,6 +2658,22 @@ function validateSettingsForm() {
     const minimum = $(minimumId);
     if (!input.disabled && input.value !== '' && minimum.value !== ''
       && Number(input.value) * multiplier < Number(minimum.value)) input.setCustomValidity(message);
+  });
+  const adminPassword = $('cfgAdminPassword');
+  if (!adminPassword.disabled && adminPassword.validity.valid && new TextEncoder().encode(adminPassword.value).length < 8) {
+    adminPassword.setCustomValidity('The admin password needs at least 8 characters.');
+  }
+  const resendKey = $('cfgResendKey');
+  if (!resendKey.disabled && resendKey.validity.valid && !resendKey.value.trim().startsWith('re_')) {
+    resendKey.setCustomValidity('The Resend API key starts with re_.');
+  }
+  const resendAction = $('cfgResendKeyAction').value;
+  const resendKeyAfterSave = resendAction === 'replace' ? resendKey.value.trim() !== '' : resendAction === 'keep' && settingsResendKeyConfigured;
+  ['cfgResendFrom', 'cfgAlertEmail'].forEach(id => {
+    const input = $(id);
+    if (!input.disabled && input.validity.valid && resendKeyAfterSave && !input.value.includes('@')) {
+      input.setCustomValidity('Enter an email address while a Resend key is set.');
+    }
   });
   const username = $('cfgCameraUsername');
   const passwordAction = $('cfgCameraPasswordAction').value;
@@ -2615,6 +2700,8 @@ const SETTINGS_FIELDS = {
   cameraName: { id: 'cfgCameraName', kind: 'text' },
   cameraUsername: { id: 'cfgCameraUsername', kind: 'text', trim: false },
   localHostname: { id: 'cfgLocalHostname', kind: 'text' },
+  resendFrom: { id: 'cfgResendFrom', kind: 'text' },
+  alertEmail: { id: 'cfgAlertEmail', kind: 'text' },
   snapshotProfileMatch: { id: 'cfgSnapshotProfileMatch', kind: 'text' },
   cameraRtspPort: { id: 'cfgCameraRtspPort' },
   healthCheckIntervalMs: { id: 'cfgHealthCheckInterval', scale: 1000 },
@@ -2713,6 +2800,8 @@ function setMutationControlsEnabled(enabled) {
   document.querySelectorAll('[data-ptz-preset-token]').forEach(button => {
     button.disabled = !enabled || !ptzControlsEnabled;
   });
+  firmwareMutationEnabled = enabled;
+  updateFirmwareControls();
 }
 
 function settingsAuthorizationReady(source) {
@@ -2746,13 +2835,24 @@ function updateCameraCredentialFields() {
   const action = $('cfgCameraPasswordAction').value;
   const blocked = !settingsLoaded || settingsBusy || factoryResetPending || currentSettingsScope() === 'global';
   $('cfgCameraUsername').disabled = blocked || action === 'clear';
-  $('cfgCameraUsername').setCustomValidity('');
   $('cfgCameraPassword').disabled = blocked || action !== 'replace';
-  $('cfgCameraPassword').setCustomValidity('');
   if (action !== 'replace') $('cfgCameraPassword').value = '';
 }
 
 $('cfgCameraPasswordAction').addEventListener('change', updateCameraCredentialFields);
+
+function updateSecretFields() {
+  const blocked = !settingsLoaded || settingsBusy || factoryResetPending || currentSettingsScope() !== 'global';
+  const adminReplace = $('cfgAdminPasswordAction').value === 'replace';
+  const resendReplace = $('cfgResendKeyAction').value === 'replace';
+  $('cfgAdminPassword').disabled = blocked || !adminReplace;
+  if (!adminReplace) $('cfgAdminPassword').value = '';
+  $('cfgResendKey').disabled = blocked || !resendReplace;
+  if (!resendReplace) $('cfgResendKey').value = '';
+}
+
+$('cfgAdminPasswordAction').addEventListener('change', updateSecretFields);
+$('cfgResendKeyAction').addEventListener('change', updateSecretFields);
 
 function populateSettings(payload) {
   const values = payload.values || {};
@@ -2772,6 +2872,18 @@ function populateSettings(payload) {
 
   settingsWriteToken = payload.security ? payload.security.writeToken || '' : '';
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
+  settingsResendKeyConfigured = Boolean(payload.security && payload.security.resendKeyConfigured);
+  $('cfgAdminPasswordAction').value = 'keep';
+  $('cfgAdminPassword').value = '';
+  $('cfgAdminPasswordStatus').textContent = settingsPasswordRequired
+    ? 'Password configured. Saving other settings keeps the current password.'
+    : 'No password configured. Anyone on the network can change settings.';
+  $('cfgResendKeyAction').value = 'keep';
+  $('cfgResendKey').value = '';
+  $('cfgResendKeyStatus').textContent = settingsResendKeyConfigured
+    ? 'Key configured. Saving other settings keeps the current key.'
+    : 'No key configured. Alert emails are off.';
+  updateSecretFields();
   $('cfgCameraPasswordAction').value = 'keep';
   $('cfgCameraPassword').value = '';
   $('cfgCameraPasswordStatus').textContent = settingsCameraPasswordConfigured
@@ -2816,8 +2928,10 @@ function loadSettings(force) {
   settingsCameraPasswordConfigured = false;
   setMutationControlsEnabled(false);
   settingsLoadPromise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEVICE_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch('/api/settings?scope=' + scope + (id ? '&cameraId=' + id : ''), { cache: 'no-store' });
+      const response = await fetch('/api/settings?scope=' + scope + (id ? '&cameraId=' + id : ''), { cache: 'no-store', signal: controller.signal });
       const payload = await response.json();
       if (generation !== settingsRequestGeneration) return;
       if (!response.ok || !payload.ok) throw new Error(payload.detail || 'HTTP ' + response.status);
@@ -2826,9 +2940,11 @@ function loadSettings(force) {
     } catch (error) {
       if (generation !== settingsRequestGeneration) return;
       setMutationControlsEnabled(false);
-      setSettingsStatus('Failed to load: ' + error.message, 'bad');
-      if (actionsSectionActive()) setAdminActionStatus('Failed to load authorization: ' + error.message, 'bad');
+      const reason = error.name === 'AbortError' ? 'the ESP32 did not answer in time' : error.message;
+      setSettingsStatus('Failed to load: ' + reason, 'bad');
+      if (actionsSectionActive()) setAdminActionStatus('Failed to load authorization: ' + reason, 'bad');
     } finally {
+      clearTimeout(timer);
       if (generation === settingsRequestGeneration) { settingsLoading = false; settingsLoadPromise = null; }
     }
   })();
@@ -2868,6 +2984,14 @@ function collectMutationParams(includeSettings, password) {
         params.set(key, String(Math.round(numeric * (descriptor.scale || 1))));
       }
     });
+    if (scope === 'global') {
+      const adminAction = $('cfgAdminPasswordAction').value;
+      const resendAction = $('cfgResendKeyAction').value;
+      params.set('adminPasswordAction', adminAction);
+      params.set('newAdminPassword', adminAction === 'replace' ? $('cfgAdminPassword').value : '');
+      params.set('resendKeyAction', resendAction);
+      params.set('resendKey', resendAction === 'replace' ? $('cfgResendKey').value : '');
+    }
     if (scope === 'camera') {
       const passwordAction = $('cfgCameraPasswordAction').value;
       params.set('cameraPasswordAction', passwordAction);
@@ -2887,7 +3011,7 @@ async function postForm(url, params, options) {
     body: params.toString()
   });
   let payload = {};
-  try { payload = await response.json(); } catch (_) {}
+  try { payload = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; }
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.detail || payload.message || 'HTTP ' + response.status);
   }
@@ -2942,7 +3066,7 @@ async function saveSettings(password) {
 $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
   openConfirmModal(currentSettingsScope() === 'global'
-    ? 'Restore all device settings, including advanced values and the local address. The hostname returns to its firmware default. Camera settings and saved Wi-Fi networks are kept.'
+    ? 'Restore all device settings, including advanced values and the local address. The hostname returns to its firmware default. Camera settings, saved Wi-Fi networks, the admin password, the Resend key, the alert sender, and the alert recipient are kept.'
     : 'Restore all settings of ' + selectedCameraName() + ', including advanced values, while keeping its username and password.', password => resetSettings(password));
 });
 
@@ -3066,7 +3190,7 @@ $('factoryResetOpen').addEventListener('click', () => {
     return;
   }
   openConfirmModal(
-    'The ESP32 will permanently erase all camera registrations, saved settings, Wi-Fi networks saved from the dashboard, and logs, and then restart. The firmware and the built-in credentials stay. Active cameras can be discovered again after the restart.',
+    'The ESP32 will permanently erase all camera registrations, saved settings, the admin password, the Resend key, the alert email, Wi-Fi networks saved from the dashboard, and logs, and then restart. The firmware and the Wi-Fi network built into it, if any, stay. Without a built-in Wi-Fi network, the dashboard stays unreachable after the restart until you join the ESP32 setup network (Camera-Watchdog followed by four characters) and choose a Wi-Fi network again. Active cameras can be discovered again after the restart.',
     password => executeFactoryReset(password),
     false,
     'ERASE EVERYTHING'
@@ -3461,7 +3585,7 @@ function scheduleStatusRefresh(delay) {
 async function refresh(force) {
   clearTimeout(statusRefreshTimer);
   statusRefreshTimer = null;
-  if (statusLoading) return;
+  if (statusLoading || firmwareUpdateRunning) return;
   if (snapshotRequestActive()) { scheduleStatusRefresh(250); return; }
   statusLoading = true;
   const generation = ++statusRequestGeneration;
@@ -4206,7 +4330,8 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
   error(code, text, fatal) {
     liveVideo.classList.remove('ready');
     setLiveBadge(false);
-    setLiveOverlay(fatal ? text : text + ' Reconnecting…', fatal);
+    const sentence = /[.!?\u2026]$/.test(text) ? text : text + '.';
+    setLiveOverlay(fatal ? text : sentence + ' Reconnecting…', fatal);
     $('liveStamp').textContent = fatal ? 'stream interrupted' : 'reconnecting';
     if (fatal) liveFatalSource = { cameraId: liveStartedFor, quality: liveStartedQuality };
   },
@@ -4223,7 +4348,7 @@ const livePlayer = new LivePlayer.Player(liveVideo, {
 });
 
 function startLive() {
-  if (!liveModeActive() || document.hidden || !selectedCameraId) return;
+  if (!liveModeActive() || document.hidden || !selectedCameraId || firmwareUpdateRunning) return;
   if (liveFatalSource && liveFatalSource.cameraId === selectedCameraId && liveFatalSource.quality === liveQuality) return;
   if (liveStartedFor === selectedCameraId && liveStartedQuality === liveQuality) return;
   liveFatalSource = null;
@@ -4421,6 +4546,513 @@ document.addEventListener('visibilitychange', () => {
   if (activeView === 'overview') enqueueOverviewPreviews();
   if (activeView === 'settings' && !settingsDirty && !settingsBusy && $('adminConfirmModal').hidden) loadSettings(false);
   if (logsSectionActive()) loadPersistentLogs(true);
+});
+
+const UPDATE_MANIFEST_URL = 'https://devalphasystem.github.io/ESP32-Cam-Monitor/manifest.json';
+const UPDATE_NOTICE_KEY = 'firmwareUpdatedTo';
+const UPDATE_MANIFEST_TIMEOUT_MS = 15000;
+const UPDATE_RESTART_TIMEOUT_MS = 120000;
+const DEVICE_REQUEST_TIMEOUT_MS = 15000;
+
+async function postUpdateControl(url, params) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEVICE_REQUEST_TIMEOUT_MS);
+  try {
+    return await postForm(url, params, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const UPDATE_DOWNLOAD_STALL_MS = 30000;
+let firmwareUpdateTrigger = null;
+
+try {
+  const updatedTo = sessionStorage.getItem(UPDATE_NOTICE_KEY);
+  if (updatedTo) {
+    sessionStorage.removeItem(UPDATE_NOTICE_KEY);
+    firmwareUpdateNotice = 'Firmware updated to ' + updatedTo + '. Monitoring resumed.';
+    setTimeout(() => { firmwareUpdateNotice = ''; updateFirmwareControls(); }, 15000);
+  }
+} catch (_) {}
+
+function compareVersions(left, right) {
+  const a = String(left).split('.').map(Number);
+  const b = String(right).split('.').map(Number);
+  for (let index = 0; index < 3; index++) {
+    const difference = (a[index] || 0) - (b[index] || 0);
+    if (difference) return difference;
+  }
+  return 0;
+}
+
+function parseFirmwareManifest(manifest) {
+  if (!manifest || typeof manifest !== 'object') throw new Error('the update manifest is not valid');
+  if (!/^\d+\.\d+\.\d+$/.test(String(manifest.version))) throw new Error('the manifest has an invalid version');
+  if (!/^[0-9a-fA-F]{64}$/.test(String(manifest.sha256))) throw new Error('the manifest has an invalid checksum');
+  const size = Number(manifest.size);
+  if (!Number.isInteger(size) || size < 100000) throw new Error('the manifest has an invalid size');
+  const manifestUrl = new URL(UPDATE_MANIFEST_URL);
+  const url = new URL(String(manifest.file || 'firmware.bin'), manifestUrl);
+  if (url.origin !== manifestUrl.origin) throw new Error('the firmware must be hosted next to the manifest');
+  const notes = String(manifest.notes || '');
+  return {
+    version: String(manifest.version),
+    sha256: String(manifest.sha256).toLowerCase(),
+    size,
+    url: url.href,
+    notes: notes.startsWith('https://github.com/') ? notes : ''
+  };
+}
+
+async function checkFirmwareUpdate() {
+  if (firmwareUpdateChecking || !currentFirmwareVersion) return;
+  firmwareUpdateChecking = true;
+  updateFirmwareControls();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPDATE_MANIFEST_TIMEOUT_MS);
+  const unreachableMessage = () => controller.signal.aborted
+    ? 'The update server did not answer in time. Try again.'
+    : 'Could not reach the update server.';
+  try {
+    let response;
+    try {
+      response = await fetch(UPDATE_MANIFEST_URL, { cache: 'no-store', signal: controller.signal });
+    } catch (_) {
+      throw new Error(unreachableMessage());
+    }
+    if (!response.ok) throw new Error('The update server answered with HTTP ' + response.status + '.');
+    let manifest;
+    try {
+      manifest = parseFirmwareManifest(await response.json());
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error(unreachableMessage());
+      const rawBrowserError = error instanceof SyntaxError || error instanceof TypeError;
+      throw new Error('Could not read the update information' + (rawBrowserError ? '' : ': ' + error.message) + '.');
+    }
+    if (compareVersions(manifest.version, currentFirmwareVersion) > 0) {
+      firmwareUpdateInfo = manifest;
+      firmwareUpdateMessage = '';
+    } else {
+      firmwareUpdateInfo = null;
+      firmwareUpdateMessage = 'Version ' + currentFirmwareVersion + ' is the latest.';
+    }
+  } catch (error) {
+    firmwareUpdateInfo = null;
+    firmwareUpdateMessage = error.message;
+  } finally {
+    clearTimeout(timer);
+    firmwareUpdateChecking = false;
+    updateFirmwareControls();
+  }
+}
+
+function updateFirmwareControls() {
+  const info = firmwareUpdateInfo;
+  let text;
+  let label = 'Check for updates';
+  let disabled = false;
+  if (deviceUpdateInProgress) {
+    text = 'The ESP32 is paused for a firmware update that did not finish.';
+    label = 'Resume monitoring';
+    disabled = !firmwareMutationEnabled;
+  } else if (info) {
+    text = 'Version ' + info.version + ' is available. Installed: ' + currentFirmwareVersion + '.';
+    label = 'Update to ' + info.version;
+    disabled = !firmwareMutationEnabled;
+  } else if (firmwareUpdateChecking) {
+    text = 'Checking for updates…';
+    disabled = true;
+  } else {
+    text = firmwareUpdateMessage || (currentFirmwareVersion ? 'Version ' + currentFirmwareVersion + '.' : 'Waiting for the device.');
+    disabled = !currentFirmwareVersion;
+  }
+  $('firmwareUpdateText').textContent = text;
+  $('firmwareUpdateOpen').textContent = label;
+  $('firmwareUpdateOpen').disabled = firmwareUpdateRunning || disabled;
+  const showNotice = Boolean(firmwareUpdateNotice);
+  $('firmwareUpdateBanner').hidden = firmwareUpdateRunning || !(showNotice || deviceUpdateInProgress || info);
+  $('firmwareUpdateBanner').classList.toggle('ok', showNotice);
+  $('firmwareUpdateBannerText').textContent = showNotice ? firmwareUpdateNotice : text;
+  $('firmwareUpdateBannerButton').hidden = showNotice;
+}
+
+$('firmwareUpdateBannerButton').addEventListener('click', () => {
+  activateView('settings');
+  activateSettingsSection('actions');
+});
+
+$('firmwareUpdateOpen').addEventListener('click', () => {
+  if (firmwareUpdateRunning) return;
+  if (deviceUpdateInProgress) {
+    if (!settingsBusy && settingsAuthorizationReady('actions')) {
+      openConfirmModal('Monitoring resumes and the unfinished firmware update is cancelled.', password => resumeAfterUnfinishedUpdate(password));
+    }
+    return;
+  }
+  if (firmwareUpdateInfo) {
+    if (!settingsBusy && settingsAuthorizationReady('actions')) openFirmwareUpdateModal();
+    return;
+  }
+  checkFirmwareUpdate();
+});
+
+async function resumeAfterUnfinishedUpdate(password) {
+  settingsBusy = true;
+  setMutationControlsEnabled(false);
+  setAdminActionStatus('Resuming monitoring…', 'warn');
+  try {
+    await postUpdateControl('/api/update/cancel', collectMutationParams(false, password));
+    deviceUpdateInProgress = false;
+    setAdminActionStatus('Monitoring resumed.', 'ok');
+    setTimeout(refresh, 300);
+  } catch (error) {
+    setAdminActionStatus('Could not resume monitoring: ' + (error.name === 'AbortError' ? 'the ESP32 did not answer in time' : error.message), 'bad');
+  } finally {
+    settingsBusy = false;
+    setMutationControlsEnabled(Boolean(settingsWriteToken));
+  }
+}
+
+function showUpdateError(message) {
+  $('firmwareUpdateError').textContent = message;
+  $('firmwareUpdateError').hidden = false;
+}
+
+function showUpdateProgress(label, fraction, start, span) {
+  const percent = start + (fraction == null ? 0 : fraction * span);
+  $('firmwareUpdateMeter').style.width = percent + '%';
+  $('firmwareUpdateMeter').setAttribute('aria-valuenow', String(Math.round(percent)));
+  // The stage text is a live region: refresh it per 10 percent step so screen readers are not flooded.
+  const text = fraction == null ? label : label + ' ' + Math.floor(fraction * 10) * 10 + '%';
+  if ($('firmwareUpdateStage').textContent !== text) $('firmwareUpdateStage').textContent = text;
+}
+
+function renderFirmwareUpdateDescription() {
+  const info = firmwareUpdateInfo;
+  const description = $('firmwareUpdateDesc');
+  description.textContent = 'Install firmware ' + info.version + '. Installed version: ' + currentFirmwareVersion + '.';
+  if (info.notes) {
+    const link = document.createElement('a');
+    link.href = info.notes;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'Release notes';
+    description.append(' ', link);
+  }
+}
+
+function openFirmwareUpdateModal() {
+  firmwareUpdateTrigger = document.activeElement;
+  renderFirmwareUpdateDescription();
+  $('firmwareUpdateWarnings').hidden = false;
+  $('firmwareUpdateProgress').hidden = true;
+  $('firmwareUpdateMeter').className = '';
+  $('firmwareUpdateMeter').style.width = '0';
+  $('firmwareUpdateMeter').setAttribute('aria-valuenow', '0');
+  $('firmwareUpdatePasswordField').hidden = false;
+  $('firmwareUpdatePassword').value = '';
+  $('firmwareUpdateError').hidden = true;
+  $('firmwareUpdateConfirm').textContent = 'Install update';
+  $('firmwareUpdateConfirm').disabled = false;
+  $('firmwareUpdateCancel').textContent = 'Cancel';
+  $('firmwareUpdateCancel').disabled = false;
+  if (!settingsPasswordRequired) {
+    $('firmwareUpdatePasswordField').hidden = true;
+    $('firmwareUpdateConfirm').disabled = true;
+    showUpdateError('Set an admin password in Settings, Device, before installing firmware.');
+  }
+  $('firmwareUpdateModal').hidden = false;
+  (settingsPasswordRequired ? $('firmwareUpdatePassword') : $('firmwareUpdateCancel')).focus();
+}
+
+function closeFirmwareUpdateModal() {
+  if (firmwareUpdateRunning) return;
+  $('firmwareUpdateModal').hidden = true;
+  const trigger = firmwareUpdateTrigger;
+  firmwareUpdateTrigger = null;
+  if (trigger && trigger.isConnected && !trigger.disabled && trigger.getClientRects().length) trigger.focus();
+}
+
+function pauseDashboardForUpdate() {
+  firmwareUpdateRunning = true;
+  clearTimeout(statusRefreshTimer);
+  statusRefreshTimer = null;
+  statusRequestGeneration++;
+  if (statusAbortController) statusAbortController.abort();
+  statusAbortController = null;
+  statusLoading = false;
+  clearTimeout(feedTimer);
+  feedTimer = null;
+  cancelFeedLoad(false);
+  stopLive();
+}
+
+function resumeDashboardAfterUpdate() {
+  firmwareUpdateRunning = false;
+  updateFirmwareControls();
+  refresh();
+  if (liveModeActive()) startLive();
+  if (snapshotModeActive()) scheduleFeed(0);
+  if (activeView === 'overview') enqueueOverviewPreviews();
+}
+
+async function downloadFirmware(info, onProgress) {
+  const controller = new AbortController();
+  let stalled = false;
+  let stallTimer = null;
+  const watchStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => { stalled = true; controller.abort(); }, UPDATE_DOWNLOAD_STALL_MS);
+  };
+  watchStall();
+  try {
+    let response;
+    try {
+      response = await fetch(info.url, { cache: 'no-store', signal: controller.signal });
+    } catch (_) {
+      throw new Error('Could not download the firmware from GitHub. Check the internet connection of this computer.');
+    }
+    if (!response.ok) throw new Error('Could not download the firmware: HTTP ' + response.status);
+    const chunks = [];
+    let received = 0;
+    const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        watchStall();
+        chunks.push(value);
+        received += value.length;
+        onProgress(Math.min(1, received / info.size));
+      }
+    } else {
+      const buffer = new Uint8Array(await response.arrayBuffer());
+      chunks.push(buffer);
+      received = buffer.length;
+    }
+    if (received !== info.size) {
+      throw new Error('The downloaded firmware has ' + received + ' bytes, but ' + info.size + ' were expected.');
+    }
+    onProgress(1);
+    return new Blob(chunks, { type: 'application/octet-stream' });
+  } catch (error) {
+    if (stalled) throw new Error('The firmware download stopped receiving data for ' + UPDATE_DOWNLOAD_STALL_MS / 1000 + ' seconds. Check the internet connection of this computer and try again.');
+    throw error;
+  } finally {
+    clearTimeout(stallTimer);
+  }
+}
+
+function uploadFirmware(firmware, uploadToken, onProgress, onSent) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', '/api/update/upload?uploadToken=' + encodeURIComponent(uploadToken));
+    request.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+    request.upload.onload = onSent;
+    request.onload = () => {
+      let payload = {};
+      try { payload = JSON.parse(request.responseText); } catch (_) {}
+      if (request.status >= 200 && request.status < 300 && payload.ok !== false) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload.detail || payload.message || 'HTTP ' + request.status));
+      }
+    };
+    const noResponse = message => {
+      const error = new Error(message);
+      error.noResponse = true;
+      return error;
+    };
+    request.onerror = () => reject(noResponse('The connection to the ESP32 was lost during the upload. The update may also have expired. Start it again.'));
+    request.ontimeout = () => reject(noResponse('The ESP32 stopped responding during the upload.'));
+    request.timeout = 300000;
+    const form = new FormData();
+    form.append('firmware', firmware, 'firmware.bin');
+    request.send(form);
+  });
+}
+
+async function waitForFirmwareRestart(expectedVersion, previousVersion) {
+  const startedAt = Date.now();
+  let sawOffline = false;
+  while (Date.now() - startedAt < UPDATE_RESTART_TIMEOUT_MS) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    let version = '';
+    let confirmed = false;
+    let maintenance = false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch('/api/update/status', { cache: 'no-store', signal: controller.signal });
+      const payload = await response.json();
+      version = String(payload.version || '');
+      confirmed = payload.confirmed === true;
+      maintenance = payload.maintenance === true;
+    } catch (_) {
+      sawOffline = true;
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (version === expectedVersion && confirmed) return;
+    if (version === expectedVersion) showUpdateProgress('Confirming that the new firmware is stable…', null, 98, 0);
+    if (sawOffline && version === previousVersion && !maintenance) {
+      throw new Error('The ESP32 restarted on the previous version ' + previousVersion + ', so the update was reverted. Check the logs and try again.');
+    }
+  }
+  throw new Error('The ESP32 did not come back within 2 minutes. Check the device and reload this page.');
+}
+
+async function installFirmwareUpdate(password) {
+  let info = firmwareUpdateInfo;
+  const shownVersion = info.version;
+  const previousVersion = currentFirmwareVersion;
+  let prepared = false;
+  let prepareLost = false;
+  let uploaded = false;
+  pauseDashboardForUpdate();
+  settingsBusy = true;
+  setMutationControlsEnabled(false);
+  $('firmwareUpdateWarnings').hidden = true;
+  $('firmwareUpdatePasswordField').hidden = true;
+  $('firmwareUpdateError').hidden = true;
+  $('firmwareUpdateProgress').hidden = false;
+  $('firmwareUpdateMeter').className = '';
+  $('firmwareUpdateConfirm').disabled = true;
+  $('firmwareUpdateCancel').disabled = true;
+  try {
+    // The page may have been open for days, and the server only keeps the newest firmware file.
+    showUpdateProgress('Checking for the latest version…', null, 1, 0);
+    await checkFirmwareUpdate();
+    info = firmwareUpdateInfo;
+    if (!info) throw new Error(firmwareUpdateMessage || 'There is no update to install anymore');
+    if (info.version !== shownVersion) {
+      renderFirmwareUpdateDescription();
+      throw new Error('Version ' + info.version + ' was published since this window opened. Review it and try again');
+    }
+    showUpdateProgress('Pausing the cameras and preparing the ESP32…', null, 2, 0);
+    // The ESP32 generates a new write token on every boot, so a retry after a restart needs the current one.
+    await loadSettings(true);
+    const params = new URLSearchParams();
+    params.set('writeToken', settingsWriteToken);
+    params.set('adminPassword', password);
+    params.set('sha256', info.sha256);
+    let grant;
+    try {
+      grant = await postUpdateControl('/api/update/prepare', params);
+    } catch (error) {
+      if (!(error instanceof TypeError) && error.name !== 'AbortError') throw error;
+      prepareLost = true;
+      throw new Error('Could not reach the ESP32 to start the update. Check the connection and try again.');
+    }
+    if (!grant.uploadToken) {
+      prepareLost = true;
+      throw new Error('The ESP32 did not return the upload authorization. Try again.');
+    }
+    prepared = true;
+    const downloadLabel = 'Downloading firmware ' + info.version + '…';
+    showUpdateProgress(downloadLabel, 0, 5, 25);
+    const firmware = await downloadFirmware(info, fraction => showUpdateProgress(downloadLabel, fraction, 5, 25));
+    const sendLabel = 'Sending the firmware to the ESP32…';
+    showUpdateProgress(sendLabel, 0, 30, 65);
+    let bodySent = false;
+    try {
+      await uploadFirmware(
+        firmware,
+        grant.uploadToken,
+        fraction => showUpdateProgress(sendLabel, fraction, 30, 65),
+        () => {
+          bodySent = true;
+          showUpdateProgress('Checking and installing the firmware…', null, 95, 0);
+        }
+      );
+    } catch (error) {
+      if (!bodySent || !error.noResponse) throw error;
+    }
+    uploaded = true;
+    showUpdateProgress('Restarting the ESP32…', null, 97, 0);
+    await waitForFirmwareRestart(info.version, previousVersion);
+    showUpdateProgress('Update complete. Reloading the dashboard…', null, 100, 0);
+    try { sessionStorage.setItem(UPDATE_NOTICE_KEY, info.version); } catch (_) {}
+    firmwareUpdateRunning = false;
+    location.reload();
+    return;
+  } catch (error) {
+    $('firmwareUpdateMeter').className = 'bad';
+    $('firmwareUpdateStage').textContent = 'The update did not finish.';
+    let message = error.message;
+    if (!/[.!?]$/.test(message)) message += '.';
+    if ((prepared && !uploaded) || prepareLost) {
+      try {
+        await postUpdateControl('/api/update/cancel', collectMutationParams(false, password));
+        message += ' Monitoring resumed.';
+      } catch (_) {
+        message += prepared
+          ? ' The ESP32 is still paused. Use Resume monitoring in Settings, Actions.'
+          : ' If the ESP32 stays paused, use Resume monitoring in Settings, Actions.';
+      }
+    }
+    showUpdateError(message);
+  }
+  $('firmwareUpdatePasswordField').hidden = false;
+  $('firmwareUpdatePassword').value = '';
+  $('firmwareUpdateConfirm').textContent = 'Try again';
+  $('firmwareUpdateConfirm').disabled = false;
+  $('firmwareUpdateCancel').textContent = 'Close';
+  $('firmwareUpdateCancel').disabled = false;
+  $('firmwareUpdateConfirm').focus();
+  settingsBusy = false;
+  setMutationControlsEnabled(Boolean(settingsWriteToken));
+  resumeDashboardAfterUpdate();
+}
+
+$('firmwareUpdateConfirm').addEventListener('click', () => {
+  if (firmwareUpdateRunning) return;
+  if (!firmwareUpdateInfo) {
+    $('firmwareUpdatePasswordField').hidden = true;
+    $('firmwareUpdateConfirm').disabled = true;
+    showUpdateError('There is no update to install anymore. Close this window to see the installed version.');
+    $('firmwareUpdateCancel').focus();
+    return;
+  }
+  const password = $('firmwareUpdatePassword').value;
+  if (!password) {
+    showUpdateError('Enter the admin password to continue.');
+    $('firmwareUpdatePassword').focus();
+    return;
+  }
+  installFirmwareUpdate(password);
+});
+$('firmwareUpdateCancel').addEventListener('click', closeFirmwareUpdateModal);
+$('firmwareUpdatePassword').addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    $('firmwareUpdateConfirm').click();
+  }
+});
+document.addEventListener('keydown', event => {
+  const modal = $('firmwareUpdateModal');
+  if (modal.hidden) return;
+  if (event.key === 'Escape') {
+    closeFirmwareUpdateModal();
+  } else if (event.key === 'Tab') {
+    const focusable = [...modal.querySelectorAll('button,input,a[href]')]
+      .filter(element => !element.disabled && element.getClientRects().length);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !modal.contains(document.activeElement)
+      || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault();
+      if (first) (event.shiftKey ? last : first).focus();
+    }
+  }
+});
+window.addEventListener('beforeunload', event => {
+  if (!firmwareUpdateRunning) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 
 activateSettingsSection(activeSettingsSection);

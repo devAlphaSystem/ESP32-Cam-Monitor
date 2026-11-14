@@ -89,6 +89,7 @@ enum class HealthEvidenceSource {
 };
 
 extern GlobalSettings globalSettings;
+extern DeviceSecrets deviceSecrets;
 
 struct ParsedUrl {
     bool valid = false;
@@ -403,7 +404,17 @@ struct CameraContext {
     HealthEvidenceSource lastHealthEvidenceSource = HealthEvidenceSource::None;
 };
 
-extern WebServer httpServer;
+class DashboardServer : public WebServer {
+public:
+    using WebServer::WebServer;
+
+    void closeCurrentClient()
+    {
+        _currentClient.stop();
+    }
+};
+
+extern DashboardServer httpServer;
 extern WiFiUDP discoveryUdp;
 extern SemaphoreHandle_t cameraIoMutex;
 extern uint16_t cameraIoDepth;
@@ -485,6 +496,7 @@ extern String lastScanResult;
 bool validateRuntimeSettings(const RuntimeSettings& values, String& error);
 bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values);
 bool saveGlobalSettingsToNvs(const GlobalSettings& values);
+bool saveDeviceSecretsToNvs(const DeviceSecrets& values);
 bool validateGlobalSettings(const GlobalSettings& values, String& error);
 void loadRuntimeSettings();
 String makeSettingsWriteToken();
@@ -521,6 +533,17 @@ void applyRuntimeSettings(CameraContext& ctx, const RuntimeSettings& previous);
 void resetCameraCheckSequences(CameraContext& ctx, const char* snapshotDetail);
 void setState(CameraContext& ctx, CameraState newState, const String& event);
 bool resendConfigured();
+bool firmwareUpdateMaintenanceActive();
+bool firmwareUpdateValidSha256(const String& value);
+bool firmwareUpdateConfirmed();
+bool firmwareUpdateEnterMaintenance(const String& sha256, String& token);
+void firmwareUpdateLeaveMaintenance();
+void firmwareUpdateMaintain();
+bool firmwareUploadStart(const String& token);
+void firmwareUploadWrite(const uint8_t* data, size_t length);
+void firmwareUploadEnd();
+void firmwareUploadAbort();
+bool firmwareUploadResult(String& error);
 bool readHttpResponseBodyBounded(HTTPClient& request, String& output, size_t limit, bool& limitExceeded, bool* streamFailure = nullptr);
 bool sendIncidentAlert(CameraContext& ctx);
 bool sendRecoveryAlert(CameraContext& ctx);
@@ -593,7 +616,7 @@ void configureHttpServer();
 void startHttpServer();
 void sendJsonResponse(int statusCode, const String& json);
 void sendApiError(int statusCode, const char* code, const String& detail);
-bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck);
+bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck, bool blockDuringFirmwareUpdate = true);
 extern bool httpServerRunning;
 bool startMdns();
 

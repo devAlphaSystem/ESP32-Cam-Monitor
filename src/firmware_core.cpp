@@ -3,12 +3,14 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.25.3";
+const char FIRMWARE_VERSION[] = "0.26.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
 constexpr unsigned long ESP_SNTP_REFERENCE_MAX_AGE_MS = 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t GLOBAL_SETTINGS_MAGIC = 0x43573036UL;
+constexpr uint32_t DEVICE_SECRETS_MAGIC = 0x43575331UL;
+constexpr uint16_t DEVICE_SECRETS_SCHEMA_VERSION = 1;
 constexpr uint32_t CAMERA_RECORD_MAGIC_V7 = 0x43414D37UL;
 constexpr uint16_t CAMERA_RECORD_SCHEMA_VERSION = 7;
 constexpr uint32_t CAMERA_ALIAS_MAGIC = 0x43414C37UL;
@@ -22,6 +24,14 @@ struct GlobalSettingsBlob {
     uint16_t schemaVersion;
     uint16_t payloadSize;
     GlobalSettings values;
+    uint32_t checksum;
+};
+
+struct DeviceSecretsBlob {
+    uint32_t magic;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    DeviceSecrets values;
     uint32_t checksum;
 };
 
@@ -61,6 +71,7 @@ struct CameraRebootLedger {
 void resolveActiveIncident(CameraContext& ctx);
 
 GlobalSettings globalSettings = makeDefaultGlobalSettings();
+DeviceSecrets deviceSecrets = {};
 std::unique_ptr<CameraContext> cameras;
 size_t cameraCount = 0;
 uint32_t registryRevision = 1;
@@ -77,7 +88,7 @@ uint32_t batchAccepted = 0;
 uint32_t batchFailed = 0;
 uint16_t cameraIoDepth = 0;
 
-WebServer httpServer(HTTP_SERVER_PORT);
+DashboardServer httpServer(HTTP_SERVER_PORT);
 WiFiUDP discoveryUdp;
 SemaphoreHandle_t cameraIoMutex = nullptr;
 
@@ -421,6 +432,22 @@ bool saveGlobalSettingsToNvs(const GlobalSettings& values)
     if (!storage.begin(SETTINGS_NVS_NAMESPACE, false))
         return false;
     const bool saved = storage.putBytes("global", &blob, sizeof(blob)) == sizeof(blob);
+    storage.end();
+    return saved;
+}
+
+bool saveDeviceSecretsToNvs(const DeviceSecrets& values)
+{
+    DeviceSecretsBlob blob{};
+    blob.magic = DEVICE_SECRETS_MAGIC;
+    blob.schemaVersion = DEVICE_SECRETS_SCHEMA_VERSION;
+    blob.payloadSize = sizeof(values);
+    blob.values = values;
+    blob.checksum = settingsChecksum(values);
+    Preferences storage;
+    if (!storage.begin(SETTINGS_NVS_NAMESPACE, false))
+        return false;
+    const bool saved = storage.putBytes("secrets", &blob, sizeof(blob)) == sizeof(blob);
     storage.end();
     return saved;
 }
@@ -928,6 +955,11 @@ bool reconcileIdentifiedCameras()
     return false;
 }
 
+bool deviceSecretsTerminated(const DeviceSecrets& values)
+{
+    return boundedTextLength(values.adminPassword, sizeof(values.adminPassword)) < sizeof(values.adminPassword) && boundedTextLength(values.resendApiKey, sizeof(values.resendApiKey)) < sizeof(values.resendApiKey) && boundedTextLength(values.resendFrom, sizeof(values.resendFrom)) < sizeof(values.resendFrom) && boundedTextLength(values.alertEmail, sizeof(values.alertEmail)) < sizeof(values.alertEmail);
+}
+
 void loadRuntimeSettings()
 {
     GlobalSettingsBlob globalBlob{};
@@ -945,6 +977,14 @@ void loadRuntimeSettings()
     if (globalValid) {
         globalSettings = globalBlob.values;
         settingsLoadedFromNvs = true;
+    }
+
+    DeviceSecretsBlob secretsBlob{};
+    if (storage.begin(SETTINGS_NVS_NAMESPACE, true)) {
+        const bool secretsValid = storage.getBytesLength("secrets") == sizeof(secretsBlob) && storage.getBytes("secrets", &secretsBlob, sizeof(secretsBlob)) == sizeof(secretsBlob) && secretsBlob.magic == DEVICE_SECRETS_MAGIC && secretsBlob.schemaVersion == DEVICE_SECRETS_SCHEMA_VERSION && secretsBlob.payloadSize == sizeof(DeviceSecrets) && secretsBlob.checksum == settingsChecksum(secretsBlob.values) && deviceSecretsTerminated(secretsBlob.values);
+        storage.end();
+        if (secretsValid)
+            deviceSecrets = secretsBlob.values;
     }
 
     uint32_t lastId = 0;
@@ -1093,7 +1133,7 @@ String makeSettingsWriteToken()
 
 bool adminPasswordConfigured()
 {
-    return strlen(DASHBOARD_ADMIN_PASSWORD_VALUE) > 0;
+    return deviceSecrets.adminPassword[0] != '\0';
 }
 
 bool secureTextEquals(const String& supplied, const char* expected)
@@ -1676,7 +1716,7 @@ void setState(CameraContext& ctx, CameraState newState, const String& event)
 
 bool resendConfigured()
 {
-    return String(RESEND_API_KEY).startsWith("re_") && String(RESEND_FROM).indexOf("example.com") < 0 && String(ALERT_EMAIL).indexOf("example.com") < 0;
+    return String(deviceSecrets.resendApiKey).startsWith("re_") && deviceSecrets.resendFrom[0] != '\0' && deviceSecrets.alertEmail[0] != '\0';
 }
 
 class BoundedStringStream : public Stream {
@@ -1784,7 +1824,7 @@ bool sendResendEmail(CameraContext& ctx, const String& subject, const String& ht
     const unsigned long startedAtMs = millis();
 
     if (!resendConfigured()) {
-        ctx.lastEmailResult = "Resend is not configured in include/secrets.h";
+        ctx.lastEmailResult = "Resend is not configured in the device settings";
         Serial.println(ctx.lastEmailResult);
         ctx.emailErrors++;
         PersistentLog::record(PersistentLog::Event::EmailHttp, PersistentLog::Outcome::Skipped, "resend_not_configured", IPAddress(), 443, 0, millis() - startedAtMs, 0, PersistentLog::FlagOutbound, PersistentLog::Level::Automatic, false, 0, ctx.id);
@@ -1814,16 +1854,16 @@ bool sendResendEmail(CameraContext& ctx, const String& subject, const String& ht
         return false;
     }
 
-    request.addHeader("Authorization", String("Bearer ") + RESEND_API_KEY);
+    request.addHeader("Authorization", String("Bearer ") + deviceSecrets.resendApiKey);
     request.addHeader("Content-Type", "application/json");
     request.addHeader("User-Agent", String("ESP32-Camera-Watchdog/") + FIRMWARE_VERSION);
 
     String payload;
     payload.reserve(subject.length() + html.length() + html.length() / 4 + 512);
     payload += "{\"from\":\"";
-    appendJsonEscaped(payload, RESEND_FROM);
+    appendJsonEscaped(payload, deviceSecrets.resendFrom);
     payload += "\",\"to\":[\"";
-    appendJsonEscaped(payload, ALERT_EMAIL);
+    appendJsonEscaped(payload, deviceSecrets.alertEmail);
     payload += "\"],\"subject\":\"";
     appendJsonEscaped(payload, subject);
     payload += "\",\"html\":\"";

@@ -705,6 +705,7 @@ void loop()
 
     liveStreamRecordPendingFailure();
     PersistentLog::maintain();
+    firmwareUpdateMaintain();
     updateCameraAlertLed();
     wifiSetupLoop();
     maintainWiFi();
@@ -713,6 +714,16 @@ void loop()
         handleHttpClient();
     if (factoryResetRequestedAtMs != 0)
         return;
+    if (espRestartRequestedAtMs != 0 && millis() - espRestartRequestedAtMs >= ADMIN_RESTART_DELAY_MS) {
+        PersistentLog::record(PersistentLog::Event::SystemRestart, PersistentLog::Outcome::Started, "admin_request", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
+        PersistentLog::flush();
+        delay(50);
+        ESP.restart();
+    }
+    if (firmwareUpdateMaintenanceActive()) {
+        delay(2);
+        return;
+    }
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get())
         maintainCameraSnapshotHttpSession(*ctx);
     processPendingAdminAction();
@@ -763,12 +774,6 @@ void loop()
                 reconcileIdentifiedCameras();
             }
         }
-    }
-    if (espRestartRequestedAtMs != 0 && millis() - espRestartRequestedAtMs >= ADMIN_RESTART_DELAY_MS) {
-        PersistentLog::record(PersistentLog::Event::SystemRestart, PersistentLog::Outcome::Started, "admin_request", IPAddress(), 0, 0, 0, 0, PersistentLog::FlagManual, PersistentLog::Level::Warning, true);
-        PersistentLog::flush();
-        delay(50);
-        ESP.restart();
     }
     updateCameraAlertLed();
     delay(2);

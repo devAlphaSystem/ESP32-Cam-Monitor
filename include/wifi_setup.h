@@ -15,6 +15,8 @@ struct WifiCredential {
 
 void wifiSetupBegin();
 
+bool wifiSetupConnectedWithStoredCredential();
+
 size_t wifiCredentialCandidates(WifiCredential* candidates);
 
 void wifiSetupLoop();
