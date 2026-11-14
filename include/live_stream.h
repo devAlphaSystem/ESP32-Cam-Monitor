@@ -71,7 +71,9 @@ void liveStreamSetSuspended(bool suspended);
 
 bool liveStreamSuspended();
 
-void liveStreamSetTarget(const LiveStreamTarget& target);
+bool liveStreamSetTarget(const LiveStreamTarget& target);
+
+void liveStreamInvalidateTarget(uint32_t cameraId);
 
 bool liveStreamCopyTarget(LiveStreamTarget& target);
 

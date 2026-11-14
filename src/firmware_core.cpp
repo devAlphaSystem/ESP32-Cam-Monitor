@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.26.0";
+const char FIRMWARE_VERSION[] = "0.27.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -1117,7 +1117,7 @@ void loadRuntimeSettings()
             lastRegistryResult = "Failed to write global settings";
         }
     } else if (cameraRegistryFullyLoaded) {
-        lastRegistryResult = String(cameraCount) + " cameras loaded from NVS";
+        lastRegistryResult = String(cameraCount) + (cameraCount == 1 ? " camera" : " cameras") + " loaded from NVS";
         if (missingCameraIds != 0)
             lastRegistryResult += String("; ") + missingCameraIds + " missing IDs reserved";
     }
@@ -1667,6 +1667,8 @@ void applyRuntimeSettings(CameraContext& ctx, const RuntimeSettings& previous)
         resetCameraCheckSequences(ctx, ctx.lastSnapshotResult.c_str());
         ctx.lastHealthCheckAtMs = 0;
     }
+    if (credentialsChanged || previous.cameraRtspPort != ctx.settings.cameraRtspPort)
+        liveStreamInvalidateTarget(ctx.id);
     ctx.camera.rtspPort = ctx.settings.cameraRtspPort;
     if (!ctx.settings.enableEmailAlerts) {
         ctx.pendingIncidentEmail = false;

@@ -1252,6 +1252,7 @@ bool resolveCameraOnvifEndpoint(CameraContext& ctx, uint16_t contextId)
         std::unique_ptr<CameraContext> identityProbe(new (std::nothrow) CameraContext());
         if (!identityProbe)
             return false;
+        identityProbe->settings = ctx.settings;
         identityProbe->camera = observed;
         if (!probeCameraIdentity(*identityProbe, observed, logContextId) || !cameraIdentityMatches(ctx.camera, observed))
             continue;
@@ -1314,6 +1315,7 @@ bool switchToAlternateEndpoint(CameraContext& ctx)
     std::unique_ptr<CameraContext> probe(new (std::nothrow) CameraContext());
     if (!probe)
         return false;
+    probe->settings = ctx.settings;
     probe->camera = target;
     if (!probeCameraIdentity(*probe, target))
         return false;

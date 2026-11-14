@@ -833,7 +833,7 @@ body.fs-locked{overflow:hidden}
             </div>
           </div>
         </details>
-        <div class="form-result" id="adminActionStatus">No action requested in this session.</div>
+        <div class="form-result" id="adminActionStatus" role="status" aria-live="polite">No action requested in this session.</div>
       </section>
 
       <section class="settings-panel settings-tool" id="settingsDiagnosticsPanel" role="tabpanel" aria-labelledby="settingsDiagnosticsTab" data-settings-section-panel="diagnostics" hidden>
@@ -911,7 +911,7 @@ body.fs-locked{overflow:hidden}
           </div>
           <div class="logs-foot">
             <span class="badge logs-badge"><i></i><span id="logsState">loading history</span></span>
-            <div class="form-result" id="logsStatus">Open this section to read the persistent history.</div>
+            <div class="form-result" id="logsStatus" role="status" aria-live="polite">Open this section to read the persistent history.</div>
             <button class="btn" id="logsLoadMore" type="button" hidden>Load 100 more</button>
           </div>
         </section>
@@ -921,7 +921,7 @@ body.fs-locked{overflow:hidden}
     <div class="settings-savebar" id="settingsSavebar">
       <div class="settings-save-info">
         <p class="settings-save-scope" id="settingsSaveScope">Load the device or camera settings before saving.</p>
-        <div class="form-result" id="settingsFormStatus">Load the tab to read the current values.</div>
+        <div class="form-result" id="settingsFormStatus" role="status" aria-live="polite">Load the tab to read the current values.</div>
       </div>
       <div class="button-row">
         <button class="btn warn" id="settingsReset" type="button" disabled>Restore device defaults</button>
@@ -1503,7 +1503,7 @@ function renderOverview(payload) {
   });
   syncKeyedList($('overviewCameras'), cameraRegistry, camera => camera.id, createOverviewCard, updateOverviewCard);
   enqueueOverviewPreviews();
-  if (actionsSectionActive() && payload.adminAction && !factoryResetResult) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
+  if (actionsSectionActive() && payload.adminAction && !factoryResetResult && !adminActionRefused) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
   $('foot').textContent = 'ESP32 Camera Watchdog · ' + payload.firmwareVersion;
   $('deviceUptime').textContent = 'uptime ' + duration(payload.uptimeSeconds);
   deviceUpdateInProgress = Boolean(payload.updateInProgress);
@@ -1660,6 +1660,7 @@ $('forgetCameraOpen').addEventListener('click', () => {
   const camera = cameraRegistry.find(item => item.id === selectedCameraId);
   if (!camera) return;
   openConfirmModal('Permanently remove registration #' + camera.id + ' (' + camera.name + ', ' + camera.ip + ') from NVS and from monitoring. The settings and credentials of this registration will be erased; the other registrations stay.', async password => {
+    adminActionRefused = false;
     settingsBusy = true;
     setMutationControlsEnabled(false);
     setAdminActionStatus('Removing the selected registration…', 'warn');
@@ -1685,6 +1686,7 @@ $('forgetCameraOpen').addEventListener('click', () => {
         settingsLoadedKey = '';
       }
     } catch (error) {
+      adminActionRefused = !(error instanceof TypeError);
       setAdminActionStatus('Removal refused: ' + error.message, 'bad');
       return;
     } finally {
@@ -1733,6 +1735,8 @@ async function loadCameraRegistry(signal) {
       settingsLoadedKey = '';
       setMutationControlsEnabled(false);
       if (settingsDirty) setSettingsStatus('The camera selection changed. Open Device or choose another camera to discard the pending edits and reload its settings.', 'warn');
+    } else {
+      setMutationControlsEnabled(Boolean(settingsWriteToken));
     }
   }
   statusRefreshIntervalMs = Number(payload.statusRefreshIntervalMs) || statusRefreshIntervalMs;
@@ -1830,6 +1834,7 @@ let settingsLoadPromise = null;
 let settingsBusy = false;
 let factoryResetPending = false;
 let factoryResetResult = '';
+let adminActionRefused = false;
 let factoryResetEpoch = 0;
 let factoryResetAcceptedAt = 0;
 let factoryResetUptimeAtAcceptance = null;
@@ -2632,7 +2637,7 @@ document.querySelectorAll('.settings-tab[data-settings-section]').forEach(tab =>
 function validateSettingsForm() {
   Object.values(SETTINGS_FIELDS).forEach(descriptor => $(descriptor.id).setCustomValidity(''));
   $('cfgCameraPassword').setCustomValidity('');
-  [['cfgCameraUsername', 64], ['cfgCameraPassword', 128], ['cfgAdminPassword', 64], ['cfgResendKey', 96], ['cfgResendFrom', 128, true], ['cfgAlertEmail', 128, true]].forEach(([id, limit, trimmed]) => {
+  [['cfgCameraName', 48, true], ['cfgSnapshotProfileMatch', 32, true], ['cfgCameraUsername', 64], ['cfgCameraPassword', 128], ['cfgAdminPassword', 64], ['cfgResendKey', 96], ['cfgResendFrom', 128, true], ['cfgAlertEmail', 128, true]].forEach(([id, limit, trimmed]) => {
     const input = $(id);
     const text = trimmed ? input.value.trim() : input.value;
     let error = '';
@@ -2643,6 +2648,8 @@ function validateSettingsForm() {
         error = 'Do not use control characters.';
       } else if (id === 'cfgCameraUsername' && input.value.includes(':')) {
         error = 'The username cannot contain a colon.';
+      } else if (id === 'cfgCameraName' && text === '') {
+        error = 'Enter the camera name.';
       }
     }
     input.setCustomValidity(error);
@@ -2745,7 +2752,8 @@ function setSettingsStatus(message, tone) {
 
 function setAdminActionStatus(message, tone) {
   const target = $('adminActionStatus');
-  target.textContent = localizeTimestampText(message);
+  const text = localizeTimestampText(message);
+  if (target.textContent !== text) target.textContent = text;
   target.className = 'form-result' + (tone ? ' ' + tone : '');
 }
 
@@ -2903,7 +2911,7 @@ function populateSettings(payload) {
   settingsLoadedKey = payload.scope + '/' + payload.cameraId;
   setMutationControlsEnabled(true);
   if (actionsSectionActive()) {
-    if (!factoryResetResult) setAdminActionStatus('Authorization loaded. Choose an admin action.', 'ok');
+    if (!factoryResetResult && !adminActionRefused) setAdminActionStatus('Authorization loaded. Choose an admin action.', 'ok');
   } else if (activeView === 'camera') {
     if (!ptzCatalog.command || Number(ptzCatalog.command.attempts) === 0) {
       setPtzActionStatus('PTZ control authorized. Open the list to choose a preset.', 'ok');
@@ -3134,6 +3142,7 @@ function closeConfirmModal(resumePausedFeed) {
 
 async function executeAdminAction(action, password) {
   factoryResetResult = '';
+  adminActionRefused = false;
   settingsBusy = true;
   setMutationControlsEnabled(false);
   setAdminActionStatus('Sending the action to the ESP32…', 'warn');
@@ -3142,6 +3151,7 @@ async function executeAdminAction(action, password) {
     setAdminActionStatus(payload.message || action[1], 'ok');
     setTimeout(refresh, 700);
   } catch (error) {
+    adminActionRefused = !(error instanceof TypeError);
     setAdminActionStatus('Action refused: ' + error.message, 'bad');
   } finally {
     settingsBusy = false;
@@ -3484,7 +3494,7 @@ function render(d) {
     snapshotHttpTimeoutMs = Number(d.ui.snapshotHttpTimeoutMs) || snapshotHttpTimeoutMs;
   }
 
-  if (d.adminAction && d.adminAction.lastResult && actionsSectionActive() && !factoryResetResult) {
+  if (d.adminAction && d.adminAction.lastResult && actionsSectionActive() && !factoryResetResult && !adminActionRefused) {
     setAdminActionStatus(d.adminAction.lastResult, d.adminAction.pending === 'none' ? '' : 'warn');
   }
   renderPtz(d);
@@ -4672,7 +4682,8 @@ function updateFirmwareControls() {
   const showNotice = Boolean(firmwareUpdateNotice);
   $('firmwareUpdateBanner').hidden = firmwareUpdateRunning || !(showNotice || deviceUpdateInProgress || info);
   $('firmwareUpdateBanner').classList.toggle('ok', showNotice);
-  $('firmwareUpdateBannerText').textContent = showNotice ? firmwareUpdateNotice : text;
+  const bannerText = showNotice ? firmwareUpdateNotice : text;
+  if ($('firmwareUpdateBannerText').textContent !== bannerText) $('firmwareUpdateBannerText').textContent = bannerText;
   $('firmwareUpdateBannerButton').hidden = showNotice;
 }
 

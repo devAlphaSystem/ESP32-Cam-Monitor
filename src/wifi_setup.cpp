@@ -620,7 +620,10 @@ void handleForget()
         sendApiError(403, "forbidden", authorizationError);
         return;
     }
-    wifiSetupForgetStored();
+    if (!wifiSetupForgetStored()) {
+        sendApiError(500, "nvs_write_failed", "Failed to forget the saved Wi-Fi network");
+        return;
+    }
     sendJsonResponse(200, String("{\"ok\":true}"));
 }
 
@@ -699,18 +702,21 @@ size_t wifiCredentialCandidates(WifiCredential* candidates)
     return count;
 }
 
-void wifiSetupForgetStored()
+bool wifiSetupForgetStored()
 {
+    bool cleared = false;
     Preferences storage;
     if (storage.begin(WIFI_NVS_NAMESPACE, false)) {
-        storage.clear();
+        cleared = storage.clear();
         storage.end();
     }
     loadStoredCredential();
-    if (testState == TestState::Success) {
+    const bool forgotten = cleared && !storedValid;
+    if (forgotten && testState == TestState::Success) {
         testState = TestState::Idle;
         testSaved = false;
     }
+    return forgotten;
 }
 
 bool wifiSetupHoldsStation()

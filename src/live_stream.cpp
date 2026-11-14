@@ -186,6 +186,8 @@ uint32_t fpsFrames[5] = {};
 uint32_t fpsElapsed[5] = {};
 uint8_t fpsIndex = 0;
 
+void stopSession(LiveStreamState nextState, const char* error);
+
 void addFromCamera(size_t bytes)
 {
     fromCameraTotal += bytes;
@@ -670,40 +672,47 @@ void acceptClient()
         return;
     }
 
-    LiveStreamTarget target;
-    taskENTER_CRITICAL(&targetMux);
-    target = publishedTarget;
-    taskEXIT_CRITICAL(&targetMux);
-
-    const char* cameraParameter = strstr(request, "camera=");
-    const uint32_t requestedCamera = cameraParameter != nullptr ? static_cast<uint32_t>(strtoul(cameraParameter + 7, nullptr, 10)) : 0;
-    if (!target.valid || (requestedCamera != 0 && requestedCamera != target.cameraId)) {
-        rejectConnection(fd, "409 Conflict");
-        return;
-    }
-
-    Client* slot = nullptr;
-    for (Client& client : clients) {
-        if (client.fd < 0) {
-            slot = &client;
-            break;
-        }
-    }
-    if (slot == nullptr) {
-        rejectConnection(fd, "503 Service Unavailable");
-        return;
-    }
-
     char accept[40];
     if (!computeWebSocketAccept(key, accept, sizeof(accept))) {
         rejectConnection(fd, "400 Bad Request");
         return;
     }
 
+    const char* cameraParameter = strstr(request, "camera=");
+    const uint32_t requestedCamera = cameraParameter != nullptr ? static_cast<uint32_t>(strtoul(cameraParameter + 7, nullptr, 10)) : 0;
+    LiveStreamTarget target;
+    uint32_t generation = 0;
+    Client* slot = nullptr;
+    taskENTER_CRITICAL(&targetMux);
+    target = publishedTarget;
+    generation = publishedGeneration;
+    const bool targetMatches = target.valid && (requestedCamera == 0 || requestedCamera == target.cameraId);
+    if (targetMatches) {
+        for (Client& client : clients) {
+            if (client.fd < 0) {
+                client.fd = fd;
+                slot = &client;
+                break;
+            }
+        }
+    }
+    taskEXIT_CRITICAL(&targetMux);
+    if (!targetMatches) {
+        rejectConnection(fd, "409 Conflict");
+        return;
+    }
+    if (slot == nullptr) {
+        rejectConnection(fd, "503 Service Unavailable");
+        return;
+    }
+    statClientCount = static_cast<uint8_t>(clientCount());
+    if (session.active && session.generation != generation)
+        stopSession(LiveStreamState::Idle, nullptr);
+
     char response[200];
     const int responseLength = snprintf(response, sizeof(response), "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nCache-Control: no-store\r\n\r\n", accept);
     if (!sendAll(fd, reinterpret_cast<const uint8_t*>(response), static_cast<size_t>(responseLength), 500)) {
-        lwip_close(fd);
+        closeClient(*slot);
         return;
     }
 
@@ -711,11 +720,10 @@ void acceptClient()
     appendJsonEscaped(hello, String(target.profileName));
     hello += target.highQuality ? "\",\"hq\":true}" : "\",\"hq\":false}";
     if (!sendTextFrame(fd, 0x1, hello.c_str())) {
-        lwip_close(fd);
+        closeClient(*slot);
         return;
     }
 
-    slot->fd = fd;
     slot->needKey = true;
     slot->cursor = ringHead;
     slot->runEnd = ringHead;
@@ -724,7 +732,6 @@ void acceptClient()
     slot->prefixSent = 0;
     slot->progressAtMs = millis();
     statClientsServed = statClientsServed + 1;
-    statClientCount = static_cast<uint8_t>(clientCount());
     Serial.printf("[live] viewer connected (%u active)\n", static_cast<unsigned>(clientCount()));
 }
 
@@ -1833,13 +1840,27 @@ bool liveStreamSuspended()
     return taskHandle == nullptr || relaySuspended;
 }
 
-void liveStreamSetTarget(const LiveStreamTarget& target)
+bool liveStreamSetTarget(const LiveStreamTarget& target)
 {
     taskENTER_CRITICAL(&targetMux);
     const bool changed = !publishedTarget.valid || !target.valid || publishedTarget.cameraId != target.cameraId || memcmp(publishedTarget.ip, target.ip, 4) != 0 || publishedTarget.port != target.port || publishedTarget.highQuality != target.highQuality || strcmp(publishedTarget.path, target.path) != 0 || strcmp(publishedTarget.username, target.username) != 0 || strcmp(publishedTarget.password, target.password) != 0;
-    publishedTarget = target;
-    if (changed)
+    const bool published = !changed || clientCount() == 0;
+    if (published) {
+        publishedTarget = target;
+        if (changed)
+            publishedGeneration++;
+    }
+    taskEXIT_CRITICAL(&targetMux);
+    return published;
+}
+
+void liveStreamInvalidateTarget(uint32_t cameraId)
+{
+    taskENTER_CRITICAL(&targetMux);
+    if (publishedTarget.valid && publishedTarget.cameraId == cameraId) {
+        publishedTarget.valid = false;
         publishedGeneration++;
+    }
     taskEXIT_CRITICAL(&targetMux);
 }
 

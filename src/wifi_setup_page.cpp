@@ -110,6 +110,12 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
     <div class="notice warn" id="savedRow" hidden><span id="savedText"></span> <button class="btn link" type="button" id="forgetBtn">Forget saved network</button></div>
   </section>
 
+  <section class="card" id="adminCard" hidden>
+    <h2>Admin password</h2>
+    <p class="hint">Needed to connect to a network or to forget the saved one.</p>
+    <div class="field"><label for="adminInput">Dashboard admin password</label><input id="adminInput" type="password" maxlength="64" autocomplete="off" form="connectForm"></div>
+  </section>
+
   <section class="card" id="pickCard">
     <div class="head-row"><h2>1. Choose the network</h2><button class="btn small" type="button" id="rescanBtn"><span class="spin" id="scanSpin" hidden></span><span id="rescanText">Scan again</span></button></div>
     <ul class="networks" id="netList" aria-label="Wi-Fi networks found"></ul>
@@ -124,7 +130,6 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;overflow-wrap:anywhere}
     <form id="connectForm" autocomplete="off">
       <div class="field" id="ssidField" hidden><label for="ssidInput">Network name</label><input id="ssidInput" type="text" maxlength="32" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
       <div class="field" id="pwField"><label for="pwInput">Wi-Fi password</label><div class="pw"><input id="pwInput" type="password" maxlength="63" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="new-password"><button type="button" id="pwToggle" aria-pressed="false">Show</button></div></div>
-      <div class="field" id="adminField" hidden><label for="adminInput">Dashboard admin password</label><input id="adminInput" type="password" maxlength="64" autocomplete="off"></div>
       <div class="notice bad" id="formError" role="alert" hidden></div>
       <div class="actions"><button class="btn primary" type="submit" id="connectBtn">Test and connect</button></div>
       <p class="hint" style="margin-top:10px">The ESP32 tests the connection and signal before saving, and it only stores a network that works.</p>
@@ -192,7 +197,7 @@ function renderStatus(status) {
   app.status = status;
   app.token = status.security.writeToken;
   app.passwordRequired = status.security.passwordRequired;
-  show('adminField', app.passwordRequired);
+  show('adminCard', app.passwordRequired);
   const row = $('statusRow');
   row.classList.toggle('on', status.connected);
   if (status.connected) {
@@ -385,7 +390,7 @@ async function poll() {
 
 $('connectForm').addEventListener('submit', async event => {
   event.preventDefault();
-  const ssid = app.manual ? $('ssidInput').value : app.selected.ssid;
+  const ssid = app.manual ? $('ssidInput').value : (app.selected ? app.selected.ssid : '');
   const password = $('pwInput').value;
   const error = $('formError');
   error.hidden = true;

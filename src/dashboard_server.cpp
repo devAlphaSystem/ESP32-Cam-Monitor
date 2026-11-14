@@ -2111,11 +2111,13 @@ void handleLiveStart()
     const bool highQuality = httpServer.arg("quality") == "high";
     LiveStreamTarget target;
     bool haveTarget = liveStreamCopyTarget(target);
-    const bool reusable = haveTarget && target.cameraId == ctx->id && target.highQuality == highQuality && ctx->camera.valid && target.ip[0] == ctx->camera.ip[0] && target.ip[1] == ctx->camera.ip[1] && target.ip[2] == ctx->camera.ip[2] && target.ip[3] == ctx->camera.ip[3] && millis() - target.resolvedAtMs < 10UL * 60UL * 1000UL;
+    const LiveStreamStats stats = liveStreamStats();
+    const bool streamInUse = stats.clients > 0;
+    const bool sameStream = haveTarget && target.cameraId == ctx->id && target.highQuality == highQuality && ctx->camera.valid && target.ip[0] == ctx->camera.ip[0] && target.ip[1] == ctx->camera.ip[1] && target.ip[2] == ctx->camera.ip[2] && target.ip[3] == ctx->camera.ip[3];
+    const bool reusable = sameStream && (streamInUse || millis() - target.resolvedAtMs < 10UL * 60UL * 1000UL);
 
     if (!reusable) {
-        const LiveStreamStats stats = liveStreamStats();
-        if (haveTarget && stats.clients > 0 && stats.state != LiveStreamState::Idle) {
+        if (streamInUse) {
             sendApiError(409, "live_in_use", "Another viewer is using the live video of another camera or quality");
             return;
         }
@@ -2134,7 +2136,10 @@ void handleLiveStart()
             sendApiError(503, error, liveStreamErrorDetail(error));
             return;
         }
-        liveStreamSetTarget(resolved);
+        if (!liveStreamSetTarget(resolved)) {
+            sendApiError(409, "live_in_use", "Another viewer is using the live video of another camera or quality");
+            return;
+        }
         target = resolved;
     }
 

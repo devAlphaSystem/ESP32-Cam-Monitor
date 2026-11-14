@@ -27,6 +27,6 @@ bool wifiSetupHoldsStation();
 
 bool wifiSetupHandleNotFound();
 
-void wifiSetupForgetStored();
+bool wifiSetupForgetStored();
 
 }

@@ -103,7 +103,7 @@ To protect the setup network with a password, set `WIFI_SETUP_AP_PASSWORD` in `i
 
 ## Setting up the dashboard
 
-Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab shows every registered camera with its latest image. If you see none, wait for discovery, which runs every 30 seconds by default, or open Settings, Actions, and use Rediscover cameras.
+Open `http://camera-watchdog.local/`, or the IP shown in the serial monitor. The Overview tab shows every registered camera with its latest image. If you see none, wait for discovery, which runs when the ESP32 starts and then every 5 minutes by default, or open Settings, Actions, and use Rediscover cameras.
 
 If the camera does not appear, check that it and the ESP32 are on the same subnet and that ONVIF is turned on in the camera app.
 
