@@ -68,7 +68,9 @@ h2,h3{font-size:14px;font-weight:600;line-height:1.4}
 .cam-item-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.35}
 .cam-item-state{color:var(--muted);font-size:11px;line-height:1.35}
 .cam-empty{padding:4px 8px;color:var(--dim);font-size:12px}
-.app-sidebar footer{padding:12px 18px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.6}
+.app-sidebar footer{padding:12px 18px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.6;text-align:center}
+.app-sidebar footer a{color:inherit;text-decoration:none}
+.app-sidebar footer a:hover{color:var(--accent)}
 main{min-width:0;padding:20px 24px 24px}
 [data-view-panel]{min-width:0}
 .overview-note{margin:14px 0 0;color:var(--muted);font-size:12px}
@@ -461,7 +463,7 @@ body.fs-locked{overflow:hidden}
     <ul class="cam-list" id="cameraList"></ul>
     <p class="cam-empty" id="cameraListEmpty">Loading cameras…</p>
   </nav>
-  <footer id="foot">ESP32 Camera Watchdog</footer>
+  <footer>ESP32 Camera Watchdog · <a id="footVersion" href="https://github.com/devAlphaSystem/ESP32-Cam-Monitor" target="_blank" rel="noopener noreferrer" title="Project on GitHub">GitHub</a></footer>
 </aside>
 <main id="mainContent" tabindex="-1">
 
@@ -1504,7 +1506,7 @@ function renderOverview(payload) {
   syncKeyedList($('overviewCameras'), cameraRegistry, camera => camera.id, createOverviewCard, updateOverviewCard);
   enqueueOverviewPreviews();
   if (actionsSectionActive() && payload.adminAction && !factoryResetResult && !adminActionRefused) setAdminActionStatus(payload.adminAction.lastResult, payload.adminAction.pending === 'none' ? '' : 'warn');
-  $('foot').textContent = 'ESP32 Camera Watchdog · ' + payload.firmwareVersion;
+  $('footVersion').textContent = payload.firmwareVersion;
   $('deviceUptime').textContent = 'uptime ' + duration(payload.uptimeSeconds);
   deviceUpdateInProgress = Boolean(payload.updateInProgress);
   if (currentFirmwareVersion !== payload.firmwareVersion) {
@@ -3578,7 +3580,7 @@ function render(d) {
   $('raw').textContent = JSON.stringify(d, null, 2);
   $('liveDiagnostics').textContent = JSON.stringify(d.live, null, 2);
   $('copyDiagnostics').disabled = false;
-  $('foot').textContent = 'ESP32 Camera Watchdog · ' + d.firmwareVersion;
+  $('footVersion').textContent = d.firmwareVersion;
   $('deviceUptime').textContent = 'uptime ' + duration(d.uptimeSeconds);
   renderResources(d);
 
@@ -4559,6 +4561,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 const UPDATE_MANIFEST_URL = 'https://devalphasystem.github.io/ESP32-Cam-Monitor/manifest.json';
+const UPDATE_CHANGELOG_BASE_URL = 'https://pocketdocs.dev/o/alphasystem/docs/esp32-cam-monitor/';
 const UPDATE_NOTICE_KEY = 'firmwareUpdatedTo';
 const UPDATE_MANIFEST_TIMEOUT_MS = 15000;
 const UPDATE_RESTART_TIMEOUT_MS = 120000;
@@ -4604,13 +4607,13 @@ function parseFirmwareManifest(manifest) {
   const manifestUrl = new URL(UPDATE_MANIFEST_URL);
   const url = new URL(String(manifest.file || 'firmware.bin'), manifestUrl);
   if (url.origin !== manifestUrl.origin) throw new Error('the firmware must be hosted next to the manifest');
-  const notes = String(manifest.notes || '');
+  const version = String(manifest.version);
   return {
-    version: String(manifest.version),
+    version,
     sha256: String(manifest.sha256).toLowerCase(),
     size,
     url: url.href,
-    notes: notes.startsWith('https://github.com/') ? notes : ''
+    changelogUrl: UPDATE_CHANGELOG_BASE_URL + 'v' + version.replace(/\./g, '-') + '/changelog'
   };
 }
 
@@ -4742,14 +4745,12 @@ function renderFirmwareUpdateDescription() {
   const info = firmwareUpdateInfo;
   const description = $('firmwareUpdateDesc');
   description.textContent = 'Install firmware ' + info.version + '. Installed version: ' + currentFirmwareVersion + '.';
-  if (info.notes) {
-    const link = document.createElement('a');
-    link.href = info.notes;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = 'Release notes';
-    description.append(' ', link);
-  }
+  const link = document.createElement('a');
+  link.href = info.changelogUrl;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = 'Release notes';
+  description.append(' ', link);
 }
 
 function openFirmwareUpdateModal() {

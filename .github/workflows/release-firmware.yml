@@ -48,12 +48,7 @@ jobs:
           pio run
 
       - name: Create the manifest
-        run: |
-          notes=""
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            notes="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
-          fi
-          python scripts/make_update_manifest.py .pio/build/esp32dev/firmware.bin "${{ steps.version.outputs.version }}" site "$notes"
+        run: python scripts/make_update_manifest.py .pio/build/esp32dev/firmware.bin "${{ steps.version.outputs.version }}" site
 
       - name: Attach the firmware to the release
         if: github.ref_type == 'tag'
