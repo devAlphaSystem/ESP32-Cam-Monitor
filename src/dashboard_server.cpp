@@ -1936,9 +1936,7 @@ void appendLiveStreamJson(String& json)
     appendJsonEscaped(json, String(stats.profileName));
     json += "\",\"framesPerSecond\":";
     json += String(stats.framesPerSecond, 2);
-    json += ",\"transport\":\"";
-    json += stats.udpTransport ? "rtp_udp" : "rtsp_tcp";
-    json += "\",\"relayBufferedBytes\":";
+    json += ",\"relayBufferedBytes\":";
     json += stats.relayBufferedBytes;
     json += ",\"relayHighWaterBytes\":";
     json += stats.relayHighWaterBytes;
@@ -1948,9 +1946,6 @@ void appendLiveStreamJson(String& json)
     json += stats.rtpCumulativeLoss;
     json += ",\"resyncEvents\":";
     json += stats.resyncEvents;
-    json += ",\"transportReason\":\"";
-    json += stats.transportReason;
-    json += '"';
     json += ",\"viewerWriteBlocks\":";
     json += stats.viewerWriteBlocks;
     json += ",\"viewerWriteBlockedMs\":";

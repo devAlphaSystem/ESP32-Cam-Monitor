@@ -221,6 +221,13 @@ void runHealthCheck(CameraContext& ctx, bool manualRequest, uint16_t contextId)
         return;
     }
 
+    if (liveStreamReceiving(ctx.id)) {
+        ctx.totalHealthChecks++;
+        ctx.inconclusiveHealthChecks++;
+        noteInconclusiveHealthCheck(ctx, "Live video still arriving from the camera; check deferred");
+        return;
+    }
+
     CameraIoGuard cameraIoGuard;
 
     if (!cameraIoGuard.acquired()) {

@@ -38,7 +38,6 @@ h2,h3{font-size:14px;font-weight:600;line-height:1.4}
 .skip-link{position:fixed;left:12px;top:-80px;z-index:1001;padding:12px 16px;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--text)}
 .skip-link:focus{top:12px}
 
-/* Shell: header, camera sidebar and content */
 .app-header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:28px;height:var(--header-h);padding:0 20px 0 18px;border-bottom:1px solid var(--line);background:var(--header)}
 .brand{display:flex;align-items:center;flex:none;color:var(--text);font-size:15px;font-weight:600;letter-spacing:-.01em;text-decoration:none}
 .tabs{display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}
@@ -76,7 +75,6 @@ main{min-width:0;padding:20px 24px 24px}
 .overview-note{margin:14px 0 0;color:var(--muted);font-size:12px}
 .overview-note a{color:var(--accent)}
 
-/* Subheader band */
 .device-header{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:64px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .device-copy{flex:1;min-width:0}
 .device-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
@@ -90,7 +88,6 @@ main{min-width:0;padding:20px 24px 24px}
 .rate-track{height:4px;margin-top:6px;border-radius:2px;background:var(--line);overflow:hidden}
 .rate-track::before{content:"";display:block;width:clamp(0%,calc(var(--p,0)*1%),100%);height:100%;background:var(--sc,var(--dim))}
 
-/* Overview counters and camera grid */
 .kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 .kpi{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .kpi-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
@@ -123,7 +120,6 @@ main{min-width:0;padding:20px 24px 24px}
 .check-stale{color:var(--warn)}
 .camera-card-event{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
 
-/* Camera: stage, information cards and collapsed diagnostics */
 .camera-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"stage side";align-items:stretch;gap:16px;margin-top:16px}
 .stage-card{grid-area:stage;min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
 .stage-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:56px;padding:10px 16px}
@@ -159,7 +155,6 @@ main{min-width:0;padding:20px 24px 24px}
 .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:500}
 .tag.ok{background:#18261e;color:var(--ok)}.tag.bad{background:#2a1c1f;color:var(--bad)}
 
-/* Cards, resources and history */
 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:1fr;gap:16px;margin-top:16px}
 .card{min-width:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .card-h{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
@@ -184,7 +179,6 @@ main{min-width:0;padding:20px 24px 24px}
 .chart polyline{fill:none;stroke:var(--info);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .chart .wifi-line{stroke:var(--warn);stroke-dasharray:5 3}
 
-/* Video stage */
 .segmented{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 .segmented button{min-height:30px;padding:0 12px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:500 13px/1 var(--sans);cursor:pointer;transition:background-color .15s,color .15s}
 @media(hover:hover){.segmented button:hover{color:var(--text)}}
@@ -219,7 +213,6 @@ body.fs-locked{overflow:hidden}
 @keyframes livepulse{50%{opacity:.3}}
 .feed-state .btn{margin-top:14px}
 
-/* Settings */
 .settings-summary{flex:none;max-width:100%}
 #settingsForm{display:grid;gap:16px;margin-top:16px}
 .settings-tablist{display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
@@ -278,7 +271,6 @@ body.fs-locked{overflow:hidden}
 #raw{margin:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
 #liveDiagnostics{margin:16px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:12px/1.6 var(--mono)}
 
-/* Logs */
 .settings-panel .grid{margin-top:0}
 .logs-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
 .logs-toolbar{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(0,1fr)) auto;align-items:end;gap:16px;padding:16px;border-bottom:1px solid var(--line)}
@@ -299,7 +291,6 @@ body.fs-locked{overflow:hidden}
 .logs-foot .form-result{flex:1 1 260px;min-height:0}
 .logs-badge{--sc:var(--info);--sbg:rgba(14,165,233,.14);--sbd:rgba(14,165,233,.32)}
 
-/* Dialogs */
 .modal-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:#050506cc}
 .modal-box{width:100%;max-width:460px;max-height:calc(100dvh - 40px);overflow-y:auto;padding:24px;background:var(--surface-alt);border:1px solid var(--line-strong);border-radius:10px}
 .modal-box h3{font-size:18px}
@@ -1037,8 +1028,6 @@ function selectedCameraName() {
   return selected ? selected.name : 'No camera registered';
 }
 
-// Reconciles a list by key: creates missing nodes, updates existing ones in place
-// and moves a node only when its position differs, so images and focus survive polling.
 function syncKeyedList(container, items, keyOf, create, update) {
   const keys = new Set(items.map(item => String(keyOf(item))));
   [...container.children].forEach(node => { if (!keys.has(node.dataset.key)) node.remove(); });
@@ -1189,7 +1178,6 @@ const PREVIEW_PLACEHOLDERS = {
   discovering: 'Searching for the camera'
 };
 const PREVIEW_BUSY_RETRY_DELAYS_MS = [1200, 2400, 4800];
-// One JPEG request at a time: the ESP32 web server serves a single client.
 const overviewPreviews = { pass: 0, queue: [], cards: new Map(), inFlight: null, pumpTimer: null };
 
 function previewEligible(state) {
@@ -2364,7 +2352,6 @@ let feedDeliveredFrames = 0;
 let feedHealthyMetaPrefix = '';
 let feedPausedForPtz = false;
 let feedActivationPending = false;
-// The preview intervals are updated from the firmware JSON.
 
 function updateFeedHealthyMeta() {
   if (!feedHealthyMetaPrefix) return;
@@ -2557,7 +2544,6 @@ function leaveSnapshotMode() {
   $('cameraFeed').classList.remove('ready');
 }
 
-// Starts the selected video source of the Camera view and stops the other one.
 function applyCameraMode() {
   showCameraSource();
   if (activeView !== 'camera') return;
@@ -3648,7 +3634,8 @@ const LivePlayer = (() => {
   const CLOCK = 90000;
   const MIN_DELTA = 1500;
   const MAX_DELTA = 22500;
-  const FPS_WINDOW = 5000;
+  const FRAME_WINDOW = 30000;
+  const MAX_RESERVE = 0.75;
   const MAX_PENDING_BYTES = 4 * 1024 * 1024;
   const MAX_PENDING_FRAMES = 60;
   const ERROR_TEXT = {
@@ -3828,7 +3815,6 @@ const LivePlayer = (() => {
     while (reader.position < info.rbsp.length * 8) { if (reader.bit()) throw new Error('sps_invalid'); }
     const ue = value => { const code = (value + 1).toString(2); return '0'.repeat(code.length - 1) + code; };
     const head = Array.from(info.rbsp, byte => byte.toString(2).padStart(8, '0')).join('').slice(0, end);
-    // bitstream_restriction_flag, motion_vectors_over_pic_boundaries_flag, max_bytes_per_pic_denom, max_bits_per_mb_denom, log2_max_mv_length_horizontal, log2_max_mv_length_vertical, max_num_reorder_frames, max_dec_frame_buffering, rbsp_stop_one_bit
     const code = head + (vui ? '' : '1' + '0'.repeat(8)) + '11' + [2, 1, 16, 16, 0, Math.max(info.refFrames, 1)].map(ue).join('') + '1';
     const bytes = code.padEnd(Math.ceil(code.length / 8) * 8, '0').match(/.{8}/g);
     return concat([nal.subarray(0, 1), escapeRbsp(Uint8Array.from(bytes, byte => parseInt(byte, 2)))]);
@@ -3889,13 +3875,14 @@ const LivePlayer = (() => {
       video.addEventListener('playing', () => {
         if (!this.initialized) return;
         this.playing = true;
+        this.heldAt = 0;
         this.retryDelay = 1000;
         hooks.state('live', '');
       });
       video.addEventListener('waiting', () => {
         if (!this.initialized || video.seeking) return;
         this.playing = false;
-        hooks.state('buffering', 'Waiting for video from the camera…');
+        if (!this.heldAt) this.heldAt = performance.now();
       });
     }
 
@@ -3917,6 +3904,7 @@ const LivePlayer = (() => {
       this.waitingForKey = true;
       this.sequence = 0;
       this.decodeTime = 0;
+      this.keyframes = [];
       this.lastTimestamp = null;
       this.lastDelta = 7500;
       this.frames = 0;
@@ -3931,6 +3919,9 @@ const LivePlayer = (() => {
       this.lastTime = -1;
       this.lastTimeAt = performance.now();
       this.playing = false;
+      this.heldAt = 0;
+      this.heavy = false;
+      this.patience = 1000;
     }
 
     supported() {
@@ -4158,6 +4149,7 @@ const LivePlayer = (() => {
         return;
       }
       this.queue.push(fragment);
+      if (idr) this.keyframes.push(this.decodeTime / CLOCK);
       this.decodeTime += duration;
       this.frames++;
       const now = performance.now();
@@ -4192,7 +4184,6 @@ const LivePlayer = (() => {
       this.video.src = this.objectUrl;
       let sps = this.sps;
       if (info) { try { sps = lowDelaySps(this.sps, info); } catch (error) {} }
-      // The avc1 sample entry needs a size even when the SPS could not be read; the decoder takes the real one from the SPS.
       const init = buildInit(sps, this.pps, info || { width: 704, height: 576, profile: this.sps[1], chroma: 1, lumaDepth: 8, chromaDepth: 8 });
       const generation = this.generation;
       source.addEventListener('sourceopen', () => {
@@ -4236,10 +4227,17 @@ const LivePlayer = (() => {
 
     cushion() {
       let reserve = 0;
+      let longest = 0;
+      let unhidden = 0;
       for (let index = 1; index < this.frameTimes.length; index++) {
-        reserve = Math.max(reserve, (this.frameTimes[index] - this.frameTimes[index - 1]) / 1000 - 0.1);
+        const gap = (this.frameTimes[index] - this.frameTimes[index - 1]) / 1000;
+        longest = Math.max(longest, gap);
+        if (gap - 0.1 > MAX_RESERVE) unhidden++;
+        else reserve = Math.max(reserve, gap - 0.1);
       }
-      return Math.min(0.75, Math.max(0, reserve));
+      this.heavy = unhidden >= 2;
+      this.patience = Math.min(4000, Math.max(1000, longest * 1000 + 1000));
+      return reserve;
     }
 
     trim(force) {
@@ -4247,8 +4245,12 @@ const LivePlayer = (() => {
       if (!buffer || buffer.updating || !buffer.buffered.length) return;
       const start = buffer.buffered.start(0);
       const keepFrom = this.video.currentTime - (force ? 1 : 3);
-      if (keepFrom - start > (force ? 0.5 : 3)) {
-        try { buffer.remove(start, keepFrom); } catch (error) {}
+      const cut = this.keyframes.filter(time => time <= keepFrom).pop();
+      if (cut !== undefined && cut - start > (force ? 0.5 : 3)) {
+        try {
+          buffer.remove(start, cut);
+          this.keyframes = this.keyframes.filter(time => time >= cut);
+        } catch (error) {}
       }
     }
 
@@ -4259,8 +4261,8 @@ const LivePlayer = (() => {
 
       if (now - this.statAt >= 1000) {
         const seconds = (now - this.statAt) / 1000;
-        while (this.frameTimes.length > 1 && now - this.frameTimes[1] > FPS_WINDOW) this.frameTimes.shift();
-        this.fps = this.frameTimes.length > 1 ? (this.frameTimes.length - 1) * 1000 / Math.min(FPS_WINDOW, Math.max(1000, now - this.frameTimes[0])) : 0;
+        while (this.frameTimes.length > 1 && now - this.frameTimes[1] > FRAME_WINDOW) this.frameTimes.shift();
+        this.fps = this.frameTimes.length > 1 ? (this.frameTimes.length - 1) * 1000 / Math.min(FRAME_WINDOW, Math.max(1000, now - this.frameTimes[0])) : 0;
         this.kbps = this.statBytes * 8 / seconds / 1000;
         this.statBytes = 0;
         this.statAt = now;
@@ -4270,23 +4272,29 @@ const LivePlayer = (() => {
       if (this.socket && now - this.lastDataAt > 6000) { this.restart('stalled'); return; }
 
       const hold = this.cushion();
+      if (this.heldAt && now - this.heldAt > this.patience) {
+        this.heldAt = 0;
+        this.hooks.state('buffering', 'Waiting for video from the camera…');
+      }
+      const jump = this.heavy ? 0.6 : 1.5;
+      const chase = this.heavy ? 0.3 : 0.5;
       const buffered = video.buffered;
       let lag = 0;
       if (buffered.length) {
         const end = buffered.end(buffered.length - 1);
         lag = Math.max(0, end - video.currentTime);
         this.resume();
-        if (lag > hold + 1.5) {
+        if (lag > hold + jump) {
           video.currentTime = end - hold - 0.12;
           this.catchingUp = false;
           video.playbackRate = 1;
-        } else if (lag > hold + 0.5) {
+        } else if (lag > hold + chase) {
           this.catchingUp = true;
         } else if (lag < hold + 0.22) {
           this.catchingUp = false;
         }
         const rate = this.catchingUp ? Math.min(1.5, 1 + (lag - hold - 0.2) * 0.8) : 1;
-        if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
+        if (video.playbackRate !== rate && (rate === 1 || Math.abs(video.playbackRate - rate) > 0.02)) video.playbackRate = rate;
 
         if (video.currentTime !== this.lastTime || video.paused) {
           this.lastTime = video.currentTime;
@@ -4470,7 +4478,6 @@ $('copyDiagnostics').addEventListener('click', async () => {
     if (window.isSecureContext && navigator.clipboard) {
       await navigator.clipboard.writeText($('raw').textContent);
     } else {
-      // Local HTTP access to the ESP32 does not provide the Clipboard API.
       const selection = window.getSelection();
       const previousRanges = [];
       for (let i = 0; i < selection.rangeCount; i++) {
@@ -4736,7 +4743,6 @@ function showUpdateProgress(label, fraction, start, span) {
   const percent = start + (fraction == null ? 0 : fraction * span);
   $('firmwareUpdateMeter').style.width = percent + '%';
   $('firmwareUpdateMeter').setAttribute('aria-valuenow', String(Math.round(percent)));
-  // The stage text is a live region: refresh it per 10 percent step so screen readers are not flooded.
   const text = fraction == null ? label : label + ' ' + Math.floor(fraction * 10) * 10 + '%';
   if ($('firmwareUpdateStage').textContent !== text) $('firmwareUpdateStage').textContent = text;
 }
@@ -4935,7 +4941,6 @@ async function installFirmwareUpdate(password) {
   $('firmwareUpdateConfirm').disabled = true;
   $('firmwareUpdateCancel').disabled = true;
   try {
-    // The page may have been open for days, and the server only keeps the newest firmware file.
     showUpdateProgress('Checking for the latest version…', null, 1, 0);
     await checkFirmwareUpdate();
     info = firmwareUpdateInfo;
@@ -4945,7 +4950,6 @@ async function installFirmwareUpdate(password) {
       throw new Error('Version ' + info.version + ' was published since this window opened. Review it and try again');
     }
     showUpdateProgress('Pausing the cameras and preparing the ESP32…', null, 2, 0);
-    // The ESP32 generates a new write token on every boot, so a retry after a restart needs the current one.
     await loadSettings(true);
     const params = new URLSearchParams();
     params.set('writeToken', settingsWriteToken);

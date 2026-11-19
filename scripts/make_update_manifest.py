@@ -12,7 +12,6 @@ firmware = Path(sys.argv[1])
 version = sys.argv[2]
 output = Path(sys.argv[3])
 
-# Same format the dashboard accepts in parseFirmwareManifest (src/dashboard_page.cpp).
 if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
     sys.exit(f"Invalid version '{version}'; use digits separated by dots, such as 0.26.0")
 

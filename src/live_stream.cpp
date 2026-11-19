@@ -28,7 +28,6 @@ constexpr uint32_t SESSION_IDLE_GRACE_MS = 4000;
 constexpr uint32_t FAILURE_BURST_IDLE_MS = 60000;
 constexpr uint32_t FAILURE_BURST_STREAMING_MS = 30000;
 constexpr uint32_t BACKPRESSURE_LIMIT_MS = 750;
-constexpr uint32_t UDP_PRESSURE_WINDOW_MS = 15000;
 constexpr uint32_t CLIENT_WRITE_TIMEOUT_MS = 1500;
 constexpr uint32_t HANDSHAKE_WAIT_MS = 400;
 constexpr uint32_t RETRY_BASE_MS = 1500;
@@ -65,11 +64,6 @@ uint32_t publishedGeneration = 0;
 struct Session {
     bool active = false;
     int fd = -1;
-    int rtpFd = -1;
-    int rtcpFd = -1;
-    uint16_t clientRtpPort = 0;
-    uint16_t serverRtpPort = 0;
-    uint16_t serverRtcpPort = 0;
     uint32_t generation = 0;
     uint32_t cseq = 0;
     uint8_t videoPayloadType = 96;
@@ -83,19 +77,9 @@ struct Session {
     uint32_t frameTimestamp = 0;
     uint32_t frameBytes = 0;
     uint32_t senderSsrc = 0;
-    uint32_t receiverSsrc = 0;
     uint32_t baseSequence = 0;
     uint32_t sequenceCycles = 0;
     uint32_t receivedPackets = 0;
-    uint32_t reportExpected = 0;
-    uint32_t reportReceived = 0;
-    int32_t transit = 0;
-    float jitter = 0;
-    uint32_t senderReport = 0;
-    unsigned long senderReportAtMs = 0;
-    unsigned long lastRtcpAtMs = 0;
-    unsigned long udpPressureSinceMs = 0;
-    uint8_t udpPressureEvents = 0;
     char sessionId[48] = {0};
     char authScheme = 0;
     char authRealm[64] = {0};
@@ -128,9 +112,6 @@ unsigned long lastFailureAtMs = 0;
 uint32_t retryBackoffMs = 0;
 uint8_t consecutiveFailures = 0;
 bool failureBurstOpen = false;
-bool preferTcp = false;
-uint32_t transportGeneration = 0;
-const char* volatile statTransportReason = "";
 
 struct FailureReport {
     uint32_t cameraId = 0;
@@ -162,8 +143,9 @@ volatile uint32_t statBytesToClientsLow = 0;
 volatile uint32_t statBytesToClientsHigh = 0;
 volatile unsigned long statLastFrameAtMs = 0;
 volatile uint32_t statLastFrameCameraId = 0;
+volatile unsigned long statLastPacketAtMs = 0;
+volatile uint32_t statLastPacketCameraId = 0;
 volatile float statFps = 0;
-volatile bool statUdpTransport = false;
 volatile uint32_t statRelayBuffered = 0;
 volatile uint32_t statRelayHighWater = 0;
 volatile uint32_t statLargestFrame = 0;
@@ -1002,8 +984,6 @@ void stopSession(LiveStreamState nextState, const char* error)
             sendTeardown();
         closeSocket(session.fd);
     }
-    closeSocket(session.rtpFd);
-    closeSocket(session.rtcpFd);
     const bool wasActive = session.active;
     session.active = false;
     session.sessionId[0] = '\0';
@@ -1021,32 +1001,6 @@ void stopSession(LiveStreamState nextState, const char* error)
     statRelayBuffered = 0;
     if (wasActive)
         Serial.printf("[live] RTSP session closed (%s)\n", error != nullptr ? error : "idle");
-}
-
-bool openRtpSockets()
-{
-    for (uint8_t attempt = 0; attempt < 4; attempt++) {
-        session.rtpFd = lwip_socket(AF_INET, SOCK_DGRAM, 0);
-        session.rtcpFd = lwip_socket(AF_INET, SOCK_DGRAM, 0);
-        sockaddr_in local = {};
-        local.sin_family = AF_INET;
-        local.sin_addr.s_addr = htonl(INADDR_ANY);
-        socklen_t length = sizeof(local);
-        if (session.rtpFd >= 0 && session.rtcpFd >= 0 && lwip_bind(session.rtpFd, reinterpret_cast<sockaddr*>(&local), sizeof(local)) == 0 && lwip_getsockname(session.rtpFd, reinterpret_cast<sockaddr*>(&local), &length) == 0) {
-            const uint16_t port = ntohs(local.sin_port);
-            local.sin_port = htons(port + 1);
-            if (port < UINT16_MAX && (port & 1) == 0 && lwip_bind(session.rtcpFd, reinterpret_cast<sockaddr*>(&local), sizeof(local)) == 0) {
-                session.clientRtpPort = port;
-                lwip_fcntl(session.rtpFd, F_SETFL, lwip_fcntl(session.rtpFd, F_GETFL, 0) | O_NONBLOCK);
-                lwip_fcntl(session.rtcpFd, F_SETFL, lwip_fcntl(session.rtcpFd, F_GETFL, 0) | O_NONBLOCK);
-                return true;
-            }
-        }
-        closeSocket(session.rtpFd);
-        closeSocket(session.rtcpFd);
-    }
-    setLastError("relay_unavailable");
-    return false;
 }
 
 bool startSession()
@@ -1067,11 +1021,6 @@ bool startSession()
     if (!target.valid) {
         setLastError("no_target");
         return false;
-    }
-    if (generation != transportGeneration) {
-        transportGeneration = generation;
-        preferTcp = !target.highQuality;
-        statTransportReason = preferTcp ? "standard_tcp" : "udp_preferred";
     }
 
     session = Session{};
@@ -1123,28 +1072,9 @@ bool startSession()
         return false;
     snprintf(session.url, sizeof(session.url), "%s", contentBase[0] != '\0' ? contentBase : session.url);
 
-    if (!preferTcp && !openRtpSockets()) {
-        preferTcp = true;
-        statTransportReason = "udp_sockets_unavailable";
-    }
-    char setupLine[120];
-    if (session.rtpFd >= 0)
-        snprintf(setupLine, sizeof(setupLine), "Transport: RTP/AVP;unicast;client_port=%u-%u\r\n", static_cast<unsigned>(session.clientRtpPort), static_cast<unsigned>(session.clientRtpPort + 1));
-    else
-        snprintf(setupLine, sizeof(setupLine), "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n");
-    if (!rtspTransact("SETUP", session.controlUrl, setupLine, reply)) {
+    if (!rtspTransact("SETUP", session.controlUrl, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n", reply)) {
         setLastError("rtsp_setup_failed", reply.status);
         return false;
-    }
-    if (session.rtpFd >= 0 && (reply.status == 400 || reply.status == 406 || reply.status == 454 || reply.status == 461)) {
-        preferTcp = true;
-        statTransportReason = "udp_setup_rejected";
-        closeSocket(session.rtpFd);
-        closeSocket(session.rtcpFd);
-        if (!rtspTransact("SETUP", session.controlUrl, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n", reply)) {
-            setLastError("rtsp_setup_failed", reply.status);
-            return false;
-        }
     }
     if (reply.status != 200) {
         setLastError(reply.status == 461 ? "rtsp_transport_unsupported" : "rtsp_setup_failed", reply.status);
@@ -1173,28 +1103,8 @@ bool startSession()
     char transport[120];
     if (headerValue(headerBuffer, "Transport", transport, sizeof(transport))) {
         const char* interleaved = findIgnoreCase(transport, "interleaved=");
-        if (interleaved != nullptr) {
+        if (interleaved != nullptr)
             session.videoChannel = static_cast<uint8_t>(atoi(interleaved + 12));
-            if (session.rtpFd >= 0) {
-                closeSocket(session.rtpFd);
-                closeSocket(session.rtcpFd);
-                preferTcp = true;
-                statTransportReason = "camera_selected_tcp";
-            }
-        }
-        if (session.rtpFd >= 0) {
-            const char* serverPorts = findIgnoreCase(transport, "server_port=");
-            unsigned rtpPort = 0;
-            unsigned rtcpPort = 0;
-            if (serverPorts != nullptr && sscanf(serverPorts + 12, "%u-%u", &rtpPort, &rtcpPort) == 2 && rtpPort > 0 && rtpPort <= UINT16_MAX && rtcpPort > 0 && rtcpPort <= UINT16_MAX) {
-                session.serverRtpPort = static_cast<uint16_t>(rtpPort);
-                session.serverRtcpPort = static_cast<uint16_t>(rtcpPort);
-            }
-            if (!equalsIgnoreCasePrefix(transport, "RTP/AVP") || equalsIgnoreCasePrefix(transport, "RTP/AVP/TCP")) {
-                setLastError("rtsp_transport_unsupported");
-                return false;
-            }
-        }
     } else {
         setLastError("rtsp_setup_failed");
         return false;
@@ -1209,8 +1119,6 @@ bool startSession()
 
     session.active = true;
     session.startedAtMs = millis();
-    session.receiverSsrc = esp_random();
-    session.lastRtcpAtMs = session.startedAtMs;
     session.lastKeepaliveAtMs = session.startedAtMs;
     session.lastPacketAtMs = session.startedAtMs;
     statSessionStartedAtMs = session.startedAtMs;
@@ -1223,7 +1131,6 @@ bool startSession()
     memset(fpsFrames, 0, sizeof(fpsFrames));
     memset(fpsElapsed, 0, sizeof(fpsElapsed));
     fpsIndex = 0;
-    statUdpTransport = session.rtpFd >= 0;
     statRelayHighWater = 0;
     statLargestFrame = 0;
     statRtpLoss = 0;
@@ -1268,33 +1175,17 @@ void handleRtpPacket(const uint8_t* packet, size_t length)
         session.haveSequence = false;
         session.sequenceCycles = 0;
         session.receivedPackets = 0;
-        session.reportExpected = 0;
-        session.reportReceived = 0;
-        session.senderReport = 0;
-        session.jitter = 0;
         session.frameBytes = 0;
     }
-    const int32_t transit = static_cast<int32_t>(millis() * 90UL - timestamp);
-    if (session.haveSequence) {
-        const int32_t delta = static_cast<int32_t>(static_cast<uint32_t>(transit) - static_cast<uint32_t>(session.transit));
-        const float deviation = delta < 0 ? -static_cast<float>(delta) : static_cast<float>(delta);
-        session.jitter += (deviation - session.jitter) / 16.0f;
-    }
-    session.transit = transit;
     session.senderSsrc = senderSsrc;
     session.receivedPackets++;
-    bool deliver = true;
     if (session.haveSequence) {
         const int16_t advance = static_cast<int16_t>(sequence - session.lastSequence);
-        if (session.rtpFd >= 0 && advance <= 0)
-            deliver = false;
-        else {
-            if (sequence != static_cast<uint16_t>(session.lastSequence + 1))
-                flagClientsForResync();
-            if (sequence < session.lastSequence && advance > 0)
-                session.sequenceCycles += 65536UL;
-            session.lastSequence = sequence;
-        }
+        if (sequence != static_cast<uint16_t>(session.lastSequence + 1))
+            flagClientsForResync();
+        if (sequence < session.lastSequence && advance > 0)
+            session.sequenceCycles += 65536UL;
+        session.lastSequence = sequence;
     } else {
         session.baseSequence = sequence;
         session.lastSequence = sequence;
@@ -1303,8 +1194,6 @@ void handleRtpPacket(const uint8_t* packet, size_t length)
     const uint32_t expected = session.sequenceCycles + session.lastSequence - session.baseSequence + 1;
     const int64_t lost = static_cast<int64_t>(expected) - session.receivedPackets;
     statRtpLoss = static_cast<int32_t>(max<int64_t>(-0x800000LL, min<int64_t>(lost, 0x7FFFFFLL)));
-    if (!deliver)
-        return;
     if (session.frameTimestamp != timestamp) {
         session.frameTimestamp = timestamp;
         session.frameBytes = 0;
@@ -1327,6 +1216,8 @@ void handleRtpPacket(const uint8_t* packet, size_t length)
 
     statPackets = statPackets + 1;
     session.lastPacketAtMs = millis();
+    statLastPacketAtMs = session.lastPacketAtMs;
+    statLastPacketCameraId = session.target.cameraId;
     if (marker) {
         statLargestFrame = max(static_cast<uint32_t>(statLargestFrame), session.frameBytes);
         statFrames = statFrames + 1;
@@ -1357,7 +1248,7 @@ bool parseRx()
             }
             if (rxLength - position < packetLength + 4)
                 break;
-            if (session.rtpFd < 0 && rxBuffer[position + 1] == session.videoChannel) {
+            if (rxBuffer[position + 1] == session.videoChannel) {
                 if (ringFree() < packetLength) {
                     blocked = true;
                     blockedBytes = packetLength;
@@ -1425,131 +1316,6 @@ bool pumpRtsp()
         addFromCamera(static_cast<size_t>(count));
     }
     return parseRx();
-}
-
-void pumpRtp()
-{
-    uint8_t packet[RX_CAPACITY];
-    for (uint8_t reads = 0; reads < RTSP_READS_PER_PASS; reads++) {
-        sockaddr_in remote = {};
-        socklen_t length = sizeof(remote);
-        const int count = lwip_recvfrom(session.rtpFd, packet, sizeof(packet), 0, reinterpret_cast<sockaddr*>(&remote), &length);
-        if (count <= 0)
-            break;
-        if (memcmp(&remote.sin_addr.s_addr, session.target.ip, 4) != 0 || (session.serverRtpPort != 0 && ntohs(remote.sin_port) != session.serverRtpPort))
-            continue;
-        addFromCamera(static_cast<size_t>(count));
-        if (static_cast<size_t>(count) == sizeof(packet)) {
-            statDropped = statDropped + 1;
-            flagClientsForResync();
-            continue;
-        }
-        if (ringFree() < static_cast<size_t>(count)) {
-            blockedBytes = static_cast<size_t>(count);
-            const uint32_t droppedBefore = statDropped;
-            relieveBackpressure();
-            if (statDropped != droppedBefore) {
-                const unsigned long now = millis();
-                if (session.udpPressureEvents == 0 || now - session.udpPressureSinceMs > UDP_PRESSURE_WINDOW_MS) {
-                    session.udpPressureSinceMs = now;
-                    session.udpPressureEvents = 0;
-                }
-                session.udpPressureEvents++;
-                if (session.udpPressureEvents >= 2)
-                    return;
-            }
-        }
-        if (ringFree() >= static_cast<size_t>(count))
-            handleRtpPacket(packet, static_cast<size_t>(count));
-        else {
-            statDropped = statDropped + 1;
-            flagClientsForResync();
-        }
-    }
-}
-
-void receiveRtcp()
-{
-    uint8_t packet[256];
-    for (uint8_t reads = 0; reads < RTSP_READS_PER_PASS; reads++) {
-        sockaddr_in remote = {};
-        socklen_t remoteLength = sizeof(remote);
-        const int count = lwip_recvfrom(session.rtcpFd, packet, sizeof(packet), 0, reinterpret_cast<sockaddr*>(&remote), &remoteLength);
-        if (count <= 0)
-            break;
-        if (memcmp(&remote.sin_addr.s_addr, session.target.ip, 4) != 0 || (session.serverRtcpPort != 0 && ntohs(remote.sin_port) != session.serverRtcpPort))
-            continue;
-        size_t offset = 0;
-        while (offset + 4 <= static_cast<size_t>(count)) {
-            const size_t length = 4 * (1 + ((static_cast<size_t>(packet[offset + 2]) << 8) | packet[offset + 3]));
-            if ((packet[offset] >> 6) != 2 || length < 4 || offset + length > static_cast<size_t>(count))
-                break;
-            if (packet[offset + 1] == 200 && length >= 28) {
-                const uint32_t ssrc = (static_cast<uint32_t>(packet[offset + 4]) << 24) | (static_cast<uint32_t>(packet[offset + 5]) << 16) | (static_cast<uint32_t>(packet[offset + 6]) << 8) | packet[offset + 7];
-                if (ssrc == session.senderSsrc) {
-                    session.serverRtcpPort = ntohs(remote.sin_port);
-                    session.senderReport = (static_cast<uint32_t>(packet[offset + 10]) << 24) | (static_cast<uint32_t>(packet[offset + 11]) << 16) | (static_cast<uint32_t>(packet[offset + 12]) << 8) | packet[offset + 13];
-                    session.senderReportAtMs = millis();
-                }
-            }
-            offset += length;
-        }
-    }
-}
-
-void writeRtcp32(uint8_t* out, uint32_t value)
-{
-    out[0] = static_cast<uint8_t>(value >> 24);
-    out[1] = static_cast<uint8_t>(value >> 16);
-    out[2] = static_cast<uint8_t>(value >> 8);
-    out[3] = static_cast<uint8_t>(value);
-}
-
-void sendRtcpReport(unsigned long now)
-{
-    if (session.rtcpFd < 0 || session.serverRtcpPort == 0 || now - session.lastRtcpAtMs < 5000UL)
-        return;
-    session.lastRtcpAtMs = now;
-    uint8_t packet[60] = {};
-    const bool haveSource = session.haveSequence;
-    const size_t reportLength = haveSource ? 32 : 8;
-    packet[0] = haveSource ? 0x81 : 0x80;
-    packet[1] = 201;
-    packet[3] = haveSource ? 7 : 1;
-    writeRtcp32(packet + 4, session.receiverSsrc);
-    if (haveSource) {
-        const uint32_t highest = session.sequenceCycles + session.lastSequence;
-        const uint32_t expected = highest - session.baseSequence + 1;
-        const uint32_t expectedInterval = expected - session.reportExpected;
-        const uint32_t receivedInterval = session.receivedPackets - session.reportReceived;
-        const uint32_t lostBits = static_cast<uint32_t>(statRtpLoss) & 0xFFFFFFUL;
-        packet[12] = expectedInterval > receivedInterval ? static_cast<uint8_t>(min<uint64_t>(255, (static_cast<uint64_t>(expectedInterval - receivedInterval) * 256ULL) / expectedInterval)) : 0;
-        packet[13] = static_cast<uint8_t>(lostBits >> 16);
-        packet[14] = static_cast<uint8_t>(lostBits >> 8);
-        packet[15] = static_cast<uint8_t>(lostBits);
-        writeRtcp32(packet + 8, session.senderSsrc);
-        writeRtcp32(packet + 16, highest);
-        writeRtcp32(packet + 20, static_cast<uint32_t>(session.jitter));
-        writeRtcp32(packet + 24, session.senderReport);
-        writeRtcp32(packet + 28, session.senderReport != 0 ? static_cast<uint32_t>((static_cast<uint64_t>(now - session.senderReportAtMs) * 65536ULL) / 1000ULL) : 0);
-        session.reportExpected = expected;
-        session.reportReceived = session.receivedPackets;
-    }
-    uint8_t* sdes = packet + reportLength;
-    sdes[0] = 0x81;
-    sdes[1] = 202;
-    sdes[3] = 6;
-    writeRtcp32(sdes + 4, session.receiverSsrc);
-    sdes[8] = 1;
-    char cname[18];
-    snprintf(cname, sizeof(cname), "watchdog-%08lx", static_cast<unsigned long>(session.receiverSsrc));
-    sdes[9] = 17;
-    memcpy(sdes + 10, cname, 17);
-    sockaddr_in remote = {};
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(session.serverRtcpPort);
-    memcpy(&remote.sin_addr.s_addr, session.target.ip, 4);
-    lwip_sendto(session.rtcpFd, packet, reportLength + 28, 0, reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
 }
 
 void updateRates(unsigned long now)
@@ -1714,11 +1480,6 @@ void liveTask(void*)
             FD_SET(session.fd, &readSet);
             highest = max(highest, session.fd);
         }
-        if (session.active && session.rtpFd >= 0) {
-            FD_SET(session.rtpFd, &readSet);
-            FD_SET(session.rtcpFd, &readSet);
-            highest = max(highest, max(session.rtpFd, session.rtcpFd));
-        }
         for (const Client& client : clients) {
             if (client.fd >= 0) {
                 FD_SET(client.fd, &readSet);
@@ -1750,16 +1511,6 @@ void liveTask(void*)
             if (client.fd >= 0)
                 flushClient(client, flushedAtMs);
         }
-        if (session.active && session.rtpFd >= 0 && ready > 0) {
-            if (FD_ISSET(session.rtpFd, &readSet))
-                pumpRtp();
-            if (FD_ISSET(session.rtcpFd, &readSet))
-                receiveRtcp();
-            for (Client& client : clients) {
-                if (client.fd >= 0)
-                    flushClient(client, millis());
-            }
-        }
         statRelayBuffered = ring != nullptr ? RING_CAPACITY - ringFree() : 0;
         statRelayHighWater = max(static_cast<uint32_t>(statRelayHighWater), static_cast<uint32_t>(statRelayBuffered));
         if (blockedSinceMs != 0 && flushedAtMs - blockedSinceMs >= BACKPRESSURE_LIMIT_MS)
@@ -1767,17 +1518,6 @@ void liveTask(void*)
 
         if (session.active) {
             const unsigned long current = millis();
-            const bool udpNoMedia = session.rtpFd >= 0 && session.receivedPackets == 0 && current - session.startedAtMs >= RTSP_STALL_TIMEOUT_MS;
-            const bool udpPressure = session.rtpFd >= 0 && session.udpPressureEvents >= 2;
-            if (udpNoMedia || udpPressure) {
-                preferTcp = true;
-                statTransportReason = udpNoMedia ? "udp_no_media" : "udp_backpressure";
-                stopSession(LiveStreamState::Connecting, nullptr);
-                retryBackoffMs = 0;
-                lastFailureAtMs = 0;
-                continue;
-            }
-            sendRtcpReport(current);
             if (current - session.lastKeepaliveAtMs >= session.keepaliveIntervalMs) {
                 session.lastKeepaliveAtMs = current;
                 sendKeepalive();
@@ -1879,13 +1619,11 @@ LiveStreamStats liveStreamStats()
     stats.lastError = lastErrorText;
     stats.clients = statClientCount;
     stats.framesPerSecond = statFps;
-    stats.udpTransport = statUdpTransport;
     stats.relayBufferedBytes = statRelayBuffered;
     stats.relayHighWaterBytes = statRelayHighWater;
     stats.largestFrameBytes = statLargestFrame;
     stats.rtpCumulativeLoss = statRtpLoss;
     stats.resyncEvents = statResyncs;
-    stats.transportReason = statTransportReason;
     stats.viewerWriteBlocks = statWriteBlocks;
     stats.viewerWriteBlockedMs = statWriteBlockedMs;
     stats.viewerWriteWaitMaxMs = statWriteWaitMaxMs;
@@ -1924,6 +1662,14 @@ bool liveStreamDeliveredRecently(uint32_t cameraId, uint32_t windowMs, float* fr
     if (framesPerSecond != nullptr)
         *framesPerSecond = statFps;
     return true;
+}
+
+bool liveStreamReceiving(uint32_t cameraId)
+{
+    if (stateValue != LiveStreamState::Streaming || statLastPacketCameraId != cameraId)
+        return false;
+    const unsigned long lastPacketAt = statLastPacketAtMs;
+    return lastPacketAt != 0 && millis() - lastPacketAt < RTSP_STALL_TIMEOUT_MS;
 }
 
 void liveStreamRecordPendingFailure()
