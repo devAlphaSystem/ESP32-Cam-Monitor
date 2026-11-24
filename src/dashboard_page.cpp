@@ -125,9 +125,10 @@ main{min-width:0;padding:20px 24px 24px}
 .stage-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:56px;padding:10px 16px}
 .stage-bar h2{margin-right:auto}
 .stage-card>.form-result{padding:8px 16px;border-top:1px solid var(--line)}
-.stage-card>.patrol-bar{padding:10px 16px;border-top:1px solid var(--line)}
-.patrol-bar .form-result{min-height:0}
-.patrol-bar .form-result:not(:empty){margin-top:4px}
+.patrol-card .checkline{margin-top:8px}
+.patrol-card .checkline label span{margin-top:0;color:inherit;font-size:13px}
+.patrol-card .form-result{min-height:0}
+.patrol-card .form-result:not(:empty){margin-top:8px}
 .camera-side{grid-area:side;display:grid;align-content:start;gap:16px;min-width:0}
 .card-text{margin-top:8px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .health-list{margin:4px 0 0;padding:0;list-style:none}
@@ -164,6 +165,7 @@ main{min-width:0;padding:20px 24px 24px}
 .card-h .pip{margin-left:auto}
 .card-v{margin-top:8px;font-size:21px;font-weight:600;line-height:1.35;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .card-m{margin-top:6px;color:var(--muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+#resourcesView .card-m{margin-top:8px}
 .bars{display:inline-flex;align-items:flex-end;gap:3px;height:17px;margin-right:9px}
 .bars i{width:4px;background:var(--line)}
 .bars i:nth-child(1){height:5px}.bars i:nth-child(2){height:9px}.bars i:nth-child(3){height:13px}.bars i:nth-child(4){height:17px}
@@ -529,10 +531,6 @@ body.fs-locked{overflow:hidden}
         <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
       </button>
     </div>
-    <div class="patrol-bar">
-      <div class="checkline"><input id="patrolSwitch" type="checkbox" role="switch" aria-labelledby="patrolSwitchTitle" aria-describedby="patrolSwitchState" disabled><label for="patrolSwitch"><b id="patrolSwitchTitle">Patrol</b><span id="patrolSwitchState">Loading the patrol state…</span></label></div>
-      <p class="form-result" id="patrolResult" role="status" aria-live="polite"></p>
-    </div>
     <div class="form-result" id="ptzActionStatus" hidden></div>
   </section>
 
@@ -544,6 +542,11 @@ body.fs-locked{overflow:hidden}
         <li><span class="health-name"><i class="pip" id="p-rtsp"></i>RTSP</span><span class="card-v" id="v-rtsp">—</span></li>
         <li><span class="health-name"><i class="pip" id="p-image"></i>JPEG image</span><span class="card-v" id="v-image">—</span></li>
       </ul>
+    </article>
+    <article class="card patrol-card">
+      <h2 id="patrolCardTitle">Patrol</h2>
+      <div class="checkline"><input id="patrolSwitch" type="checkbox" role="switch" aria-labelledby="patrolCardTitle" aria-describedby="patrolSwitchState" disabled><label for="patrolSwitch"><span id="patrolSwitchState">Loading the patrol state…</span></label></div>
+      <p class="form-result" id="patrolResult" role="status" aria-live="polite"></p>
     </article>
     <article class="card">
       <h2>Checks</h2>
@@ -601,7 +604,6 @@ body.fs-locked{overflow:hidden}
       <div class="card-h">Free heap<i class="pip" id="p-rheap"></i></div>
       <div class="card-v" id="r-heap">—</div>
       <div class="card-m" id="r-heap-meta">—</div>
-      <div class="meter"><i id="r-heap-meter"></i></div>
     </article>
     <article class="card">
       <div class="card-h">Largest allocatable block<i class="pip" id="p-rblock"></i></div>
@@ -695,15 +697,18 @@ body.fs-locked{overflow:hidden}
             <div class="field"><label>Wi-Fi network</label><a class="btn" id="settingsWifiLink" href="/wifi">Choose another Wi-Fi network</a><small>Lists available networks and checks the connection before saving it.</small></div>
           </div>
         </div>
-        <div class="settings-group">
-          <h3>Dashboard and status light</h3>
+        <details class="settings-advanced">
+          <summary>Dashboard and status light</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><label for="cfgStatusRefresh">Dashboard refresh <span>1 to 30 s</span></label><input id="cfgStatusRefresh" type="number" min="1" max="30" step="0.5" required><small>Refreshes the dashboard data. Default: 3 s.</small></div>
             <div class="field"><div class="checkline"><input id="cfgLedEnabled" type="checkbox" role="switch"><label for="cfgLedEnabled"><b>Enable status LED</b><span>Blinks when Wi-Fi is disconnected, a camera is offline or recovering, or an incident is active.</span></label></div></div>
           </div>
-        </div>
-        <div class="settings-group">
-          <h3>Security and alerts</h3>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Security and alerts</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><label for="cfgAdminPasswordAction">Admin password</label><select id="cfgAdminPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option></select><small id="cfgAdminPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
             <div class="field"><label for="cfgAdminPassword">New admin password <span>8 to 64 characters</span></label><input id="cfgAdminPassword" type="password" maxlength="64" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. It protects every change and action in the dashboard.</small></div>
@@ -712,7 +717,8 @@ body.fs-locked{overflow:hidden}
             <div class="field"><label for="cfgResendFrom">Alert sender <span>up to 128 characters</span></label><input id="cfgResendFrom" type="text" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Camera Watchdog &lt;watchdog@your-domain.com&gt;"><small>Sender address registered in Resend.</small></div>
             <div class="field"><label for="cfgAlertEmail">Alert recipient <span>up to 128 characters</span></label><input id="cfgAlertEmail" type="text" inputmode="email" maxlength="128" autocomplete="off" spellcheck="false" placeholder="recipient@your-domain.com"><small>Receives the alert emails. Without a Resend key, emails stay off.</small></div>
           </div>
-        </div>
+          </div>
+        </details>
         <details class="settings-advanced">
           <summary>Discovery settings</summary>
           <div class="dev-body">
@@ -728,23 +734,27 @@ body.fs-locked{overflow:hidden}
       </section>
 
       <section class="settings-panel" id="settingsCameraPanel" role="tabpanel" aria-labelledby="settingsCameraTab" data-settings-section-panel="camera" hidden>
-        <div class="settings-group">
-          <h3>Identity and credentials</h3>
+        <details class="settings-advanced">
+          <summary>Identity and credentials</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><label for="cfgCameraName">Camera name <span>1 to 48 characters</span></label><input id="cfgCameraName" type="text" minlength="1" maxlength="48" required><small>Shown in the dashboard and email subjects.</small></div>
             <div class="field"><label for="cfgCameraUsername">Camera username</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>For access without authentication, choose Remove username and password.</small></div>
             <div class="field"><label for="cfgCameraPasswordAction">Camera password</label><select id="cfgCameraPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option><option value="clear">Remove username and password</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
             <div class="field"><label for="cfgCameraPassword">New password</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. An empty password is allowed with a username. Spaces are part of the password.</small></div>
           </div>
-        </div>
-        <div class="settings-group">
-          <h3>Patrol</h3>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Patrol</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><div class="checkline"><input id="cfgPatrolEnabled" type="checkbox" role="switch"><label for="cfgPatrolEnabled"><b>Enable patrol</b><span>Moves the camera through the presets below in order, then starts again from the first. Keeps running while the camera is viewed. The Camera tab has the same switch.</span></label></div></div>
             <div class="field"><label for="cfgPatrolAdd">Add a preset <span>up to 16</span></label><div class="patrol-add"><select id="cfgPatrolAdd"></select><button class="btn" type="button" id="cfgPatrolAddButton">Add to patrol</button></div><small id="cfgPatrolCatalogStatus">Waiting for the camera's preset list.</small></div>
             <div class="field patrol-route-field"><p class="patrol-route-title" id="cfgPatrolRouteTitle">Patrol order <span id="cfgPatrolCount">0 of 16</span></p><ol class="ptz-list patrol-route" id="cfgPatrolRoute" role="list" aria-labelledby="cfgPatrolRouteTitle"></ol><small id="cfgPatrolStatus" class="patrol-announce" aria-live="polite"></small></div>
           </div>
-        </div>
+          </div>
+        </details>
         <details class="settings-advanced">
           <summary>Snapshot preview settings</summary>
           <div class="dev-body">
@@ -769,8 +779,9 @@ body.fs-locked{overflow:hidden}
       </section>
 
       <section class="settings-panel" id="settingsMonitoringPanel" role="tabpanel" aria-labelledby="settingsMonitoringTab" data-settings-section-panel="monitoring" hidden>
-        <div class="settings-group">
-          <h3>Checks and thresholds</h3>
+        <details class="settings-advanced">
+          <summary>Checks and thresholds</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><label for="cfgHealthCheckInterval">Check interval <span>10 to 3600 s</span></label><input id="cfgHealthCheckInterval" type="number" min="10" max="3600" step="1" required><small>Default: 15 s.</small></div>
             <div class="field"><label for="cfgFailuresBeforeOffline">Control failures before offline <span>1 to 20</span></label><input id="cfgFailuresBeforeOffline" type="number" min="1" max="20" step="1" required><small>Must be at least the rediscovery threshold below. Default: 3.</small></div>
@@ -778,14 +789,17 @@ body.fs-locked{overflow:hidden}
             <div class="field"><label for="cfgVideoFailuresBeforeReboot">Image failures before restart <span>1 to 20</span></label><input id="cfgVideoFailuresBeforeReboot" type="number" min="1" max="20" step="1" required><small>Must be at least the image alert threshold. Also confirms a media failure when automatic restart is off. Default: 3.</small></div>
             <div class="field"><label for="cfgSuccessesBeforeRecovery">Successful checks before recovery <span>1 to 10</span></label><input id="cfgSuccessesBeforeRecovery" type="number" min="1" max="10" step="1" required><small>Default: 2.</small></div>
           </div>
-        </div>
-        <div class="settings-group">
-          <h3>Email alerts</h3>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Email alerts</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><div class="checkline"><input id="cfgEmailAlerts" type="checkbox" role="switch"><label for="cfgEmailAlerts"><b>Enable email alerts</b><span>Turning this off cancels pending notifications and keeps the Resend credentials.</span></label></div></div>
             <div class="field"><div class="checkline"><input id="cfgEmailIpChange" type="checkbox" role="switch"><label for="cfgEmailIpChange"><b>Notify when the camera changes IP</b><span>Used when email alerts are enabled.</span></label></div></div>
           </div>
-        </div>
+          </div>
+        </details>
         <details class="settings-advanced">
           <summary>Startup and rediscovery</summary>
           <div class="dev-body">
@@ -798,45 +812,53 @@ body.fs-locked{overflow:hidden}
       </section>
 
       <section class="settings-panel" id="settingsRecoveryPanel" role="tabpanel" aria-labelledby="settingsRecoveryTab" data-settings-section-panel="recovery" hidden>
-        <div class="settings-group">
-          <h3>Restart policy</h3>
+        <details class="settings-advanced">
+          <summary>Restart policy</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><div class="checkline"><input id="cfgAutoReboot" type="checkbox" role="switch"><label for="cfgAutoReboot"><b>Enable automatic camera restart</b><span>Sends ONVIF SystemReboot after the image failure threshold set in Monitoring.</span></label></div></div>
             <div class="field"><label for="cfgRebootGrace">Grace after restart <span>30 to 600 s</span></label><input id="cfgRebootGrace" type="number" min="30" max="600" step="1" required><small>Pauses checks while the camera restarts. Default: 60 s.</small></div>
           </div>
-        </div>
-        <div class="settings-group">
-          <h3>Limits against restart loops</h3>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>Limits against restart loops</summary>
+          <div class="dev-body">
           <div class="form-grid">
             <div class="field"><label for="cfgRebootCooldown">Minimum time between restarts <span>2 to 1440 min</span></label><input id="cfgRebootCooldown" type="number" min="2" max="1440" step="1" required><small>Default: 5 min.</small></div>
             <div class="field"><label for="cfgRebootWindow">Counting window <span>1 to 168 h</span></label><input id="cfgRebootWindow" type="number" min="1" max="168" step="1" required><small>Must cover the minimum time between restarts. Default: 1 h.</small></div>
             <div class="field"><label for="cfgMaxReboots">Maximum restarts in the window <span>1 to 20</span></label><input id="cfgMaxReboots" type="number" min="1" max="20" step="1" required><small>Only accepted ONVIF restart commands use the quota. Default: 3.</small></div>
           </div>
-        </div>
+          </div>
+        </details>
       </section>
 
       <section class="settings-panel settings-tool" id="settingsActionsPanel" role="tabpanel" aria-labelledby="settingsActionsTab" data-settings-section-panel="actions" hidden>
-        <div class="settings-group">
-          <h3 id="actionCameraScope">Selected camera: waiting for registration</h3>
-          <div class="action-grid">
-            <div class="action-item"><b>Check now</b><span>Checks ONVIF, RTSP and JPEG on the selected camera.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Run</button></div>
-            <div class="action-item"><b>Restart camera</b><span>Restarts the selected camera, respecting the cooldown and the window limit.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Restart camera</button></div>
-          </div>
-        </div>
-        <div class="settings-group">
-          <h3>All cameras</h3>
-          <div class="action-grid">
-            <div class="action-item"><b>Rediscover cameras</b><span>Updates the registered cameras and automatically registers any new ones found.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Rediscover</button></div>
-            <div class="action-item"><b>Restart all cameras</b><span>Sends SystemReboot to every camera in sequence, respecting the limits of each camera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Restart all</button></div>
-            <div class="action-item" id="mergeAction" hidden><b>Merge registrations</b><span>Merges confirmed records of the same camera, choosing which ID and which settings stay.</span><button class="btn" type="button" id="mergeOpen">Review registrations</button></div>
-          </div>
-        </div>
         <div class="settings-group">
           <h3>Firmware</h3>
           <div class="action-grid">
             <div class="action-item"><b>Installed version</b><span id="firmwareUpdateText">Waiting for the device.</span><button class="btn primary" type="button" id="firmwareUpdateOpen" disabled>Check for updates</button></div>
           </div>
         </div>
+        <details class="settings-advanced">
+          <summary id="actionCameraScope">Selected camera: waiting for registration</summary>
+          <div class="dev-body">
+          <div class="action-grid">
+            <div class="action-item"><b>Check now</b><span>Checks ONVIF, RTSP and JPEG on the selected camera.</span><button class="btn" type="button" data-admin-action="health-check" disabled>Run</button></div>
+            <div class="action-item"><b>Restart camera</b><span>Restarts the selected camera, respecting the cooldown and the window limit.</span><button class="btn warn" type="button" data-admin-action="reboot-camera" disabled>Restart camera</button></div>
+          </div>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>All cameras</summary>
+          <div class="dev-body">
+          <div class="action-grid">
+            <div class="action-item"><b>Rediscover cameras</b><span>Updates the registered cameras and automatically registers any new ones found.</span><button class="btn" type="button" data-admin-action="rediscover" disabled>Rediscover</button></div>
+            <div class="action-item"><b>Restart all cameras</b><span>Sends SystemReboot to every camera in sequence, respecting the limits of each camera.</span><button class="btn warn" type="button" data-admin-action="reboot-all-cameras" disabled>Restart all</button></div>
+            <div class="action-item" id="mergeAction" hidden><b>Merge registrations</b><span>Merges confirmed records of the same camera, choosing which ID and which settings stay.</span><button class="btn" type="button" id="mergeOpen">Review registrations</button></div>
+          </div>
+          </div>
+        </details>
         <details class="settings-advanced">
           <summary>Camera maintenance</summary>
           <div class="dev-body">
@@ -1960,8 +1982,6 @@ function renderResources(d) {
   $('r-heap').className = 'card-v ' + heapTone;
   $('r-heap-meta').textContent = formatBytes(heap.totalBytes - heap.freeBytes)
     + ' used of ' + formatBytes(heap.totalBytes);
-  $('r-heap-meter').style.width = Math.max(0, Math.min(100, heapPercent)) + '%';
-  $('r-heap-meter').className = heapTone;
   pip('p-rheap', heapTone);
 
   const fragmentation = heap.freeBytes
@@ -3774,7 +3794,7 @@ function patrolStateText(status) {
     const target = patrolPresetTitle(String(status.nextToken || ''));
     const missing = Number(status.missingCount) || 0;
     return (Number(status.secondsToNextMove) > 0
-      ? 'On · next move to ' + target + ' in ' + duration(Number(status.secondsToNextMove))
+      ? 'On · to ' + target + ' in ' + duration(Number(status.secondsToNextMove))
       : 'On · moving to ' + target)
       + (missing ? ' · ' + plural(missing, 'missing preset skipped', 'missing presets skipped') : '')
       + (status.lastMoveFailed ? ' · last move rejected' : '');
@@ -3910,7 +3930,7 @@ function render(d) {
   [...$('bars').children].forEach((bar, i) => bar.classList.toggle('on', i < level));
   $('rssi').textContent = d.wifi.connected ? rssi + ' dBm' : 'disconnected';
   $('m-wifi').textContent = d.wifi.connected
-    ? d.wifi.ssid + ' · ' + esp32Address + ' · gateway ' + d.wifi.gateway
+    ? d.wifi.ssid + ' · ' + esp32Address
     : 'trying to reconnect';
   pip('p-wifi', level >= 3 ? 'ok' : level === 2 ? 'warn' : 'bad');
 
