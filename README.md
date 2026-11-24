@@ -10,6 +10,7 @@ Camera Watchdog runs on an ESP32 connected to your local network and watches IP 
 - Sends email alerts through the Resend service when the camera goes down, comes back, or changes IP.
 - Shows live H.264 video in the browser, with up to two viewers at the same time.
 - Moves the camera to PTZ presets saved on the camera.
+- Patrols a camera through an ordered list of its PTZ presets, waiting a set time at each one before the next move, while the patrol is on.
 - Keeps a history of up to 2,500 warnings and errors in a dedicated partition. The history survives restarts and can be exported as CSV.
 - Opens its own Wi-Fi network for setup when no Wi-Fi is configured or when it loses the connection for more than 2 minutes.
 - Blinks the blue LED of the board, on GPIO 2, while the camera is not online.
@@ -121,14 +122,14 @@ The dashboard tabs.
 The Settings sections.
 
 - Device. Local address, Wi-Fi selection, dashboard refresh, and the status LED. Discovery and subnet scan options are in a closed group.
-- Camera. Name and credentials for the selected camera. Snapshot timing, JPEG profile selection, RTSP port, and connection timeouts are in closed groups. These credentials do not change the camera account, and the saved password never returns to the browser.
+- Camera. Name and credentials for the selected camera. Snapshot timing, JPEG profile selection, RTSP port, and connection timeouts are in closed groups. These credentials do not change the camera account, and the saved password never returns to the browser. The patrol switch, the preset order, and the time until the next position for each preset are also here.
 - Monitoring. Check interval, failure and recovery thresholds, and email alerts. Startup grace and the rediscovery threshold are in a closed group.
 - Recovery. Automatic ONVIF restart, grace after restart, cooldown, counting window, and maximum restarts. All restart limits are visible.
 - Actions. Manual operations grouped by selected camera, all cameras, and device maintenance. Removing registrations, resetting the restart limiter, clearing logs, and erasing data ask for confirmation.
 - Diagnostics. The full state as JSON, with a copy button.
 - Logs. The persistent history, with filters and CSV export.
 
-Save changes applies to all settings of the displayed scope, either the device or the selected camera. Fields are locked while a save or restore is in progress. Advanced groups open automatically when a field needs correction. Restore device defaults also resets the local hostname. Restore camera defaults keeps the camera username and password.
+Save changes applies to all settings of the displayed scope, either the device or the selected camera. Fields are locked while a save or restore is in progress. Advanced groups open automatically when a field needs correction. Restore device defaults also resets the local hostname. Restore camera defaults keeps the camera username and password, and turns the patrol off with an empty preset list.
 
 Switching browser tabs keeps unsaved edits. Opening Wi-Fi setup asks before discarding them and waits for any pending operation to finish.
 
@@ -155,6 +156,16 @@ The Camera tab opens on Live, which negotiates the H.264 stream over RTSP and re
 - The player stays as close to live as the stream allows. It keeps a playback reserve as long as the largest gap between frames in the last 30 seconds, up to 0.75 seconds, so those gaps do not freeze the picture. A gap longer than that cannot be hidden without leaving real time, so it gets no reserve: the picture holds on the last frame while a large keyframe arrives, then goes straight back to live. The wait message appears only when a hold lasts longer than the stream's own gaps. Playback still resumes as soon as data is available, without a forced pause timer.
 - The JSON also reports viewer socket write waits, send call duration, minimum free relay stack in bytes, actual Wi-Fi power-save mode, and maximum TX power. Write-block count, total blocked time, maximum write wait, and maximum send call time accumulate since boot. Waits measure elapsed wall time until write progress or closure, including any relay work between retries; they are not TCP RTT measurements.
 - When viewer writes free relay space, the relay retries a buffered RTP packet before waiting for socket readiness. This avoids an idle wait while a complete packet can already be forwarded.
+
+### Patrol
+
+The patrol moves the camera through the chosen presets in order, waits at each one for the time set for that position (5 to 3600 s, 30 s by default), and then starts again from the first. The last position's time is the wait before the loop restarts. Turn it on under Settings, Camera, or with the Patrol switch on the Camera tab, which asks for the admin password when one is set.
+
+- The patrol runs while the camera is shown as Online or Unstable, and keeps running while someone watches the live video or the snapshots.
+- Moving the camera to a preset by hand restarts the wait, and the patrol then continues in order.
+- Presets missing from the camera are skipped.
+- The patrol waits while the camera is in any other state, while an admin action runs, or while the ESP32 is low on memory.
+- Only the first failure at each preset goes to the log, until a move to that preset works again.
 
 ### Security
 

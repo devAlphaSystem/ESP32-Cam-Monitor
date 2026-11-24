@@ -49,4 +49,13 @@ RuntimeSettings makeDefaultRuntimeSettings()
     return values;
 }
 
+CameraPatrolSettings makeDefaultCameraPatrolSettings()
+{
+    CameraPatrolSettings values{};
+    for (uint32_t& dwellMs : values.dwellMs) {
+        dwellMs = CAMERA_PATROL_DWELL_MS;
+    }
+    return values;
+}
+
 }

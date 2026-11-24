@@ -198,6 +198,28 @@ struct OnvifPtzStatus {
     std::unique_ptr<OnvifPtzPreset[]> presets;
 };
 
+struct CameraPatrolStatus {
+    uint8_t nextIndex = 0;
+    uint8_t currentIndex = 0;
+    uint16_t failedPositions = 0;
+    bool lastMoveFailed = false;
+    bool memoryDeferred = false;
+    bool catalogFailureLogged = false;
+    unsigned long dwellStartedAtMs = 0;
+    uint32_t moves = 0;
+    uint32_t failures = 0;
+    String lastResult = "No patrol move yet";
+};
+
+static_assert(CAMERA_PATROL_PRESET_CAPACITY <= 16, "failedPositions holds one bit per patrol preset");
+
+enum class CameraPatrolBlock {
+    None,
+    Camera,
+    Ptz,
+    Busy
+};
+
 struct OnvifDeviceMetadata {
     bool loaded = false;
     bool eventPropertiesLoaded = false;
@@ -307,6 +329,7 @@ struct CameraSnapshotHttpSession {
 struct CameraContext {
     uint32_t id = 0;
     RuntimeSettings settings = makeDefaultRuntimeSettings();
+    CameraPatrolSettings patrolSettings = makeDefaultCameraPatrolSettings();
     unsigned long registeredAtMs = 0;
     unsigned long lastPreviewRequestAtMs = 0;
     uint32_t lastDiscoveryGeneration = 0;
@@ -323,6 +346,7 @@ struct CameraContext {
     unsigned long lastIdentityVerificationAtMs = 0;
     OnvifServiceCatalog onvifServices = {};
     OnvifPtzStatus onvifPtz = {};
+    CameraPatrolStatus patrol = {};
     OnvifDeviceMetadata onvifMetadata = {};
     CameraClockStatus cameraClockStatus = {};
     OnvifMetadataStage onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
@@ -494,7 +518,9 @@ extern String lastDiscoveryResult;
 extern String lastScanResult;
 
 bool validateRuntimeSettings(const RuntimeSettings& values, String& error);
+bool validateCameraPatrolSettings(const CameraPatrolSettings& values, String& error);
 bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values);
+bool saveCameraPatrolToNvs(CameraContext& ctx, const CameraPatrolSettings& values);
 bool saveGlobalSettingsToNvs(const GlobalSettings& values);
 bool saveDeviceSecretsToNvs(const DeviceSecrets& values);
 bool validateGlobalSettings(const GlobalSettings& values, String& error);
@@ -530,6 +556,7 @@ unsigned long cameraRebootGraceRemainingMs(CameraContext& ctx);
 void refreshCameraRebootWindow(CameraContext& ctx);
 String durationText(unsigned long durationMs);
 void applyRuntimeSettings(CameraContext& ctx, const RuntimeSettings& previous);
+void applyCameraPatrolSettings(CameraContext& ctx, const CameraPatrolSettings& previous);
 void resetCameraCheckSequences(CameraContext& ctx, const char* snapshotDetail);
 void setState(CameraContext& ctx, CameraState newState, const String& event);
 bool resendConfigured();
@@ -570,8 +597,13 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx);
 bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId = 0);
 int onvifPtzPresetIndex(CameraContext& ctx, const String& token);
 bool onvifPtzPresetIsDaemon(const String& token);
-bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId = 0);
+bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId = 0, uint8_t originFlag = PersistentLog::FlagManual, PersistentLog::Level failureLevel = PersistentLog::Level::Error);
 void maintainOnvifPtzPresets(CameraContext& ctx);
+CameraPatrolBlock cameraPatrolBlock(CameraContext& ctx);
+int cameraPatrolNextPosition(CameraContext& ctx);
+uint8_t cameraPatrolMissingCount(CameraContext& ctx);
+uint32_t cameraPatrolDwellMs(const CameraContext& ctx);
+bool maintainCameraPatrol(CameraContext& ctx);
 bool probeCameraSnapshotJpeg(CameraContext& ctx, uint16_t contextId = 0);
 bool resolveLiveStreamTarget(CameraContext& ctx, bool highQuality, LiveStreamTarget& target, const char*& error, uint16_t contextId = 0);
 bool snapshotFailureAllowsAutomaticReboot(CameraContext& ctx);

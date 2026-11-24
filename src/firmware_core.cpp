@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.28.0";
+const char FIRMWARE_VERSION[] = "0.29.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -15,6 +15,8 @@ constexpr uint32_t CAMERA_RECORD_MAGIC_V7 = 0x43414D37UL;
 constexpr uint16_t CAMERA_RECORD_SCHEMA_VERSION = 7;
 constexpr uint32_t CAMERA_ALIAS_MAGIC = 0x43414C37UL;
 constexpr uint32_t CAMERA_REBOOT_LEDGER_MAGIC = 0x43524C37UL;
+constexpr uint32_t CAMERA_PATROL_MAGIC = 0x43505431UL;
+constexpr uint16_t CAMERA_PATROL_SCHEMA_VERSION = 2;
 constexpr char CAMERAS_NVS_NAMESPACE[] = "cameras";
 uint32_t nextCameraId = 1;
 bool cameraRegistryFullyLoaded = true;
@@ -65,6 +67,15 @@ struct CameraRebootLedger {
     uint32_t id;
     uint8_t count;
     uint8_t reserved[3];
+    uint32_t checksum;
+};
+
+struct CameraPatrolRecord {
+    uint32_t magic;
+    uint32_t id;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    CameraPatrolSettings values;
     uint32_t checksum;
 };
 
@@ -338,6 +349,47 @@ bool validateGlobalSettings(const GlobalSettings& values, String& error)
     return true;
 }
 
+bool validateCameraPatrolSettings(const CameraPatrolSettings& values, String& error)
+{
+    if (values.enabled > 1) {
+        error = "Invalid boolean option";
+        return false;
+    }
+
+    for (const uint32_t dwellMs : values.dwellMs) {
+        if (!settingInRange(dwellMs, CAMERA_PATROL_DWELL_MIN_MS, CAMERA_PATROL_DWELL_MAX_MS)) {
+            error = "Time until the next patrol position out of range";
+            return false;
+        }
+    }
+
+    if (values.presetCount > CAMERA_PATROL_PRESET_CAPACITY) {
+        error = "The patrol accepts up to 16 presets";
+        return false;
+    }
+
+    for (uint8_t index = 0; index < values.presetCount; index++) {
+        if (!settingTextValid(values.presetTokens[index], sizeof(values.presetTokens[index]), 1, CAMERA_PATROL_TOKEN_MAX_LENGTH)) {
+            error = "Invalid patrol preset token; limit of 64 bytes, no control characters";
+            return false;
+        }
+
+        for (uint8_t previous = 0; previous < index; previous++) {
+            if (strcmp(values.presetTokens[previous], values.presetTokens[index]) == 0) {
+                error = "Each preset can appear only once in the patrol";
+                return false;
+            }
+        }
+    }
+
+    if (values.enabled && values.presetCount == 0) {
+        error = "Add at least one preset before turning on the patrol";
+        return false;
+    }
+
+    return true;
+}
+
 CameraContext* findCamera(uint32_t id)
 {
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
@@ -552,7 +604,7 @@ bool automaticMergeSettingsCompatible(const CameraContext& primary, const Camera
     memset(secondarySettings.cameraName, 0, sizeof(secondarySettings.cameraName));
     const String primaryDefault = String("Camera ") + primary.id + " - " + primary.camera.ip.toString();
     const String secondaryDefault = String("Camera ") + secondary.id + " - " + secondary.camera.ip.toString();
-    return strcmp(primary.settings.cameraName, primaryDefault.c_str()) == 0 && strcmp(secondary.settings.cameraName, secondaryDefault.c_str()) == 0 && memcmp(&primarySettings, &secondarySettings, sizeof(RuntimeSettings)) == 0;
+    return strcmp(primary.settings.cameraName, primaryDefault.c_str()) == 0 && strcmp(secondary.settings.cameraName, secondaryDefault.c_str()) == 0 && memcmp(&primarySettings, &secondarySettings, sizeof(RuntimeSettings)) == 0 && memcmp(&primary.patrolSettings, &secondary.patrolSettings, sizeof(CameraPatrolSettings)) == 0;
 }
 
 CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
@@ -744,6 +796,25 @@ void loadRebootLimiter(CameraContext& ctx)
     }
 }
 
+bool saveCameraPatrolToNvs(CameraContext& ctx, const CameraPatrolSettings& values)
+{
+    CameraPatrolRecord record{};
+    record.magic = CAMERA_PATROL_MAGIC;
+    record.id = ctx.id;
+    record.schemaVersion = CAMERA_PATROL_SCHEMA_VERSION;
+    record.payloadSize = sizeof(CameraPatrolSettings);
+    record.values = values;
+    record.checksum = settingsChecksum(record);
+    char key[12];
+    snprintf(key, sizeof(key), "p%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false))
+        return false;
+    const bool saved = storage.putBytes(key, &record, sizeof(record)) == sizeof(record);
+    storage.end();
+    return saved;
+}
+
 bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSettings, String& error)
 {
     if (primaryId == secondaryId || !confirmSettings || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None) {
@@ -918,6 +989,10 @@ bool forgetCameraRecord(uint32_t id, String& error)
         return false;
     }
     const bool removed = storage.getBytesLength(key) != 0 && storage.remove(key);
+    char patrolKey[12];
+    snprintf(patrolKey, sizeof(patrolKey), "p%08lx", static_cast<unsigned long>(id));
+    if (removed && storage.isKey(patrolKey))
+        storage.remove(patrolKey);
     storage.end();
     if (!removed) {
         error = "Failed to remove the registration from NVS; camera preserved";
@@ -958,6 +1033,30 @@ bool reconcileIdentifiedCameras()
 bool deviceSecretsTerminated(const DeviceSecrets& values)
 {
     return boundedTextLength(values.adminPassword, sizeof(values.adminPassword)) < sizeof(values.adminPassword) && boundedTextLength(values.resendApiKey, sizeof(values.resendApiKey)) < sizeof(values.resendApiKey) && boundedTextLength(values.resendFrom, sizeof(values.resendFrom)) < sizeof(values.resendFrom) && boundedTextLength(values.alertEmail, sizeof(values.alertEmail)) < sizeof(values.alertEmail);
+}
+
+void loadCameraPatrol(CameraContext& ctx)
+{
+    char key[12];
+    snprintf(key, sizeof(key), "p%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, true))
+        return;
+    if (!storage.isKey(key)) {
+        storage.end();
+        return;
+    }
+    CameraPatrolRecord record{};
+    const bool loaded = storage.getBytesLength(key) == sizeof(record) && storage.getBytes(key, &record, sizeof(record)) == sizeof(record);
+    storage.end();
+    const uint32_t checksum = record.checksum;
+    record.checksum = 0;
+    String error;
+    if (!loaded || record.magic != CAMERA_PATROL_MAGIC || record.id != ctx.id || record.schemaVersion != CAMERA_PATROL_SCHEMA_VERSION || record.payloadSize != sizeof(CameraPatrolSettings) || checksum != settingsChecksum(record) || !validateCameraPatrolSettings(record.values, error)) {
+        Serial.printf("Patrol settings of camera %lu ignored; using defaults\n", static_cast<unsigned long>(ctx.id));
+        return;
+    }
+    ctx.patrolSettings = record.values;
 }
 
 void loadRuntimeSettings()
@@ -1101,6 +1200,7 @@ void loadRuntimeSettings()
                 continue;
             }
             loadRebootLimiter(*entry);
+            loadCameraPatrol(*entry);
             *link = std::move(entry);
             link = &(*link)->next;
             cameraCount++;
@@ -1679,6 +1779,20 @@ void applyRuntimeSettings(CameraContext& ctx, const RuntimeSettings& previous)
         ctx.lastHealthCheckAtMs = 0;
     refreshCameraRebootWindow(ctx);
     registryRevision++;
+}
+
+void applyCameraPatrolSettings(CameraContext& ctx, const CameraPatrolSettings& previous)
+{
+    const bool routeChanged = previous.presetCount != ctx.patrolSettings.presetCount || memcmp(previous.presetTokens, ctx.patrolSettings.presetTokens, sizeof(previous.presetTokens)) != 0;
+    if (!routeChanged && (previous.enabled || !ctx.patrolSettings.enabled))
+        return;
+    ctx.patrol.nextIndex = 0;
+    ctx.patrol.currentIndex = 0;
+    ctx.patrol.dwellStartedAtMs = 0;
+    ctx.patrol.failedPositions = 0;
+    ctx.patrol.lastMoveFailed = false;
+    ctx.patrol.memoryDeferred = false;
+    ctx.patrol.catalogFailureLogged = false;
 }
 
 void applyGlobalSettings(const GlobalSettings& previous)

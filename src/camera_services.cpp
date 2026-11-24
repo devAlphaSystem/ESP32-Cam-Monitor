@@ -19,7 +19,7 @@ uint32_t lastUnconfirmedDiscoveryGroup = 0;
 
 constexpr char SOAP_GET_SYSTEM_TIME[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" " "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">" "<s:Body><tds:GetSystemDateAndTime/></s:Body>" "</s:Envelope>";
 
-bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* action, const String& body, String& responseBody, bool requireResponseBody = true, int* finalStatusCode = nullptr, bool* transportFailure = nullptr, uint32_t timeoutMs = 0, uint16_t contextId = 0);
+bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* action, const String& body, String& responseBody, bool requireResponseBody = true, int* finalStatusCode = nullptr, bool* transportFailure = nullptr, uint32_t timeoutMs = 0, uint16_t contextId = 0, PersistentLog::Level failureLevel = PersistentLog::Level::Error);
 
 uint32_t ipToUint32(const IPAddress& ip)
 {
@@ -1367,7 +1367,7 @@ bool switchToAlternateEndpoint(CameraContext& ctx)
     return true;
 }
 
-bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* action, const String& body, String& responseBody, bool requireResponseBody, int* finalStatusCode, bool* transportFailure, uint32_t timeoutMs, uint16_t contextId)
+bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* action, const String& body, String& responseBody, bool requireResponseBody, int* finalStatusCode, bool* transportFailure, uint32_t timeoutMs, uint16_t contextId, PersistentLog::Level failureLevel)
 {
     if (timeoutMs == 0)
         timeoutMs = ctx.settings.serviceResponseTimeoutMs;
@@ -1421,7 +1421,7 @@ bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* act
         const unsigned long attemptStartedAtMs = millis();
 
         if (!request.begin(client, serviceUrl)) {
-            PersistentLog::record(PersistentLog::Event::OnvifSoap, PersistentLog::Outcome::Failure, logAction, logEndpoint.ip, logEndpoint.port, -1, millis() - attemptStartedAtMs, static_cast<uint32_t>(envelope.length()), static_cast<uint8_t>(PersistentLog::FlagOutbound | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), PersistentLog::Level::Automatic, false, logContextId, ctx.id);
+            PersistentLog::record(PersistentLog::Event::OnvifSoap, PersistentLog::Outcome::Failure, logAction, logEndpoint.ip, logEndpoint.port, -1, millis() - attemptStartedAtMs, static_cast<uint32_t>(envelope.length()), static_cast<uint8_t>(PersistentLog::FlagOutbound | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), failureLevel, false, logContextId, ctx.id);
             return -1;
         }
 
@@ -1429,7 +1429,7 @@ bool postOnvifSoap(CameraContext& ctx, const String& serviceUrl, const char* act
         applyCameraAuthorization(ctx, request, digestAuthorization);
         const int attemptStatusCode = request.POST(envelope);
         const bool requestAccepted = attemptStatusCode >= 200 && attemptStatusCode < 400;
-        PersistentLog::record(PersistentLog::Event::OnvifSoap, requestAccepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, logAction, logEndpoint.ip, logEndpoint.port, attemptStatusCode, millis() - attemptStartedAtMs, static_cast<uint32_t>(envelope.length()), static_cast<uint8_t>(PersistentLog::FlagOutbound | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), requestAccepted || (attemptStatusCode == 401 && !authenticationRetry && cameraCredentialsConfigured(ctx)) ? PersistentLog::Level::Info : PersistentLog::Level::Error, false, logContextId, ctx.id);
+        PersistentLog::record(PersistentLog::Event::OnvifSoap, requestAccepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, logAction, logEndpoint.ip, logEndpoint.port, attemptStatusCode, millis() - attemptStartedAtMs, static_cast<uint32_t>(envelope.length()), static_cast<uint8_t>(PersistentLog::FlagOutbound | (authenticationRetry ? PersistentLog::FlagAuthenticationRetry : PersistentLog::FlagNone)), requestAccepted || (attemptStatusCode == 401 && !authenticationRetry && cameraCredentialsConfigured(ctx)) ? PersistentLog::Level::Info : failureLevel, false, logContextId, ctx.id);
         return attemptStatusCode;
     };
 
@@ -2884,7 +2884,7 @@ String onvifPtzPresetLabel(const OnvifPtzPreset& preset)
     return String("Preset ") + preset.token;
 }
 
-bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
+bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0, PersistentLog::Level failureLevel = PersistentLog::Level::Error)
 {
     if (ctx.onvifPtz.profileResolved && !ctx.onvifPtz.profileToken.isEmpty()) {
         return true;
@@ -2898,7 +2898,7 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0)
     String profilesXml;
     int statusCode = 0;
 
-    if (!postOnvifSoap(ctx, ctx.onvifServices.media1.url, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<trt:GetProfiles/>", profilesXml, true, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, contextId)) {
+    if (!postOnvifSoap(ctx, ctx.onvifServices.media1.url, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<trt:GetProfiles/>", profilesXml, true, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, contextId, failureLevel)) {
         ctx.onvifPtz.lastRefreshStatusCode = statusCode;
         ctx.onvifPtz.lastResult = String("GetProfiles for PTZ failed; HTTP ") + statusCode;
         return false;
@@ -2997,14 +2997,14 @@ bool parseOnvifPtzPresets(const String& presetsXml, OnvifPtzPreset* parsedPreset
     return true;
 }
 
-bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
+bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0, PersistentLog::Level failureLevel = PersistentLog::Level::Error)
 {
     const uint16_t logContextId = contextId != 0 ? contextId : allocateLogContextId();
     ctx.onvifPtz.lastRefreshAttemptAtMs = millis();
     ctx.onvifPtz.refreshAttempts++;
     const unsigned long startedAtMs = millis();
 
-    if (!resolveOnvifPtzProfile(ctx, logContextId)) {
+    if (!resolveOnvifPtzProfile(ctx, logContextId, failureLevel)) {
         ctx.onvifPtz.refreshFailures++;
         ctx.onvifPtz.lastRefreshLatencyMs = millis() - startedAtMs;
         return false;
@@ -3019,7 +3019,7 @@ bool refreshOnvifPtzPresets(CameraContext& ctx, uint16_t contextId = 0)
     String responseXml;
     int statusCode = 0;
     bool transportFailure = false;
-    const bool received = postOnvifSoap(ctx, ctx.onvifServices.ptz.url, "http://www.onvif.org/ver20/ptz/wsdl/GetPresets", requestBody, responseXml, true, &statusCode, &transportFailure, ctx.settings.serviceResponseTimeoutMs, logContextId);
+    const bool received = postOnvifSoap(ctx, ctx.onvifServices.ptz.url, "http://www.onvif.org/ver20/ptz/wsdl/GetPresets", requestBody, responseXml, true, &statusCode, &transportFailure, ctx.settings.serviceResponseTimeoutMs, logContextId, failureLevel);
     ctx.onvifPtz.lastRefreshLatencyMs = millis() - startedAtMs;
     ctx.onvifPtz.lastRefreshStatusCode = statusCode;
 
@@ -3072,7 +3072,8 @@ void maintainOnvifPtzPresets(CameraContext& ctx)
 {
     const LiveStreamStats live = liveStreamStats();
     const bool liveViewerConnected = live.clients > 0 && live.cameraId == ctx.id;
-    if (!liveViewerConnected && (ctx.lastPreviewRequestAtMs == 0 || millis() - ctx.lastPreviewRequestAtMs > 120000UL))
+    const bool viewerInterest = liveViewerConnected || (ctx.lastPreviewRequestAtMs != 0 && millis() - ctx.lastPreviewRequestAtMs <= 120000UL);
+    if (!viewerInterest && !ctx.patrolSettings.enabled)
         return;
     if (!ctx.camera.valid || WiFi.status() != WL_CONNECTED || !ctx.onvifServices.resolved || !ctx.onvifServices.ptz.available || cameraRebootGraceActive(ctx) || healthCheckInProgress) {
         return;
@@ -3090,10 +3091,14 @@ void maintainOnvifPtzPresets(CameraContext& ctx)
         return;
     }
 
-    refreshOnvifPtzPresets(ctx);
+    const bool loaded = refreshOnvifPtzPresets(ctx, 0, !viewerInterest && ctx.patrol.catalogFailureLogged ? PersistentLog::Level::Info : PersistentLog::Level::Error);
+    if (loaded)
+        ctx.patrol.catalogFailureLogged = false;
+    else if (!viewerInterest)
+        ctx.patrol.catalogFailureLogged = true;
 }
 
-bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId)
+bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId, uint8_t originFlag, PersistentLog::Level failureLevel)
 {
     const uint16_t logContextId = contextId != 0 ? contextId : allocateLogContextId();
     CameraIoGuard cameraIoGuard;
@@ -3108,7 +3113,7 @@ bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16
         return false;
     }
 
-    if ((!ctx.onvifPtz.presetsLoaded || !ctx.onvifPtz.profileResolved) && !refreshOnvifPtzPresets(ctx, logContextId)) {
+    if ((!ctx.onvifPtz.presetsLoaded || !ctx.onvifPtz.profileResolved) && !refreshOnvifPtzPresets(ctx, logContextId, failureLevel)) {
         ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - PTZ presets unavailable";
         return false;
     }
@@ -3135,22 +3140,107 @@ bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16
     const unsigned long startedAtMs = millis();
     String responseXml;
     int statusCode = 0;
-    const bool accepted = postOnvifSoap(ctx, ctx.onvifServices.ptz.url, "http://www.onvif.org/ver20/ptz/wsdl/GotoPreset", requestBody, responseXml, false, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, logContextId);
+    const bool accepted = postOnvifSoap(ctx, ctx.onvifServices.ptz.url, "http://www.onvif.org/ver20/ptz/wsdl/GotoPreset", requestBody, responseXml, false, &statusCode, nullptr, ctx.settings.serviceResponseTimeoutMs, logContextId, failureLevel);
     ctx.onvifPtz.lastCommandLatencyMs = millis() - startedAtMs;
     ctx.onvifPtz.lastCommandStatusCode = statusCode;
 
+    const char* commandLabel = originFlag == PersistentLog::FlagScheduled ? " - patrol command for " : " - command for ";
     if (accepted) {
         ctx.onvifPtz.commandAccepted++;
         ctx.lastBrowserSnapshotDeliveredAtMs = 0;
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - command for " + onvifPtzPresetLabel(preset) + " accepted by the camera";
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + commandLabel + onvifPtzPresetLabel(preset) + " accepted by the camera";
     } else {
         ctx.onvifPtz.commandErrors++;
-        ctx.onvifPtz.lastCommandResult = currentTimestamp() + " - command for " + onvifPtzPresetLabel(preset) + " rejected; HTTP " + statusCode;
+        ctx.onvifPtz.lastCommandResult = currentTimestamp() + commandLabel + onvifPtzPresetLabel(preset) + " rejected; HTTP " + statusCode;
     }
 
     Serial.println(ctx.onvifPtz.lastCommandResult);
-    PersistentLog::record(PersistentLog::Event::PtzCommand, accepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, preset.token.c_str(), ctx.camera.ip, ctx.camera.onvifPort, statusCode, ctx.onvifPtz.lastCommandLatencyMs, static_cast<uint32_t>(presetIndex), PersistentLog::FlagManual, accepted ? PersistentLog::Level::Info : PersistentLog::Level::Error, true, logContextId, ctx.id);
+    PersistentLog::record(PersistentLog::Event::PtzCommand, accepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, preset.token.c_str(), ctx.camera.ip, ctx.camera.onvifPort, statusCode, ctx.onvifPtz.lastCommandLatencyMs, static_cast<uint32_t>(presetIndex), originFlag, accepted ? PersistentLog::Level::Info : failureLevel, originFlag == PersistentLog::FlagManual, logContextId, ctx.id);
     return accepted;
+}
+
+CameraPatrolBlock cameraPatrolBlock(CameraContext& ctx)
+{
+    if (WiFi.status() != WL_CONNECTED || !ctx.camera.valid || cameraRebootGraceActive(ctx) || (ctx.cameraState != CameraState::Online && ctx.cameraState != CameraState::Degraded))
+        return CameraPatrolBlock::Camera;
+    if (!ctx.onvifServices.ptz.available || !ctx.onvifPtz.presetsLoaded || !ctx.onvifPtz.profileResolved)
+        return CameraPatrolBlock::Ptz;
+    if (firmwareUpdateMaintenanceActive() || currentAdminAction() != AdminAction::None)
+        return CameraPatrolBlock::Busy;
+    return CameraPatrolBlock::None;
+}
+
+int cameraPatrolNextPosition(CameraContext& ctx)
+{
+    const uint8_t count = ctx.patrolSettings.presetCount;
+    for (uint8_t offset = 0; offset < count; offset++) {
+        const uint8_t position = (ctx.patrol.nextIndex + offset) % count;
+        if (onvifPtzPresetIndex(ctx, String(ctx.patrolSettings.presetTokens[position])) >= 0)
+            return position;
+    }
+    return -1;
+}
+
+uint8_t cameraPatrolMissingCount(CameraContext& ctx)
+{
+    if (!ctx.onvifPtz.presetsLoaded)
+        return 0;
+    uint8_t missing = 0;
+    for (uint8_t position = 0; position < ctx.patrolSettings.presetCount; position++) {
+        if (onvifPtzPresetIndex(ctx, String(ctx.patrolSettings.presetTokens[position])) < 0)
+            missing++;
+    }
+    return missing;
+}
+
+uint32_t cameraPatrolDwellMs(const CameraContext& ctx)
+{
+    const uint8_t count = ctx.patrolSettings.presetCount;
+    return ctx.patrolSettings.dwellMs[ctx.patrol.currentIndex < count ? ctx.patrol.currentIndex : 0];
+}
+
+bool maintainCameraPatrol(CameraContext& ctx)
+{
+    if (!ctx.patrolSettings.enabled || ctx.patrolSettings.presetCount == 0)
+        return false;
+    if (ctx.patrol.dwellStartedAtMs != 0 && millis() - ctx.patrol.dwellStartedAtMs < cameraPatrolDwellMs(ctx))
+        return false;
+    if (cameraPatrolBlock(ctx) != CameraPatrolBlock::None)
+        return false;
+    if (ESP.getFreeHeap() < MAX_ONVIF_RESPONSE_SIZE + CAMERA_OPERATION_HEAP_RESERVE || ESP.getMaxAllocHeap() < MAX_ONVIF_RESPONSE_SIZE + 4096) {
+        ctx.patrol.memoryDeferred = true;
+        ctx.patrol.dwellStartedAtMs = millis();
+        ctx.patrol.lastResult = currentTimestamp() + " - move skipped; not enough free memory";
+        return false;
+    }
+    ctx.patrol.memoryDeferred = false;
+
+    const int position = cameraPatrolNextPosition(ctx);
+    if (position < 0) {
+        ctx.patrol.dwellStartedAtMs = millis();
+        ctx.patrol.lastResult = currentTimestamp() + " - none of the patrol presets exist on the camera";
+        return false;
+    }
+
+    const uint16_t positionBit = static_cast<uint16_t>(1U << position);
+    const uint32_t attemptsBefore = ctx.onvifPtz.commandAttempts;
+    const bool accepted = requestOnvifPtzPreset(ctx, String(ctx.patrolSettings.presetTokens[position]), 0, PersistentLog::FlagScheduled, (ctx.patrol.failedPositions & positionBit) != 0 ? PersistentLog::Level::Info : PersistentLog::Level::Error);
+    if (ctx.onvifPtz.commandAttempts == attemptsBefore)
+        return false;
+
+    ctx.patrol.dwellStartedAtMs = millis();
+    ctx.patrol.currentIndex = static_cast<uint8_t>(position);
+    ctx.patrol.nextIndex = static_cast<uint8_t>((position + 1) % ctx.patrolSettings.presetCount);
+    ctx.patrol.lastMoveFailed = !accepted;
+    ctx.patrol.lastResult = ctx.onvifPtz.lastCommandResult;
+    if (accepted) {
+        ctx.patrol.moves++;
+        ctx.patrol.failedPositions &= static_cast<uint16_t>(~positionBit);
+    } else {
+        ctx.patrol.failures++;
+        ctx.patrol.failedPositions |= positionBit;
+    }
+    return true;
 }
 
 void noteSnapshotRequestFailure(CameraContext& ctx, int statusCode)

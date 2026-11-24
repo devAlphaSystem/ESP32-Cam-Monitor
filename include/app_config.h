@@ -26,6 +26,12 @@ constexpr size_t SNAPSHOT_PROFILE_MATCH_MAX_LENGTH = 32;
 
 constexpr char CAMERA_DAEMON_PRESET_TOKEN[] = "100";
 
+constexpr size_t CAMERA_PATROL_PRESET_CAPACITY = 16;
+constexpr size_t CAMERA_PATROL_TOKEN_MAX_LENGTH = 64;
+constexpr uint32_t CAMERA_PATROL_DWELL_MS = 30000UL;
+constexpr uint32_t CAMERA_PATROL_DWELL_MIN_MS = 5000UL;
+constexpr uint32_t CAMERA_PATROL_DWELL_MAX_MS = 60UL * 60UL * 1000UL;
+
 constexpr uint16_t CAMERA_RTSP_PORT = 554;
 constexpr uint16_t CAMERA_RTSP_PORT_MIN = 1;
 constexpr uint16_t CAMERA_RTSP_PORT_MAX = 65535;

@@ -34,6 +34,65 @@ void appendOnvifEndpointJson(String& json, const char* name, const OnvifServiceE
     json += "\"}";
 }
 
+void appendCameraPatrolJson(String& json, CameraContext& ctx)
+{
+    const CameraPatrolSettings& settings = ctx.patrolSettings;
+    const char* state = "off";
+    int nextPosition = -1;
+    if (settings.enabled) {
+        nextPosition = ctx.onvifPtz.presetsLoaded ? cameraPatrolNextPosition(ctx) : (ctx.patrol.nextIndex < settings.presetCount ? ctx.patrol.nextIndex : -1);
+        switch (cameraPatrolBlock(ctx)) {
+            case CameraPatrolBlock::Camera:
+                state = "waiting_camera";
+                break;
+            case CameraPatrolBlock::Ptz:
+                state = "waiting_ptz";
+                break;
+            case CameraPatrolBlock::Busy:
+                state = "busy";
+                break;
+            case CameraPatrolBlock::None:
+                state = ctx.patrol.memoryDeferred ? "low_memory" : nextPosition < 0 ? "presets_missing" : "running";
+                break;
+        }
+    }
+    uint32_t secondsToNextMove = 0;
+    if (strcmp(state, "running") == 0 && ctx.patrol.dwellStartedAtMs != 0) {
+        const unsigned long elapsedMs = millis() - ctx.patrol.dwellStartedAtMs;
+        const uint32_t dwellMs = cameraPatrolDwellMs(ctx);
+        if (elapsedMs < dwellMs)
+            secondsToNextMove = (dwellMs - elapsedMs + 999UL) / 1000UL;
+    }
+    uint32_t cycleMs = 0;
+    for (uint8_t index = 0; index < settings.presetCount; index++)
+        cycleMs += settings.dwellMs[index];
+
+    json += "{\"enabled\":";
+    json += settings.enabled ? "true" : "false";
+    json += ",\"state\":\"";
+    json += state;
+    json += "\",\"presetCount\":";
+    json += settings.presetCount;
+    json += ",\"missingCount\":";
+    json += cameraPatrolMissingCount(ctx);
+    json += ",\"cycleMs\":";
+    json += cycleMs;
+    json += ",\"nextToken\":\"";
+    if (nextPosition >= 0)
+        appendJsonEscaped(json, settings.presetTokens[nextPosition]);
+    json += "\",\"secondsToNextMove\":";
+    json += secondsToNextMove;
+    json += ",\"moves\":";
+    json += ctx.patrol.moves;
+    json += ",\"failures\":";
+    json += ctx.patrol.failures;
+    json += ",\"lastMoveFailed\":";
+    json += ctx.patrol.lastMoveFailed ? "true" : "false";
+    json += ",\"lastResult\":\"";
+    appendJsonEscaped(json, ctx.patrol.lastResult);
+    json += "\"}";
+}
+
 String buildStatusJson(CameraContext& ctx)
 {
     refreshCameraRebootWindow(ctx);
@@ -50,7 +109,7 @@ String buildStatusJson(CameraContext& ctx)
     const bool sntpReferenceIsFresh = sntpReferenceFresh(sntpReference);
 
     String json;
-    json.reserve(22000 + static_cast<size_t>(ctx.onvifPtz.presetCount) * 240);
+    json.reserve(22512 + static_cast<size_t>(ctx.onvifPtz.presetCount) * 240);
 
     json += "{\"cameraId\":";
     json += ctx.id;
@@ -605,6 +664,10 @@ String buildStatusJson(CameraContext& ctx)
 
     json += "]},";
 
+    json += "\"patrol\":";
+    appendCameraPatrolJson(json, ctx);
+    json += ',';
+
     json += "\"counters\":{";
     json += "\"totalChecks\":";
     json += ctx.totalHealthChecks;
@@ -1064,14 +1127,8 @@ bool readStringSettingArgument(const char* name, size_t minimumLength, size_t ma
     return true;
 }
 
-bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t maximum, uint32_t& value, String& error)
+bool parseUnsignedSettingText(const char* name, String textValue, uint32_t minimum, uint32_t maximum, uint32_t& value, String& error)
 {
-    if (!httpServer.hasArg(name)) {
-        error = String("Missing field: ") + name;
-        return false;
-    }
-
-    String textValue = httpServer.arg(name);
     textValue.trim();
 
     if (textValue.isEmpty()) {
@@ -1104,6 +1161,16 @@ bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t ma
 
     value = static_cast<uint32_t>(parsed);
     return true;
+}
+
+bool readUnsignedSettingArgument(const char* name, uint32_t minimum, uint32_t maximum, uint32_t& value, String& error)
+{
+    if (!httpServer.hasArg(name)) {
+        error = String("Missing field: ") + name;
+        return false;
+    }
+
+    return parseUnsignedSettingText(name, httpServer.arg(name), minimum, maximum, value, error);
 }
 
 bool readBooleanSettingArgument(const char* name, uint8_t& value, String& error)
@@ -1234,6 +1301,54 @@ bool parseRuntimeSettingsRequest(RuntimeSettings& candidate, String& error)
     return validateRuntimeSettings(candidate, error);
 }
 
+bool parseCameraPatrolRequest(CameraPatrolSettings& candidate, String& error)
+{
+    if (!readBooleanSettingArgument("patrolEnabled", candidate.enabled, error)) {
+        return false;
+    }
+
+    uint8_t dwellCount = 0;
+    for (int index = 0; index < httpServer.args(); index++) {
+        if (httpServer.argName(index) == "patrolDwellMs") {
+            if (dwellCount >= CAMERA_PATROL_PRESET_CAPACITY) {
+                error = "The patrol accepts up to 16 presets";
+                return false;
+            }
+
+            if (!parseUnsignedSettingText("patrolDwellMs", httpServer.arg(index), CAMERA_PATROL_DWELL_MIN_MS, CAMERA_PATROL_DWELL_MAX_MS, candidate.dwellMs[dwellCount], error)) {
+                return false;
+            }
+            dwellCount++;
+            continue;
+        }
+
+        if (httpServer.argName(index) != "patrolPreset") {
+            continue;
+        }
+
+        if (candidate.presetCount >= CAMERA_PATROL_PRESET_CAPACITY) {
+            error = "The patrol accepts up to 16 presets";
+            return false;
+        }
+
+        const String token = httpServer.arg(index);
+        if (token.isEmpty() || token.length() > CAMERA_PATROL_TOKEN_MAX_LENGTH || strlen(token.c_str()) != token.length()) {
+            error = "Invalid patrol preset token; limit of 64 bytes, no control characters";
+            return false;
+        }
+
+        copySettingText(candidate.presetTokens[candidate.presetCount], token);
+        candidate.presetCount++;
+    }
+
+    if (dwellCount != candidate.presetCount) {
+        error = "Send one time per patrol preset";
+        return false;
+    }
+
+    return validateCameraPatrolSettings(candidate, error);
+}
+
 bool parseGlobalSettingsRequest(GlobalSettings& candidate, String& error)
 {
     String textValue;
@@ -1347,7 +1462,7 @@ bool parseDeviceSecretsRequest(DeviceSecrets& candidate, String& error)
 String buildSettingsJson(CameraContext* ctx)
 {
     String json;
-    json.reserve(2400);
+    json.reserve(4600);
     json += "{\"ok\":true,\"schemaVersion\":";
     json += RUNTIME_SETTINGS_SCHEMA_VERSION;
     json += ",\"defaultsRevision\":";
@@ -1463,6 +1578,23 @@ String buildSettingsJson(CameraContext* ctx)
         json += '"';
         appendJsonEscaped(json, ctx->settings.cameraUsername);
         json += '"';
+        json += ",\"patrolEnabled\":";
+        json += ctx->patrolSettings.enabled;
+        json += ",\"patrolDwellMs\":[";
+        for (uint8_t index = 0; index < ctx->patrolSettings.presetCount; index++) {
+            if (index != 0)
+                json += ',';
+            json += ctx->patrolSettings.dwellMs[index];
+        }
+        json += "],\"patrolPresets\":[";
+        for (uint8_t index = 0; index < ctx->patrolSettings.presetCount; index++) {
+            if (index != 0)
+                json += ',';
+            json += '"';
+            appendJsonEscaped(json, ctx->patrolSettings.presetTokens[index]);
+            json += '"';
+        }
+        json += ']';
     }
     json += "}}";
     return json;
@@ -1598,6 +1730,18 @@ void handleCameraRegistry()
     httpServer.sendContent("");
 }
 
+bool storeCameraPatrol(CameraContext& ctx, const CameraPatrolSettings& candidate)
+{
+    if (memcmp(&candidate, &ctx.patrolSettings, sizeof(CameraPatrolSettings)) == 0)
+        return true;
+    if (!saveCameraPatrolToNvs(ctx, candidate))
+        return false;
+    const CameraPatrolSettings previous = ctx.patrolSettings;
+    ctx.patrolSettings = candidate;
+    applyCameraPatrolSettings(ctx, previous);
+    return true;
+}
+
 void handleSaveSettings()
 {
     String error;
@@ -1611,6 +1755,7 @@ void handleSaveSettings()
     CameraContext* ctx = globalScope ? nullptr : requestedCamera();
     if (!globalScope && ctx == nullptr)
         return;
+    bool patrolSaveFailed = false;
     if (globalScope) {
         GlobalSettings candidate = globalSettings;
         if (!parseGlobalSettingsRequest(candidate, error)) {
@@ -1637,6 +1782,11 @@ void handleSaveSettings()
             sendApiError(422, "invalid_settings", error);
             return;
         }
+        CameraPatrolSettings patrolCandidate = makeDefaultCameraPatrolSettings();
+        if (!parseCameraPatrolRequest(patrolCandidate, error)) {
+            sendApiError(422, "invalid_settings", error);
+            return;
+        }
         if (!saveRuntimeSettingsToNvs(*ctx, candidate)) {
             sendApiError(500, "nvs_write_failed", "Failed to write camera settings");
             return;
@@ -1645,9 +1795,15 @@ void handleSaveSettings()
         ctx->settings = candidate;
         ctx->settingsLoadedFromNvs = true;
         applyRuntimeSettings(*ctx, previous);
+        patrolSaveFailed = !storeCameraPatrol(*ctx, patrolCandidate);
     }
     settingsRevision++;
     settingsWriteCount++;
+    if (patrolSaveFailed) {
+        lastSettingsResult = currentTimestamp() + " - camera settings saved; patrol not saved";
+        sendApiError(500, "nvs_write_failed", "Camera settings saved, but the patrol settings could not be written");
+        return;
+    }
     lastSettingsResult = currentTimestamp() + " - settings saved";
     sendJsonResponse(200, buildSettingsJson(ctx));
 }
@@ -1665,6 +1821,7 @@ void handleResetSettings()
     CameraContext* ctx = globalScope ? nullptr : requestedCamera();
     if (!globalScope && ctx == nullptr)
         return;
+    bool patrolResetFailed = false;
     if (globalScope) {
         const GlobalSettings defaults = makeDefaultGlobalSettings();
         if (!saveGlobalSettingsToNvs(defaults)) {
@@ -1687,12 +1844,57 @@ void handleResetSettings()
         ctx->settings = defaults;
         ctx->settingsLoadedFromNvs = true;
         applyRuntimeSettings(*ctx, previous);
+        patrolResetFailed = !storeCameraPatrol(*ctx, makeDefaultCameraPatrolSettings());
     }
     settingsRevision++;
     settingsWriteCount++;
     lastSettingsResult = currentTimestamp() + " - defaults restored; credentials preserved";
     PersistentLog::record(PersistentLog::Event::SettingsReset, PersistentLog::Outcome::Success, globalScope ? "global_defaults" : "camera_defaults", ctx != nullptr ? ctx->camera.ip : IPAddress(), 0, 0, 0, settingsRevision, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, 0, ctx != nullptr ? ctx->id : 0);
+    if (patrolResetFailed) {
+        sendApiError(500, "nvs_write_failed", "Camera defaults restored, but the patrol could not be reset");
+        return;
+    }
     sendJsonResponse(200, buildSettingsJson(ctx));
+}
+
+void handleSetCameraPatrol()
+{
+    String error;
+    if (!authorizeSettingsMutation(error)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+    CameraContext* ctx = requestedCamera();
+    if (ctx == nullptr)
+        return;
+    uint8_t enabled = 0;
+    if (!readBooleanSettingArgument("enabled", enabled, error)) {
+        sendApiError(422, "invalid_settings", error);
+        return;
+    }
+    if (enabled && ctx->patrolSettings.presetCount == 0) {
+        sendApiError(409, "patrol_empty", "Choose the patrol presets in Settings before turning on the patrol");
+        return;
+    }
+    if (enabled != ctx->patrolSettings.enabled) {
+        CameraPatrolSettings candidate = ctx->patrolSettings;
+        candidate.enabled = enabled;
+        if (!storeCameraPatrol(*ctx, candidate)) {
+            sendApiError(500, "nvs_write_failed", "Failed to write the patrol setting");
+            return;
+        }
+        settingsRevision++;
+        settingsWriteCount++;
+        lastSettingsResult = currentTimestamp() + (enabled ? " - patrol turned on" : " - patrol turned off");
+    }
+    String json;
+    json.reserve(512);
+    json += "{\"ok\":true,\"cameraId\":";
+    json += ctx->id;
+    json += ",\"patrol\":";
+    appendCameraPatrolJson(json, *ctx);
+    json += '}';
+    sendJsonResponse(200, json);
 }
 
 bool queueAdminAction(AdminAction action, uint32_t cameraId, String& error)
@@ -2238,6 +2440,10 @@ void configureHttpServer()
 
     httpServer.on("/api/settings/reset", HTTP_POST, [] {
         handleResetSettings();
+    });
+
+    httpServer.on("/api/settings/patrol", HTTP_POST, [] {
+        handleSetCameraPatrol();
     });
 
     httpServer.on("/api/actions/health-check", HTTP_POST, [] {

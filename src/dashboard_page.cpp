@@ -125,7 +125,10 @@ main{min-width:0;padding:20px 24px 24px}
 .stage-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:56px;padding:10px 16px}
 .stage-bar h2{margin-right:auto}
 .stage-card>.form-result{padding:8px 16px;border-top:1px solid var(--line)}
-.camera-side{grid-area:side;display:grid;grid-template-rows:repeat(4,auto) minmax(0,1fr);gap:16px;min-width:0}
+.stage-card>.patrol-bar{padding:10px 16px;border-top:1px solid var(--line)}
+.patrol-bar .form-result{min-height:0}
+.patrol-bar .form-result:not(:empty){margin-top:4px}
+.camera-side{grid-area:side;display:grid;align-content:start;gap:16px;min-width:0}
 .card-text{margin-top:8px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .health-list{margin:4px 0 0;padding:0;list-style:none}
 .health-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
@@ -323,6 +326,19 @@ body.fs-locked{overflow:hidden}
 .ptz-list-item .btn{min-width:60px;flex:none}
 .ptz-empty{padding:28px 16px;text-align:center;color:var(--dim);font-size:13px;line-height:1.7}
 .ptz-modal-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;color:var(--dim);font-size:12px;flex:none}
+.form-grid>.field>.patrol-add{grid-column:2;grid-row:1/3;display:flex;gap:8px;min-width:0}
+.patrol-add select{flex:1;min-width:0}
+.form-grid>.patrol-route-field{display:block}
+.patrol-route-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px;font-size:13px;font-weight:500}
+.patrol-route-title span{color:var(--dim);font-size:11px;font-weight:400;white-space:nowrap}
+.patrol-route{margin:0;padding:0;list-style:none;max-height:none;overflow:visible}
+.patrol-actions{display:flex;flex:none;gap:8px}
+.patrol-route-field .patrol-announce{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.patrol-route .ptz-list-item{flex-wrap:wrap}
+.patrol-wait{flex:1 0 100%;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:2px;padding-top:12px;border-top:1px dashed var(--line)}
+.patrol-wait label{flex:1;margin:0}
+.patrol-wait input[type="number"]{width:96px}
+.patrol-loop{opacity:.45;pointer-events:none}
 
 @media(max-width:1400px){
   .camera-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"stage" "side"}
@@ -400,7 +416,7 @@ body.fs-locked{overflow:hidden}
   .chart{height:180px}
   .feed-state{padding:16px;font-size:13px}
   .form-grid>.field{grid-template-columns:minmax(0,1fr)}
-  .form-grid>.field>input,.form-grid>.field>select,.form-grid>.field>.btn{grid-column:1;grid-row:2;margin-top:6px}
+  .form-grid>.field>input,.form-grid>.field>select,.form-grid>.field>.btn,.form-grid>.field>.patrol-add{grid-column:1;grid-row:2;margin-top:6px}
   .form-grid>.field>small{grid-row:3}
   .settings-savebar{position:static;flex-direction:column;align-items:stretch}
   .settings-savebar .button-row{display:grid;grid-template-columns:1fr 1fr;align-items:stretch}
@@ -414,6 +430,8 @@ body.fs-locked{overflow:hidden}
   .modal-overlay{padding:12px}.modal-box{max-height:calc(100dvh - 24px);padding:20px}
   .merge-fields,.merge-records{grid-template-columns:1fr}.merge-record+.merge-record{border-left:0;border-top:1px solid var(--line)}
   .ptz-list-item{padding:12px}
+  .patrol-actions{flex:1 0 100%}
+  .patrol-actions .btn{flex:1}
 }
 @media(max-width:340px){
   #deviceUptime{display:none}
@@ -510,6 +528,10 @@ body.fs-locked{overflow:hidden}
         <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
         <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
       </button>
+    </div>
+    <div class="patrol-bar">
+      <div class="checkline"><input id="patrolSwitch" type="checkbox" role="switch" aria-labelledby="patrolSwitchTitle" aria-describedby="patrolSwitchState" disabled><label for="patrolSwitch"><b id="patrolSwitchTitle">Patrol</b><span id="patrolSwitchState">Loading the patrol state…</span></label></div>
+      <p class="form-result" id="patrolResult" role="status" aria-live="polite"></p>
     </div>
     <div class="form-result" id="ptzActionStatus" hidden></div>
   </section>
@@ -713,6 +735,14 @@ body.fs-locked{overflow:hidden}
             <div class="field"><label for="cfgCameraUsername">Camera username</label><input id="cfgCameraUsername" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false"><small>For access without authentication, choose Remove username and password.</small></div>
             <div class="field"><label for="cfgCameraPasswordAction">Camera password</label><select id="cfgCameraPasswordAction"><option value="keep">Keep the current password</option><option value="replace">Set or replace the password</option><option value="clear">Remove username and password</option></select><small id="cfgCameraPasswordStatus" aria-live="polite">Waiting for the query.</small></div>
             <div class="field"><label for="cfgCameraPassword">New password</label><input id="cfgCameraPassword" type="password" maxlength="128" autocomplete="new-password" disabled><small>Choose Set or replace to enter a password. An empty password is allowed with a username. Spaces are part of the password.</small></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Patrol</h3>
+          <div class="form-grid">
+            <div class="field"><div class="checkline"><input id="cfgPatrolEnabled" type="checkbox" role="switch"><label for="cfgPatrolEnabled"><b>Enable patrol</b><span>Moves the camera through the presets below in order, then starts again from the first. Keeps running while the camera is viewed. The Camera tab has the same switch.</span></label></div></div>
+            <div class="field"><label for="cfgPatrolAdd">Add a preset <span>up to 16</span></label><div class="patrol-add"><select id="cfgPatrolAdd"></select><button class="btn" type="button" id="cfgPatrolAddButton">Add to patrol</button></div><small id="cfgPatrolCatalogStatus">Waiting for the camera's preset list.</small></div>
+            <div class="field patrol-route-field"><p class="patrol-route-title" id="cfgPatrolRouteTitle">Patrol order <span id="cfgPatrolCount">0 of 16</span></p><ol class="ptz-list patrol-route" id="cfgPatrolRoute" role="list" aria-labelledby="cfgPatrolRouteTitle"></ol><small id="cfgPatrolStatus" class="patrol-announce" aria-live="polite"></small></div>
           </div>
         </div>
         <details class="settings-advanced">
@@ -1106,6 +1136,7 @@ function updateSettingsScope() {
   $('cfgAdminPasswordAction').disabled = blocked || !globalScope;
   $('cfgResendKeyAction').disabled = blocked || !globalScope;
   updateSecretFields();
+  updatePatrolEditorControls();
   updateSettingsHero();
 }
 
@@ -1154,6 +1185,13 @@ function selectCamera(id) {
   cameraRecovering = false;
   ptzControlsEnabled = false;
   ptzCatalog = { available: false, presets: [], command: {} };
+  ptzPresets = [];
+  patrolRoute = [];
+  patrolDwell = {};
+  patrolCatalogKey = '';
+  renderPatrolEditor();
+  renderPatrolStatus(null);
+  setPatrolResult('', '');
   $('ptzPresetModal').hidden = true;
   if (liveModeActive()) stopLive();
   $('cameraFeed').removeAttribute('src');
@@ -1835,6 +1873,18 @@ let settingsPasswordRequired = false;
 let ptzPresets = [];
 let ptzCatalog = {};
 let ptzControlsEnabled = false;
+let patrolRoute = [];
+let patrolDwell = {};
+let patrolWaitSerial = 0;
+let patrolStatus = null;
+let patrolCatalogKey = '';
+let patrolEnabledEdited = false;
+const PATROL_PRESET_CAPACITY = 16;
+const PATROL_TOKEN_MAX_BYTES = 64;
+const PATROL_DWELL_DEFAULT_S = 30;
+const PATROL_DWELL_MIN_S = 5;
+const PATROL_DWELL_MAX_S = 3600;
+const PATROL_CATALOG_WAITING_TEXT = $('cfgPatrolCatalogStatus').textContent;
 let persistentLogs = [];
 let persistentLogsTotal = 0;
 let persistentLogsHasMore = false;
@@ -2677,6 +2727,10 @@ function validateSettingsForm() {
   if (!username.disabled && username.validity.valid && username.value === '' && passwordNeedsUsername) {
     username.setCustomValidity('Enter the camera username or choose Remove username and password.');
   }
+  const patrolEnabled = $('cfgPatrolEnabled');
+  if (!patrolEnabled.disabled && patrolEnabled.checked && !patrolRoute.length) {
+    patrolEnabled.setCustomValidity('Add at least one preset before turning on the patrol.');
+  }
   const invalid = $('settingsForm').querySelector(':invalid');
   if (!invalid) return true;
   const panel = invalid.closest('[data-settings-section-panel]');
@@ -2724,7 +2778,8 @@ const SETTINGS_FIELDS = {
   enableCameraAlertLed: { id: 'cfgLedEnabled', kind: 'bool' },
   feedMinIntervalMs: { id: 'cfgFeedMinimum', scale: 1000 },
   feedTargetCycleMs: { id: 'cfgFeedTarget', scale: 1000 },
-  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 }
+  statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 },
+  patrolEnabled: { id: 'cfgPatrolEnabled', kind: 'bool' }
 };
 
 function formatSettingNumber(value) {
@@ -2796,6 +2851,7 @@ function setMutationControlsEnabled(enabled) {
   document.querySelectorAll('[data-ptz-preset-token]').forEach(button => {
     button.disabled = !enabled || !ptzControlsEnabled;
   });
+  $('patrolSwitch').disabled = !enabled || !ptzControlsEnabled || !patrolSwitchUsable();
   firmwareMutationEnabled = enabled;
   updateFirmwareControls();
 }
@@ -2817,6 +2873,8 @@ function settingsAuthorizationReady(source) {
       setAdminActionStatus('Actions stay blocked until the authorization is loaded.', 'bad');
     } else if (source === 'ptz') {
       setPtzActionStatus('PTZ control is waiting for authorization from the ESP32.', 'bad');
+    } else if (source === 'patrol') {
+      setPatrolResult('The patrol switch is waiting for authorization from the ESP32.', 'bad');
     } else {
       setSettingsStatus('The settings have not been loaded yet. Wait and try again.', 'bad');
     }
@@ -2865,6 +2923,15 @@ function populateSettings(payload) {
       input.value = formatSettingNumber(Number(values[key]) / (descriptor.scale || 1));
     }
   });
+  if (Array.isArray(values.patrolPresets)) {
+    patrolRoute = values.patrolPresets.map(String);
+    patrolDwell = {};
+    patrolRoute.forEach((token, index) => {
+      patrolDwell[token] = formatSettingNumber(Number((values.patrolDwellMs || [])[index]) / 1000 || PATROL_DWELL_DEFAULT_S);
+    });
+    renderPatrolEditor();
+    $('cfgPatrolStatus').textContent = '';
+  }
 
   settingsWriteToken = payload.security ? payload.security.writeToken || '' : '';
   settingsPasswordRequired = Boolean(payload.security && payload.security.passwordRequired);
@@ -2896,6 +2963,7 @@ function populateSettings(payload) {
   statusRefreshIntervalMs = Number(values.statusRefreshIntervalMs) || statusRefreshIntervalMs;
   settingsLoaded = true;
   settingsDirty = false;
+  patrolEnabledEdited = false;
   settingsLoadedKey = payload.scope + '/' + payload.cameraId;
   setMutationControlsEnabled(true);
   if (actionsSectionActive()) {
@@ -2993,6 +3061,10 @@ function collectMutationParams(includeSettings, password) {
       params.set('cameraPasswordAction', passwordAction);
       params.set('cameraPassword', passwordAction === 'replace' ? $('cfgCameraPassword').value : '');
       if (passwordAction === 'clear') params.set('cameraUsername', '');
+      patrolRoute.forEach(token => {
+        params.append('patrolPreset', token);
+        params.append('patrolDwellMs', String(Math.round(Number(patrolDwell[token]) * 1000)));
+      });
     }
   }
   return params;
@@ -3025,11 +3097,11 @@ $('settingsWifiLink').addEventListener('click', event => {
 });
 
 $('settingsForm').addEventListener('input', event => {
-  if (event.target.closest('.settings-tool')) return;
+  if (event.target.closest('.settings-tool') || event.target.id === 'cfgPatrolAdd') return;
   settingsDirty = true;
 });
 $('settingsForm').addEventListener('change', event => {
-  if (event.target.closest('.settings-tool')) return;
+  if (event.target.closest('.settings-tool') || event.target.id === 'cfgPatrolAdd') return;
   settingsDirty = true;
 });
 $('settingsForm').addEventListener('submit', event => {
@@ -3046,6 +3118,7 @@ async function saveSettings(password) {
   try {
     const payload = await postForm('/api/settings', collectMutationParams(true, password));
     populateSettings(payload);
+    if (payload.scope === 'camera') setPatrolResult('', '');
     setSettingsStatus(
       payload.scope === 'global' ? 'Global settings saved. Address: http://' + payload.values.localHostname + '.local/' : 'Camera settings saved and applied.',
       'ok'
@@ -3063,7 +3136,7 @@ $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
   openConfirmModal(currentSettingsScope() === 'global'
     ? 'Restore all device settings, including advanced values and the local address. The hostname returns to its firmware default. Camera settings, saved Wi-Fi networks, the admin password, the Resend key, the alert sender, and the alert recipient are kept.'
-    : 'Restore all settings of ' + selectedCameraName() + ', including advanced values, while keeping its username and password.', password => resetSettings(password));
+    : 'Restore all settings of ' + selectedCameraName() + ', including advanced values and the patrol, while keeping its username and password.', password => resetSettings(password));
 });
 
 async function resetSettings(password) {
@@ -3073,6 +3146,7 @@ async function resetSettings(password) {
   try {
     const payload = await postForm('/api/settings/reset', collectMutationParams(false, password));
     populateSettings(payload);
+    if (payload.scope === 'camera') setPatrolResult('', '');
     setSettingsStatus(
       payload.scope === 'global' ? 'Device defaults restored. Address: http://' + payload.values.localHostname + '.local/' : 'Camera defaults restored; credentials preserved.',
       'ok'
@@ -3455,7 +3529,315 @@ function renderPtz(d) {
   } else {
     setPtzActionStatus('', '');
   }
+
+  const catalogKey = JSON.stringify([Boolean(ptzCatalog.available), Boolean(ptzCatalog.presetsLoaded), Boolean(ptzCatalog.truncated), ptzCatalog.unavailableReason || '', ptzPresets.map(preset => [String(preset.token || ''), String(preset.name || '')])]);
+  if (catalogKey !== patrolCatalogKey) {
+    patrolCatalogKey = catalogKey;
+    renderPatrolEditor();
+  }
 }
+
+function patrolPresetTitle(token) {
+  const preset = ptzPresets.find(item => String(item.token || '') === token);
+  return preset ? ptzPresetTitle(preset) : 'Preset ' + token;
+}
+
+function patrolPresetMissing(token) {
+  return Boolean(ptzCatalog.presetsLoaded) && !ptzPresets.some(preset => String(preset.token || '') === token);
+}
+
+function createPatrolRouteItem(token) {
+  const item = document.createElement('li');
+  item.className = 'ptz-list-item';
+  const copy = document.createElement('div');
+  copy.className = 'ptz-list-copy';
+  copy.append(document.createElement('b'), document.createElement('span'));
+  const actions = document.createElement('div');
+  actions.className = 'patrol-actions';
+  [['up', 'Up'], ['down', 'Down'], ['remove', 'Remove']].forEach(([action, text]) => {
+    const button = document.createElement('button');
+    button.className = 'btn';
+    button.type = 'button';
+    button.dataset.patrolToken = token;
+    button.dataset.patrolAction = action;
+    button.textContent = text;
+    actions.append(button);
+  });
+  const wait = document.createElement('div');
+  wait.className = 'field patrol-wait';
+  const label = document.createElement('label');
+  const input = document.createElement('input');
+  input.id = 'cfgPatrolWait' + (++patrolWaitSerial);
+  input.type = 'number';
+  input.min = String(PATROL_DWELL_MIN_S);
+  input.max = String(PATROL_DWELL_MAX_S);
+  input.step = '1';
+  input.required = true;
+  input.dataset.patrolDwell = token;
+  label.htmlFor = input.id;
+  label.append('Time until the next position ');
+  const range = document.createElement('span');
+  range.textContent = PATROL_DWELL_MIN_S + ' to ' + PATROL_DWELL_MAX_S + ' s';
+  label.append(range);
+  wait.append(label, input);
+  item.append(copy, actions, wait);
+  return item;
+}
+
+function createPatrolLoopItem(token) {
+  const item = document.createElement('li');
+  item.className = 'ptz-list-item patrol-loop';
+  item.setAttribute('aria-hidden', 'true');
+  const copy = document.createElement('div');
+  copy.className = 'ptz-list-copy';
+  const title = document.createElement('b');
+  title.textContent = patrolPresetTitle(token);
+  const detail = document.createElement('span');
+  detail.textContent = 'Position 1 · the patrol starts again here';
+  copy.append(title, detail);
+  const actions = document.createElement('div');
+  actions.className = 'patrol-actions';
+  ['Up', 'Down', 'Remove'].forEach(text => {
+    const button = document.createElement('button');
+    button.className = 'btn';
+    button.type = 'button';
+    button.disabled = true;
+    button.tabIndex = -1;
+    button.textContent = text;
+    actions.append(button);
+  });
+  item.append(copy, actions);
+  return item;
+}
+
+function updatePatrolRouteItem(item, token) {
+  const title = patrolPresetTitle(token);
+  const index = patrolRoute.indexOf(token);
+  const next = patrolPresetTitle(patrolRoute[(index + 1) % patrolRoute.length]);
+  const dwell = item.querySelector('[data-patrol-dwell]');
+  const dwellValue = patrolDwell[token] == null ? String(PATROL_DWELL_DEFAULT_S) : String(patrolDwell[token]);
+  if (dwell.value !== dwellValue) dwell.value = dwellValue;
+  dwell.setAttribute('aria-label', 'Time at ' + title + ' until ' + (index === patrolRoute.length - 1 ? 'the patrol starts again at ' : '') + next + ', in seconds');
+  item.querySelector('b').textContent = title;
+  item.querySelector('span').textContent = 'Position ' + (patrolRoute.indexOf(token) + 1) + ' · ONVIF token ' + token
+    + (patrolPresetMissing(token) ? ' · not found on the camera, skipped' : '');
+  item.querySelectorAll('[data-patrol-action]').forEach(button => {
+    button.setAttribute('aria-label', button.dataset.patrolAction === 'remove'
+      ? 'Remove ' + title + ' from the patrol'
+      : 'Move ' + title + ' ' + button.dataset.patrolAction);
+  });
+}
+
+function patrolRouteButton(token, action) {
+  return [...$('cfgPatrolRoute').querySelectorAll('[data-patrol-action]')]
+    .find(button => button.dataset.patrolToken === token && button.dataset.patrolAction === action);
+}
+
+function updatePatrolEditorControls() {
+  const blocked = !settingsLoaded || settingsBusy || factoryResetPending || currentSettingsScope() === 'global';
+  const select = $('cfgPatrolAdd');
+  const option = select.selectedOptions[0];
+  select.disabled = blocked || ![...select.options].some(item => item.value);
+  $('cfgPatrolAddButton').disabled = blocked || !option || option.disabled || patrolRoute.length >= PATROL_PRESET_CAPACITY;
+  $('cfgPatrolRoute').querySelectorAll('[data-patrol-action]').forEach(button => {
+    const index = patrolRoute.indexOf(button.dataset.patrolToken);
+    button.disabled = blocked
+      || (button.dataset.patrolAction === 'up' && index === 0)
+      || (button.dataset.patrolAction === 'down' && index === patrolRoute.length - 1);
+  });
+  $('cfgPatrolRoute').querySelectorAll('[data-patrol-dwell]').forEach(input => { input.disabled = blocked; });
+}
+
+function renderPatrolEditor(focusToken, focusAction) {
+  const active = document.activeElement;
+  const restoreToken = focusToken || (active && active.dataset && active.dataset.patrolToken) || '';
+  const restoreAction = focusToken ? focusAction : active && active.dataset ? active.dataset.patrolAction : '';
+  const catalogUsable = Boolean(ptzCatalog.available && ptzCatalog.presetsLoaded && ptzPresets.length);
+  const select = $('cfgPatrolAdd');
+  const previousValue = select.value;
+  const options = [];
+  if (catalogUsable) {
+    ptzPresets.forEach(preset => {
+      const token = String(preset.token || '');
+      if (!token || patrolRoute.includes(token)) return;
+      const title = ptzPresetTitle(preset);
+      const tooLong = new TextEncoder().encode(token).length > PATROL_TOKEN_MAX_BYTES;
+      const option = new Option(title + (tooLong ? ' (token too long for the patrol)' : title !== 'Preset ' + token ? ' (token ' + token + ')' : ''), token);
+      option.disabled = tooLong;
+      options.push(option);
+    });
+  }
+  if (!options.some(option => !option.disabled)) {
+    const placeholder = new Option(catalogUsable ? 'None to add' : 'No presets', '', true, true);
+    placeholder.disabled = true;
+    options.unshift(placeholder);
+  }
+  select.replaceChildren(...options);
+  if (options.some(option => option.value === previousValue && !option.disabled)) select.value = previousValue;
+
+  $('cfgPatrolCount').textContent = patrolRoute.length + ' of ' + PATROL_PRESET_CAPACITY;
+  $('cfgPatrolCatalogStatus').textContent = (!ptzCatalog.available && !ptzCatalog.unavailableReason
+    ? PATROL_CATALOG_WAITING_TEXT
+    : !ptzCatalog.available
+      ? 'This camera has no PTZ presets available. ' + ptzCatalog.unavailableReason
+      : !ptzCatalog.presetsLoaded
+        ? 'The preset list loads while the camera is shown in Overview or Camera, or while the patrol is on.'
+        : !ptzPresets.length
+          ? 'The camera did not publish PTZ presets.'
+          : patrolRoute.length >= PATROL_PRESET_CAPACITY
+            ? 'The patrol already has 16 presets.'
+            : 'Presets published by the camera. Each preset can be added once.')
+    + (ptzCatalog.truncated ? ' The ESP32 lists only the first 128 presets.' : '');
+
+  const route = $('cfgPatrolRoute');
+  syncKeyedList(route, patrolRoute, token => token, createPatrolRouteItem, updatePatrolRouteItem);
+  if (!patrolRoute.length) {
+    const empty = document.createElement('li');
+    empty.className = 'ptz-empty';
+    empty.textContent = 'No presets in the patrol yet.';
+    route.append(empty);
+  } else {
+    route.append(createPatrolLoopItem(patrolRoute[0]));
+  }
+  updatePatrolEditorControls();
+
+  if (!restoreToken || !restoreAction) return;
+  const order = restoreAction === 'up' ? ['up', 'down', 'remove'] : restoreAction === 'down' ? ['down', 'up', 'remove'] : [restoreAction];
+  const target = order.map(action => patrolRouteButton(restoreToken, action)).find(button => button && !button.disabled);
+  if (target && document.activeElement !== target) target.focus();
+}
+
+function announcePatrolEdit(message) {
+  $('cfgPatrolStatus').textContent = message;
+}
+
+$('cfgPatrolAddButton').addEventListener('click', () => {
+  const option = $('cfgPatrolAdd').selectedOptions[0];
+  if (!option || option.disabled || !option.value || patrolRoute.includes(option.value) || patrolRoute.length >= PATROL_PRESET_CAPACITY) return;
+  const token = option.value;
+  patrolRoute.push(token);
+  patrolDwell[token] = String(PATROL_DWELL_DEFAULT_S);
+  settingsDirty = true;
+  renderPatrolEditor();
+  if ($('cfgPatrolAddButton').disabled) {
+    const remove = patrolRouteButton(token, 'remove');
+    if (remove) remove.focus();
+  }
+  announcePatrolEdit(patrolPresetTitle(token) + ' added at position ' + patrolRoute.length + ' of ' + patrolRoute.length + '.');
+});
+
+$('cfgPatrolRoute').addEventListener('click', event => {
+  const button = event.target.closest('[data-patrol-action]');
+  if (!button || button.disabled) return;
+  const token = button.dataset.patrolToken;
+  const action = button.dataset.patrolAction;
+  const index = patrolRoute.indexOf(token);
+  if (index < 0) return;
+  const title = patrolPresetTitle(token);
+  if (action === 'remove') {
+    patrolRoute.splice(index, 1);
+    delete patrolDwell[token];
+    settingsDirty = true;
+    const neighbor = index < patrolRoute.length ? patrolRoute[index] : patrolRoute[index - 1];
+    renderPatrolEditor(neighbor, 'remove');
+    if (neighbor === undefined) ($('cfgPatrolAdd').disabled ? $('cfgPatrolEnabled') : $('cfgPatrolAdd')).focus();
+    announcePatrolEdit(title + ' removed from the patrol. ' + plural(patrolRoute.length, 'preset', 'presets') + ' left.');
+    return;
+  }
+  const target = action === 'up' ? index - 1 : index + 1;
+  if (target < 0 || target >= patrolRoute.length) return;
+  [patrolRoute[index], patrolRoute[target]] = [patrolRoute[target], patrolRoute[index]];
+  settingsDirty = true;
+  renderPatrolEditor(token, action);
+  announcePatrolEdit(title + ' moved to position ' + (target + 1) + ' of ' + patrolRoute.length + '.');
+});
+
+$('cfgPatrolRoute').addEventListener('input', event => {
+  const input = event.target.closest('[data-patrol-dwell]');
+  if (input) patrolDwell[input.dataset.patrolDwell] = input.value;
+});
+
+$('cfgPatrolEnabled').addEventListener('change', () => { patrolEnabledEdited = true; });
+
+function patrolSwitchUsable() {
+  return Boolean(patrolStatus) && (Boolean(patrolStatus.enabled) || (Number(patrolStatus.presetCount) > 0 && Boolean(ptzCatalog.available)));
+}
+
+function patrolStateText(status) {
+  if (!status) return 'Loading the patrol state…';
+  if (!status.enabled) {
+    if (!Number(status.presetCount)) return 'Off · choose presets in Settings > Camera';
+    if (!ptzCatalog.available) return 'Off · PTZ control is not available for this camera';
+    return 'Off · ' + plural(Number(status.presetCount), 'preset', 'presets') + ', ' + duration(Number(status.cycleMs) / 1000) + ' per round';
+  }
+  if (status.state === 'running') {
+    const target = patrolPresetTitle(String(status.nextToken || ''));
+    const missing = Number(status.missingCount) || 0;
+    return (Number(status.secondsToNextMove) > 0
+      ? 'On · next move to ' + target + ' in ' + duration(Number(status.secondsToNextMove))
+      : 'On · moving to ' + target)
+      + (missing ? ' · ' + plural(missing, 'missing preset skipped', 'missing presets skipped') : '')
+      + (status.lastMoveFailed ? ' · last move rejected' : '');
+  }
+  if (status.state === 'waiting_camera') return 'On · waiting for the camera to be online';
+  if (status.state === 'waiting_ptz') return ptzCatalog.available ? 'On · waiting for the PTZ preset list' : 'On · PTZ control is not available for this camera';
+  if (status.state === 'presets_missing') return 'On · none of the patrol presets exist on the camera';
+  if (status.state === 'busy') return 'On · paused while another action runs';
+  if (status.state === 'low_memory') return 'On · paused until the ESP32 has more free memory';
+  return 'On';
+}
+
+function renderPatrolStatus(status, cameraId) {
+  if (patrolStatus && status && Boolean(patrolStatus.enabled) !== Boolean(status.enabled)) setPatrolResult('', '');
+  patrolStatus = status || null;
+  const input = $('patrolSwitch');
+  input.checked = Boolean(patrolStatus && patrolStatus.enabled);
+  input.disabled = !ptzControlsEnabled || !patrolSwitchUsable();
+  const text = patrolStateText(patrolStatus);
+  if ($('patrolSwitchState').textContent !== text) $('patrolSwitchState').textContent = text;
+  if (!patrolStatus || !settingsValues || settingsLoadedKey !== 'camera/' + cameraId) return;
+  settingsValues.patrolEnabled = patrolStatus.enabled ? 1 : 0;
+  if (!patrolEnabledEdited) $('cfgPatrolEnabled').checked = Boolean(patrolStatus.enabled);
+}
+
+function setPatrolResult(message, tone) {
+  const target = $('patrolResult');
+  target.textContent = localizeTimestampText(message);
+  target.className = 'form-result' + (tone ? ' ' + tone : '');
+}
+
+async function executePatrolToggle(camera, enable, password) {
+  settingsBusy = true;
+  setMutationControlsEnabled(false);
+  setPatrolResult('Saving the patrol setting…', 'warn');
+  try {
+    const params = collectMutationParams(false, password);
+    params.set('cameraId', String(camera.id));
+    params.set('enabled', enable ? '1' : '0');
+    const payload = await postForm('/api/settings/patrol', params);
+    if (camera.id === selectedCameraId) renderPatrolStatus(payload.patrol, camera.id);
+    setPatrolResult((enable ? 'Patrol turned on for ' : 'Patrol turned off for ') + camera.name + '.', 'ok');
+    refresh();
+  } catch (error) {
+    setPatrolResult('Could not change the patrol for ' + camera.name + ': ' + error.message, 'bad');
+  } finally {
+    settingsBusy = false;
+    setMutationControlsEnabled(Boolean(settingsWriteToken));
+    if (document.activeElement === document.body) $('patrolSwitch').focus();
+  }
+}
+
+$('patrolSwitch').addEventListener('click', event => {
+  event.preventDefault();
+  if (settingsBusy || !patrolStatus || !settingsAuthorizationReady('patrol')) return;
+  const enable = !patrolStatus.enabled;
+  const camera = { id: selectedCameraId, name: selectedCameraName() };
+  setPatrolResult('', '');
+  openConfirmModal(enable
+    ? 'Turn on the patrol for ' + camera.name + '. The camera moves through ' + plural(Number(patrolStatus.presetCount), 'preset', 'presets') + '; one round takes ' + duration(Number(patrolStatus.cycleMs) / 1000) + '. It repeats until the patrol is turned off.'
+    : 'Turn off the patrol for ' + camera.name + '. The camera stays where it is.',
+  password => executePatrolToggle(camera, enable, password));
+});
 
 function render(d) {
   const [label, color, bg, border] = PALETTE[d.state] || ['Unknown', 'var(--dim)', '', ''];
@@ -3486,6 +3868,7 @@ function render(d) {
     setAdminActionStatus(d.adminAction.lastResult, d.adminAction.pending === 'none' ? '' : 'warn');
   }
   renderPtz(d);
+  renderPatrolStatus(d.patrol, d.cameraId);
 
   if (d.snapshot) {
     const previewFps = d.ui && d.ui.previewMaximumFps ? d.ui.previewMaximumFps : 1;
@@ -3516,6 +3899,7 @@ function render(d) {
 
   const p = d.probes;
   setProbe('onvif', p.onvifTcp, p.onvifHttp, p.onvifStatus, p.onvifLatencyMs, 'HTTP');
+  if (p.onvifHttp && Number(p.onvifLatencyMs) > 0) $('v-onvif').textContent += ' · ' + p.onvifLatencyMs + ' ms';
   setRtspProbe(p);
   setImageProbe(d.snapshot, d.recovery);
 
@@ -5071,6 +5455,7 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = '';
 });
 
+renderPatrolEditor();
 activateSettingsSection(activeSettingsSection);
 activateView(activeView, false);
 if (!snapshotModeActive()) refresh();

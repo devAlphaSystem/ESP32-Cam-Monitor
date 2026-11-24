@@ -467,6 +467,15 @@ void processPendingEmails()
     }
 }
 
+bool runDueCameraPatrol()
+{
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        if (maintainCameraPatrol(*ctx))
+            return true;
+    }
+    return false;
+}
+
 void processPendingAdminAction()
 {
     if (activeAdminAction == AdminAction::RebootAllCameras) {
@@ -520,6 +529,7 @@ void processPendingAdminAction()
         case AdminAction::GotoPtzPreset:
             if (ctx != nullptr) {
                 succeeded = requestOnvifPtzPreset(*ctx, pendingPtzPresetToken, contextId);
+                ctx->patrol.dwellStartedAtMs = millis();
                 lastAdminActionResult = String(ctx->settings.cameraName) + ": " + ctx->onvifPtz.lastCommandResult;
             }
             pendingPtzPresetToken = String();
@@ -749,7 +759,7 @@ void loop()
     if (due != nullptr) {
         lastCheckedId = due->id;
         runHealthCheck(*due);
-    } else if (WiFi.status() == WL_CONNECTED && currentAdminAction() == AdminAction::None) {
+    } else if (!runDueCameraPatrol() && WiFi.status() == WL_CONNECTED && currentAdminAction() == AdminAction::None) {
         const unsigned long now = millis();
         const bool discoveryDue = lastRediscoveryAtMs == 0 || now - lastRediscoveryAtMs >= globalSettings.rediscoveryIntervalMs;
         if (discoveryDue && (discoveryRequested || now - lastRediscoveryAtMs >= globalSettings.subnetScanIntervalMs)) {

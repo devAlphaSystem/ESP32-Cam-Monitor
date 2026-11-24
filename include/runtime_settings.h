@@ -56,8 +56,17 @@ struct DeviceSecrets {
     char alertEmail[ALERT_EMAIL_MAX_LENGTH + 1];
 };
 
+struct CameraPatrolSettings {
+    uint8_t enabled;
+    uint8_t presetCount;
+    uint8_t reserved[2];
+    uint32_t dwellMs[CAMERA_PATROL_PRESET_CAPACITY];
+    char presetTokens[CAMERA_PATROL_PRESET_CAPACITY][CAMERA_PATROL_TOKEN_MAX_LENGTH + 1];
+};
+
 static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings exceeded the planned limit");
 static_assert(sizeof(DeviceSecrets) <= 512, "DeviceSecrets exceeded the planned limit");
+static_assert(sizeof(CameraPatrolSettings) <= 1200, "CameraPatrolSettings exceeded the planned limit");
 
 template <size_t Size>
 void copySettingText(char (&destination)[Size], const char* source)
@@ -85,5 +94,6 @@ void copySettingText(char (&destination)[Size], const String& source)
 
 GlobalSettings makeDefaultGlobalSettings();
 RuntimeSettings makeDefaultRuntimeSettings();
+CameraPatrolSettings makeDefaultCameraPatrolSettings();
 
 }
