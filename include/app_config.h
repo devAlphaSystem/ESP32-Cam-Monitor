@@ -25,6 +25,7 @@ constexpr char CAMERA_SNAPSHOT_PROFILE_MATCH[] = "snap";
 constexpr size_t SNAPSHOT_PROFILE_MATCH_MAX_LENGTH = 32;
 
 constexpr char CAMERA_DAEMON_PRESET_TOKEN[] = "100";
+constexpr char PTZ_MANUAL_MOVE_SPEED[] = "0.5";
 
 constexpr size_t CAMERA_PATROL_PRESET_CAPACITY = 16;
 constexpr size_t CAMERA_PATROL_TOKEN_MAX_LENGTH = 64;

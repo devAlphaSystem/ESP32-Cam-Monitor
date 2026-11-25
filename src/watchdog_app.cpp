@@ -727,6 +727,8 @@ void loop()
     wifiSetupLoop();
     maintainWiFi();
     initializeConnectedServices();
+    maintainManualPtzMoves();
+    maintainPtzGrant();
     if (connectedServicesInitialized || httpServerRunning)
         handleHttpClient();
     if (factoryResetRequestedAtMs != 0)
@@ -743,6 +745,11 @@ void loop()
     }
     for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get())
         maintainCameraSnapshotHttpSession(*ctx);
+    if (manualPtzMoveActive()) {
+        updateCameraAlertLed();
+        delay(2);
+        return;
+    }
     processPendingAdminAction();
 
     CameraContext* due = nullptr;

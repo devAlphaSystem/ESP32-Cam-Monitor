@@ -44,6 +44,7 @@ constexpr size_t ONVIF_PTZ_PRESET_CAPACITY = 128;
 constexpr size_t CAMERA_OPERATION_HEAP_RESERVE = 70000;
 constexpr size_t CAMERA_ALTERNATE_ENDPOINT_CAPACITY = 4;
 constexpr int32_t CAMERA_CLOCK_HEALTHY_DRIFT_MS = 5000L;
+constexpr unsigned long MANUAL_PTZ_LEASE_MS = 1500UL;
 
 enum class CameraState {
     Starting,
@@ -171,10 +172,32 @@ struct OnvifPtzPreset {
     String name;
 };
 
+enum class OnvifPtzPanTilt : uint8_t {
+    Unknown,
+    Supported,
+    Unsupported
+};
+
+enum class PtzMoveDirection : uint8_t {
+    Up,
+    Down,
+    Left,
+    Right
+};
+
+enum class ManualPtzStop : uint8_t {
+    Stopped,
+    Pending,
+    Unconfirmed
+};
+
 struct OnvifPtzStatus {
     bool profileResolved = false;
     bool presetsLoaded = false;
     bool truncated = false;
+    bool moveTimeoutRejected = false;
+    bool stopFilterRejected = false;
+    OnvifPtzPanTilt panTilt = OnvifPtzPanTilt::Unknown;
     uint16_t presetCount = 0;
     uint16_t reportedPresetCount = 0;
     uint32_t refreshAttempts = 0;
@@ -212,6 +235,17 @@ struct CameraPatrolStatus {
 };
 
 static_assert(CAMERA_PATROL_PRESET_CAPACITY <= 16, "failedPositions holds one bit per patrol preset");
+
+struct ManualPtzMotion {
+    bool active = false;
+    bool stopPending = false;
+    bool stopUnconfirmed = false;
+    uint8_t stopFailures = 0;
+    unsigned long deadlineAtMs = 0;
+    unsigned long stopPendingSinceMs = 0;
+    String serviceUrl;
+    String profileToken;
+};
 
 enum class CameraPatrolBlock {
     None,
@@ -330,6 +364,7 @@ struct CameraContext {
     uint32_t id = 0;
     RuntimeSettings settings = makeDefaultRuntimeSettings();
     CameraPatrolSettings patrolSettings = makeDefaultCameraPatrolSettings();
+    CameraPtzSettings ptzSettings = {};
     unsigned long registeredAtMs = 0;
     unsigned long lastPreviewRequestAtMs = 0;
     uint32_t lastDiscoveryGeneration = 0;
@@ -347,6 +382,7 @@ struct CameraContext {
     OnvifServiceCatalog onvifServices = {};
     OnvifPtzStatus onvifPtz = {};
     CameraPatrolStatus patrol = {};
+    ManualPtzMotion manualPtz = {};
     OnvifDeviceMetadata onvifMetadata = {};
     CameraClockStatus cameraClockStatus = {};
     OnvifMetadataStage onvifMetadataStage = OnvifMetadataStage::DeviceInformation;
@@ -521,6 +557,7 @@ bool validateRuntimeSettings(const RuntimeSettings& values, String& error);
 bool validateCameraPatrolSettings(const CameraPatrolSettings& values, String& error);
 bool saveRuntimeSettingsToNvs(CameraContext& ctx, const RuntimeSettings& values);
 bool saveCameraPatrolToNvs(CameraContext& ctx, const CameraPatrolSettings& values);
+bool saveCameraPtzToNvs(CameraContext& ctx, const CameraPtzSettings& values);
 bool saveGlobalSettingsToNvs(const GlobalSettings& values);
 bool saveDeviceSecretsToNvs(const DeviceSecrets& values);
 bool validateGlobalSettings(const GlobalSettings& values, String& error);
@@ -599,6 +636,10 @@ int onvifPtzPresetIndex(CameraContext& ctx, const String& token);
 bool onvifPtzPresetIsDaemon(const String& token);
 bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16_t contextId = 0, uint8_t originFlag = PersistentLog::FlagManual, PersistentLog::Level failureLevel = PersistentLog::Level::Error);
 void maintainOnvifPtzPresets(CameraContext& ctx);
+bool requestManualPtzMove(CameraContext& ctx, PtzMoveDirection direction, String& result);
+ManualPtzStop stopManualPtzMove(CameraContext& ctx, String& result);
+bool manualPtzMoveActive();
+void maintainManualPtzMoves();
 CameraPatrolBlock cameraPatrolBlock(CameraContext& ctx);
 int cameraPatrolNextPosition(CameraContext& ctx);
 uint8_t cameraPatrolMissingCount(CameraContext& ctx);
@@ -649,6 +690,7 @@ void startHttpServer();
 void sendJsonResponse(int statusCode, const String& json);
 void sendApiError(int statusCode, const char* code, const String& detail);
 bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck, bool blockDuringFirmwareUpdate = true);
+void maintainPtzGrant();
 extern bool httpServerRunning;
 bool startMdns();
 

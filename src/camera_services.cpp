@@ -6,6 +6,11 @@ namespace CameraWatchdog {
 constexpr unsigned long ONVIF_CATALOG_FALLBACK_RETRY_MS = 5UL * 60UL * 1000UL;
 constexpr unsigned long ONVIF_PTZ_PRESET_REFRESH_INTERVAL_MS = 60UL * 1000UL;
 constexpr unsigned long ONVIF_PTZ_PRESET_RETRY_INTERVAL_MS = 15UL * 1000UL;
+constexpr char MANUAL_PTZ_CAMERA_TIMEOUT[] = "PT2S";
+constexpr uint32_t MANUAL_PTZ_REQUEST_TIMEOUT_MS = 1500UL;
+constexpr unsigned long MANUAL_PTZ_STOP_RETRY_MS = 1000UL;
+constexpr unsigned long MANUAL_PTZ_STOP_RETRY_WINDOW_MS = 30000UL;
+constexpr unsigned long MANUAL_PTZ_UNCONFIRMED_RETRY_MS = 30000UL;
 constexpr unsigned long CAMERA_CLOCK_CHECK_INTERVAL_MS = 15UL * 60UL * 1000UL;
 constexpr unsigned long CAMERA_CLOCK_RETRY_INTERVAL_MS = 60UL * 1000UL;
 constexpr uint32_t CAMERA_CLOCK_MAX_ROUND_TRIP_MS = 2000UL;
@@ -2317,6 +2322,7 @@ void refreshOnvifDeviceMetadata(CameraContext& ctx)
 struct SnapshotProfileCandidate {
     bool valid = false;
     bool ptz = false;
+    OnvifPtzPanTilt panTilt = OnvifPtzPanTilt::Unknown;
     String token;
     String name;
     uint32_t pixels = UINT32_MAX;
@@ -2379,7 +2385,7 @@ uint32_t snapshotProfileUnsignedTag(const String& xml, const char* localName)
     return parsed;
 }
 
-bool selectOnvifProfiles(CameraContext& ctx, const String& profilesXml, String& selectedToken, String& selectedName, String& selectedPtzToken, String& selectedPtzName)
+bool selectOnvifProfiles(CameraContext& ctx, const String& profilesXml, String& selectedToken, String& selectedName, String& selectedPtzToken, String& selectedPtzName, OnvifPtzPanTilt& selectedPtzPanTilt)
 {
     SnapshotProfileCandidate matchingJpeg;
     SnapshotProfileCandidate matching;
@@ -2448,6 +2454,17 @@ bool selectOnvifProfiles(CameraContext& ctx, const String& profilesXml, String& 
         int ptzConfigurationEnd = 0;
         candidate.ptz = findNextOpeningTag(profileXml, "PTZConfiguration", 0, ptzConfigurationStart, ptzConfigurationEnd);
 
+        if (candidate.ptz) {
+            int spaceStart = 0;
+            int spaceEnd = 0;
+
+            if (findNextOpeningTag(profileXml, "DefaultContinuousPanTiltVelocitySpace", ptzConfigurationEnd + 1, spaceStart, spaceEnd)) {
+                candidate.panTilt = OnvifPtzPanTilt::Supported;
+            } else if (findNextOpeningTag(profileXml, "DefaultContinuousZoomVelocitySpace", ptzConfigurationEnd + 1, spaceStart, spaceEnd)) {
+                candidate.panTilt = OnvifPtzPanTilt::Unsupported;
+            }
+        }
+
         if (candidate.ptz && !firstPtz.valid) {
             firstPtz = candidate;
         }
@@ -2493,9 +2510,11 @@ bool selectOnvifProfiles(CameraContext& ctx, const String& profilesXml, String& 
     if (selectedPtz != nullptr) {
         selectedPtzToken = selectedPtz->token;
         selectedPtzName = selectedPtz->name;
+        selectedPtzPanTilt = selectedPtz->panTilt;
     } else {
         selectedPtzToken = String();
         selectedPtzName = String();
+        selectedPtzPanTilt = OnvifPtzPanTilt::Unknown;
     }
 
     return true;
@@ -2533,6 +2552,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
     String profileName;
     String ptzProfileToken;
     String ptzProfileName;
+    OnvifPtzPanTilt ptzPanTilt = OnvifPtzPanTilt::Unknown;
 
     {
         String profilesXml;
@@ -2548,7 +2568,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
 
         ctx.lastSnapshotResolveStatusCode = profilesStatusCode;
         ctx.onvifServices.media1.validated = true;
-        if (!selectOnvifProfiles(ctx, profilesXml, profileToken, profileName, ptzProfileToken, ptzProfileName)) {
+        if (!selectOnvifProfiles(ctx, profilesXml, profileToken, profileName, ptzProfileToken, ptzProfileName, ptzPanTilt)) {
             ctx.lastSnapshotResult = "No compatible ONVIF profile";
             return false;
         }
@@ -2561,6 +2581,7 @@ bool resolveSnapshotTarget(CameraContext& ctx, uint16_t contextId)
             ctx.onvifPtz.profileResolved = true;
             ctx.onvifPtz.profileToken = ptzProfileToken;
             ctx.onvifPtz.profileName = ptzProfileName;
+            ctx.onvifPtz.panTilt = ptzPanTilt;
         }
     }
 
@@ -2908,7 +2929,8 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0, Persiste
     String ignoredSnapshotName;
     String profileToken;
     String profileName;
-    selectOnvifProfiles(ctx, profilesXml, ignoredSnapshotToken, ignoredSnapshotName, profileToken, profileName);
+    OnvifPtzPanTilt panTilt = OnvifPtzPanTilt::Unknown;
+    selectOnvifProfiles(ctx, profilesXml, ignoredSnapshotToken, ignoredSnapshotName, profileToken, profileName, panTilt);
 
     if (profileToken.isEmpty()) {
         ctx.onvifPtz.lastResult = "No media profile has a PTZ configuration";
@@ -2918,6 +2940,7 @@ bool resolveOnvifPtzProfile(CameraContext& ctx, uint16_t contextId = 0, Persiste
     ctx.onvifPtz.profileResolved = true;
     ctx.onvifPtz.profileToken = profileToken;
     ctx.onvifPtz.profileName = profileName;
+    ctx.onvifPtz.panTilt = panTilt;
     return true;
 }
 
@@ -3157,6 +3180,308 @@ bool requestOnvifPtzPreset(CameraContext& ctx, const String& presetToken, uint16
     Serial.println(ctx.onvifPtz.lastCommandResult);
     PersistentLog::record(PersistentLog::Event::PtzCommand, accepted ? PersistentLog::Outcome::Success : PersistentLog::Outcome::Failure, preset.token.c_str(), ctx.camera.ip, ctx.camera.onvifPort, statusCode, ctx.onvifPtz.lastCommandLatencyMs, static_cast<uint32_t>(presetIndex), originFlag, accepted ? PersistentLog::Level::Info : failureLevel, originFlag == PersistentLog::FlagManual, logContextId, ctx.id);
     return accepted;
+}
+
+String manualPtzMoveBody(const String& profileToken, PtzMoveDirection direction, bool invertPan)
+{
+    const bool horizontal = direction == PtzMoveDirection::Left || direction == PtzMoveDirection::Right;
+    const bool negative = horizontal ? (direction == PtzMoveDirection::Left) != invertPan : direction == PtzMoveDirection::Down;
+    const String speed = negative ? String('-') + PTZ_MANUAL_MOVE_SPEED : String(PTZ_MANUAL_MOVE_SPEED);
+    String body;
+    body.reserve(profileToken.length() + 200);
+    body += "<tptz:ContinuousMove><tptz:ProfileToken>";
+    body += htmlEscape(profileToken);
+    body += "</tptz:ProfileToken><tptz:Velocity><tt:PanTilt x=\"";
+    body += horizontal ? speed : String('0');
+    body += "\" y=\"";
+    body += horizontal ? String('0') : speed;
+    body += "\"/></tptz:Velocity><tptz:Timeout>";
+    body += MANUAL_PTZ_CAMERA_TIMEOUT;
+    body += "</tptz:Timeout></tptz:ContinuousMove>";
+    return body;
+}
+
+String manualPtzStopBody(const String& profileToken, bool panTiltOnly)
+{
+    String body;
+    body.reserve(profileToken.length() + 136);
+    body += "<tptz:Stop><tptz:ProfileToken>";
+    body += htmlEscape(profileToken);
+    body += "</tptz:ProfileToken>";
+
+    if (panTiltOnly) {
+        body += "<tptz:PanTilt>true</tptz:PanTilt><tptz:Zoom>false</tptz:Zoom>";
+    }
+
+    body += "</tptz:Stop>";
+    return body;
+}
+
+enum class ManualPtzReply : uint8_t {
+    Confirmed,
+    Rejected,
+    Uncertain
+};
+
+bool soapEnvelopeClosed(const String& xml)
+{
+    const int namePosition = xml.lastIndexOf("Envelope>");
+    const int closingStart = namePosition < 0 ? -1 : xml.lastIndexOf("</", namePosition);
+
+    if (closingStart < 0) {
+        return false;
+    }
+
+    for (int index = closingStart + 2; index < namePosition; index++) {
+        const char character = xml.charAt(index);
+
+        if (!isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '-' && !(character == ':' && index == namePosition - 1)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool soapFaultHasSubcode(const String& xml, const char* subcode)
+{
+    int faultStart = 0;
+    int faultEnd = 0;
+    int codeStart = 0;
+    int codeEnd = 0;
+
+    if (!findNextOpeningTag(xml, "Fault", 0, faultStart, faultEnd) || !findNextOpeningTag(xml, "Code", faultEnd, codeStart, codeEnd)) {
+        return false;
+    }
+
+    int reasonStart = 0;
+    int reasonEnd = 0;
+    const int codeLimit = findNextOpeningTag(xml, "Reason", codeEnd, reasonStart, reasonEnd) ? reasonStart : static_cast<int>(xml.length());
+    int position = codeEnd + 1;
+    int nextPosition = 0;
+    String value;
+
+    while (extractLocalTag(xml, "Value", position, value, nextPosition) && nextPosition <= codeLimit) {
+        if (value.substring(value.lastIndexOf(':') + 1) == subcode) {
+            return true;
+        }
+
+        position = nextPosition;
+    }
+
+    return false;
+}
+
+ManualPtzReply manualPtzReply(bool accepted, int statusCode, bool transportFailure, const String& responseXml)
+{
+    const bool complete = !transportFailure && soapEnvelopeClosed(responseXml);
+
+    if (accepted && complete) {
+        return ManualPtzReply::Confirmed;
+    }
+
+    int faultStart = 0;
+    int faultEnd = 0;
+
+    if ((complete && findNextOpeningTag(responseXml, "Fault", 0, faultStart, faultEnd)) || (statusCode >= 400 && statusCode < 500)) {
+        return ManualPtzReply::Rejected;
+    }
+
+    return ManualPtzReply::Uncertain;
+}
+
+String manualPtzFailureText(ManualPtzReply reply, int statusCode, const char* command)
+{
+    if (reply == ManualPtzReply::Uncertain) {
+        if (statusCode <= 0) {
+            return String("The camera did not answer the ") + command;
+        }
+
+        return String("The camera sent an incomplete answer to the ") + command + "; HTTP " + statusCode;
+    }
+
+    if (statusCode >= 200 && statusCode < 300) {
+        return String("The camera answered the ") + command + " with an ONVIF fault";
+    }
+
+    return String("The camera rejected the ") + command + "; HTTP " + statusCode;
+}
+
+void armManualPtzStop(ManualPtzMotion& motion)
+{
+    if (!motion.active || !motion.stopPending) {
+        motion.stopPending = true;
+        motion.stopPendingSinceMs = millis();
+        motion.stopFailures = 0;
+    }
+
+    motion.active = true;
+    motion.stopUnconfirmed = false;
+    motion.deadlineAtMs = millis();
+}
+
+bool requestManualPtzMove(CameraContext& ctx, PtzMoveDirection direction, String& result)
+{
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired()) {
+        result = "Camera channel busy; try again";
+        return false;
+    }
+
+    ManualPtzMotion& motion = ctx.manualPtz;
+
+    if (!motion.active) {
+        String serviceUrl = ctx.onvifServices.ptz.url;
+        String profileToken = ctx.onvifPtz.profileToken;
+
+        if (serviceUrl.isEmpty() || profileToken.isEmpty() || serviceUrl.length() != ctx.onvifServices.ptz.url.length() || profileToken.length() != ctx.onvifPtz.profileToken.length()) {
+            result = "The ESP32 is low on memory; try again";
+            return false;
+        }
+
+        motion.serviceUrl = std::move(serviceUrl);
+        motion.profileToken = std::move(profileToken);
+    }
+
+    const char* action = "http://www.onvif.org/ver20/ptz/wsdl/ContinuousMove";
+    const uint16_t logContextId = allocateLogContextId();
+    const unsigned long startedAtMs = millis();
+    String responseXml;
+    int statusCode = 0;
+    bool transportFailure = false;
+    const bool accepted = postOnvifSoap(ctx, motion.serviceUrl, action, manualPtzMoveBody(motion.profileToken, direction, ctx.ptzSettings.invertPan != 0), responseXml, true, &statusCode, &transportFailure, MANUAL_PTZ_REQUEST_TIMEOUT_MS, logContextId, PersistentLog::Level::Warning);
+    const ManualPtzReply reply = manualPtzReply(accepted, statusCode, transportFailure, responseXml);
+
+    if (reply == ManualPtzReply::Confirmed) {
+        motion.active = true;
+        motion.stopPending = false;
+        motion.stopUnconfirmed = false;
+        motion.stopFailures = 0;
+        motion.deadlineAtMs = millis() + MANUAL_PTZ_LEASE_MS;
+        ctx.patrol.dwellStartedAtMs = millis();
+        result = "The camera accepted the movement";
+        return true;
+    }
+
+    result = manualPtzFailureText(reply, statusCode, "movement");
+    const char* logDetail = "manual move";
+
+    if (reply == ManualPtzReply::Uncertain) {
+        armManualPtzStop(motion);
+        result += "; the ESP32 sends a stop";
+    } else if (soapFaultHasSubcode(responseXml, "TimeoutNotSupported")) {
+        ctx.onvifPtz.moveTimeoutRejected = true;
+        logDetail = "manual timeout unsupported";
+    }
+
+    PersistentLog::record(PersistentLog::Event::PtzCommand, PersistentLog::Outcome::Failure, logDetail, ctx.camera.ip, ctx.camera.onvifPort, statusCode, millis() - startedAtMs, static_cast<uint32_t>(direction), PersistentLog::FlagManual, PersistentLog::Level::Warning, true, logContextId, ctx.id);
+    return false;
+}
+
+ManualPtzStop stopManualPtzMove(CameraContext& ctx, String& result)
+{
+    ManualPtzMotion& motion = ctx.manualPtz;
+
+    if (!motion.active && !motion.stopUnconfirmed) {
+        result = "The camera is not moving under manual control";
+        return ManualPtzStop::Stopped;
+    }
+
+    if (motion.active) {
+        armManualPtzStop(motion);
+    }
+
+    CameraIoGuard cameraIoGuard;
+
+    if (!cameraIoGuard.acquired() || cameraIoDepth > 1) {
+        result = "The camera channel is busy";
+
+        if (!motion.active) {
+            result += "; the stop is still not confirmed";
+            return ManualPtzStop::Unconfirmed;
+        }
+
+        result += "; the ESP32 sends the stop when it is free";
+        return ManualPtzStop::Pending;
+    }
+
+    const char* action = "http://www.onvif.org/ver20/ptz/wsdl/Stop";
+    const PersistentLog::Level failureLevel = motion.stopFailures == 0 ? PersistentLog::Level::Warning : PersistentLog::Level::Info;
+    const uint16_t logContextId = allocateLogContextId();
+    const bool panTiltOnly = !ctx.onvifPtz.stopFilterRejected;
+    String responseXml;
+    int statusCode = 0;
+    bool transportFailure = false;
+    bool accepted = postOnvifSoap(ctx, motion.serviceUrl, action, manualPtzStopBody(motion.profileToken, panTiltOnly), responseXml, true, &statusCode, &transportFailure, MANUAL_PTZ_REQUEST_TIMEOUT_MS, logContextId, failureLevel);
+    ManualPtzReply reply = manualPtzReply(accepted, statusCode, transportFailure, responseXml);
+    int faultStart = 0;
+    int faultEnd = 0;
+
+    if (reply == ManualPtzReply::Rejected && panTiltOnly && findNextOpeningTag(responseXml, "Fault", 0, faultStart, faultEnd)) {
+        ctx.onvifPtz.stopFilterRejected = true;
+        accepted = postOnvifSoap(ctx, motion.serviceUrl, action, manualPtzStopBody(motion.profileToken, false), responseXml, true, &statusCode, &transportFailure, MANUAL_PTZ_REQUEST_TIMEOUT_MS, logContextId, failureLevel);
+        reply = manualPtzReply(accepted, statusCode, transportFailure, responseXml);
+    }
+
+    if (motion.active) {
+        ctx.patrol.dwellStartedAtMs = millis();
+    }
+
+    if (reply == ManualPtzReply::Confirmed) {
+        motion = ManualPtzMotion{};
+        result = "The camera stopped";
+        return ManualPtzStop::Stopped;
+    }
+
+    result = manualPtzFailureText(reply, statusCode, "stop");
+
+    if (motion.stopFailures < UINT8_MAX) {
+        motion.stopFailures++;
+    }
+
+    if (!motion.active) {
+        motion.deadlineAtMs = millis() + MANUAL_PTZ_UNCONFIRMED_RETRY_MS;
+        result += "; the stop is still not confirmed";
+        return ManualPtzStop::Unconfirmed;
+    }
+
+    if (millis() - motion.stopPendingSinceMs < MANUAL_PTZ_STOP_RETRY_WINDOW_MS) {
+        motion.deadlineAtMs = millis() + MANUAL_PTZ_STOP_RETRY_MS;
+        result += "; the ESP32 tries again";
+        return ManualPtzStop::Pending;
+    }
+
+    PersistentLog::record(PersistentLog::Event::PtzCommand, PersistentLog::Outcome::Failure, "manual stop unconfirmed", ctx.camera.ip, ctx.camera.onvifPort, statusCode, millis() - motion.stopPendingSinceMs, motion.stopFailures, PersistentLog::FlagManual, PersistentLog::Level::Warning, true, logContextId, ctx.id);
+    motion.active = false;
+    motion.stopPending = false;
+    motion.stopUnconfirmed = true;
+    motion.deadlineAtMs = millis() + MANUAL_PTZ_UNCONFIRMED_RETRY_MS;
+    result += "; the ESP32 made " + String(motion.stopFailures) + " attempts and now tries again every " + String(MANUAL_PTZ_UNCONFIRMED_RETRY_MS / 1000UL) + " s";
+    return ManualPtzStop::Unconfirmed;
+}
+
+bool manualPtzMoveActive()
+{
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        if (ctx->manualPtz.active)
+            return true;
+    }
+    return false;
+}
+
+void maintainManualPtzMoves()
+{
+    for (CameraContext* ctx = cameras.get(); ctx != nullptr; ctx = ctx->next.get()) {
+        const ManualPtzMotion& motion = ctx->manualPtz;
+        if ((!motion.active && !motion.stopUnconfirmed) || static_cast<long>(millis() - motion.deadlineAtMs) < 0)
+            continue;
+        if (!motion.active && (manualPtzMoveActive() || cameraPatrolBlock(*ctx) == CameraPatrolBlock::Camera || firmwareUpdateMaintenanceActive()))
+            continue;
+        String result;
+        stopManualPtzMove(*ctx, result);
+        Serial.println(String(ctx->settings.cameraName) + ": manual PTZ stop sent by the ESP32: " + result);
+    }
 }
 
 CameraPatrolBlock cameraPatrolBlock(CameraContext& ctx)
@@ -3688,7 +4013,7 @@ void sendSnapshotError(CameraContext& ctx, int statusCode, const char* message, 
 void serveCameraSnapshot(CameraContext& ctx)
 {
     ctx.lastPreviewRequestAtMs = millis();
-    if (healthCheckInProgress || registryBusy || cameraIoDepth != 0 || anyCameraHealthCheckDue()) {
+    if (healthCheckInProgress || registryBusy || cameraIoDepth != 0 || anyCameraHealthCheckDue() || manualPtzMoveActive()) {
         ctx.previewBusyResponses++;
         sendSnapshotError(ctx, 503, "health_check_in_progress", false);
         return;

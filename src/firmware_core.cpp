@@ -3,7 +3,7 @@
 
 namespace CameraWatchdog {
 
-const char FIRMWARE_VERSION[] = "0.29.1";
+const char FIRMWARE_VERSION[] = "0.30.0";
 
 constexpr char RESEND_API_URL[] = "https://api.resend.com/emails";
 constexpr char SETTINGS_NVS_NAMESPACE[] = "camcfg";
@@ -17,6 +17,8 @@ constexpr uint32_t CAMERA_ALIAS_MAGIC = 0x43414C37UL;
 constexpr uint32_t CAMERA_REBOOT_LEDGER_MAGIC = 0x43524C37UL;
 constexpr uint32_t CAMERA_PATROL_MAGIC = 0x43505431UL;
 constexpr uint16_t CAMERA_PATROL_SCHEMA_VERSION = 2;
+constexpr uint32_t CAMERA_PTZ_MAGIC = 0x43505A31UL;
+constexpr uint16_t CAMERA_PTZ_SCHEMA_VERSION = 1;
 constexpr char CAMERAS_NVS_NAMESPACE[] = "cameras";
 uint32_t nextCameraId = 1;
 bool cameraRegistryFullyLoaded = true;
@@ -76,6 +78,15 @@ struct CameraPatrolRecord {
     uint16_t schemaVersion;
     uint16_t payloadSize;
     CameraPatrolSettings values;
+    uint32_t checksum;
+};
+
+struct CameraPtzRecord {
+    uint32_t magic;
+    uint32_t id;
+    uint16_t schemaVersion;
+    uint16_t payloadSize;
+    CameraPtzSettings values;
     uint32_t checksum;
 };
 
@@ -604,7 +615,7 @@ bool automaticMergeSettingsCompatible(const CameraContext& primary, const Camera
     memset(secondarySettings.cameraName, 0, sizeof(secondarySettings.cameraName));
     const String primaryDefault = String("Camera ") + primary.id + " - " + primary.camera.ip.toString();
     const String secondaryDefault = String("Camera ") + secondary.id + " - " + secondary.camera.ip.toString();
-    return strcmp(primary.settings.cameraName, primaryDefault.c_str()) == 0 && strcmp(secondary.settings.cameraName, secondaryDefault.c_str()) == 0 && memcmp(&primarySettings, &secondarySettings, sizeof(RuntimeSettings)) == 0 && memcmp(&primary.patrolSettings, &secondary.patrolSettings, sizeof(CameraPatrolSettings)) == 0;
+    return strcmp(primary.settings.cameraName, primaryDefault.c_str()) == 0 && strcmp(secondary.settings.cameraName, secondaryDefault.c_str()) == 0 && memcmp(&primarySettings, &secondarySettings, sizeof(RuntimeSettings)) == 0 && memcmp(&primary.patrolSettings, &secondary.patrolSettings, sizeof(CameraPatrolSettings)) == 0 && memcmp(&primary.ptzSettings, &secondary.ptzSettings, sizeof(CameraPtzSettings)) == 0;
 }
 
 CameraContext* registerCameraTarget(const CameraTarget& target, String& error)
@@ -815,9 +826,28 @@ bool saveCameraPatrolToNvs(CameraContext& ctx, const CameraPatrolSettings& value
     return saved;
 }
 
+bool saveCameraPtzToNvs(CameraContext& ctx, const CameraPtzSettings& values)
+{
+    CameraPtzRecord record{};
+    record.magic = CAMERA_PTZ_MAGIC;
+    record.id = ctx.id;
+    record.schemaVersion = CAMERA_PTZ_SCHEMA_VERSION;
+    record.payloadSize = sizeof(CameraPtzSettings);
+    record.values = values;
+    record.checksum = settingsChecksum(record);
+    char key[12];
+    snprintf(key, sizeof(key), "x%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, false))
+        return false;
+    const bool saved = storage.putBytes(key, &record, sizeof(record)) == sizeof(record);
+    storage.end();
+    return saved;
+}
+
 bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSettings, String& error)
 {
-    if (primaryId == secondaryId || !confirmSettings || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None) {
+    if (primaryId == secondaryId || !confirmSettings || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None || manualPtzMoveActive()) {
         error = "Merge requires two distinct registrations, confirmation, and an idle system";
         return false;
     }
@@ -929,7 +959,7 @@ bool mergeCameraRecords(uint32_t primaryId, uint32_t secondaryId, bool confirmSe
 
 bool forgetCameraRecord(uint32_t id, String& error)
 {
-    if (!cameraRegistryFullyLoaded || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None) {
+    if (!cameraRegistryFullyLoaded || registryBusy || healthCheckInProgress || cameraIoDepth > 1 || currentAdminAction() != AdminAction::None || manualPtzMoveActive()) {
         error = "Registry incomplete or another operation in progress";
         return false;
     }
@@ -993,6 +1023,10 @@ bool forgetCameraRecord(uint32_t id, String& error)
     snprintf(patrolKey, sizeof(patrolKey), "p%08lx", static_cast<unsigned long>(id));
     if (removed && storage.isKey(patrolKey))
         storage.remove(patrolKey);
+    char ptzKey[12];
+    snprintf(ptzKey, sizeof(ptzKey), "x%08lx", static_cast<unsigned long>(id));
+    if (removed && storage.isKey(ptzKey))
+        storage.remove(ptzKey);
     storage.end();
     if (!removed) {
         error = "Failed to remove the registration from NVS; camera preserved";
@@ -1057,6 +1091,29 @@ void loadCameraPatrol(CameraContext& ctx)
         return;
     }
     ctx.patrolSettings = record.values;
+}
+
+void loadCameraPtzSettings(CameraContext& ctx)
+{
+    char key[12];
+    snprintf(key, sizeof(key), "x%08lx", static_cast<unsigned long>(ctx.id));
+    Preferences storage;
+    if (!storage.begin(CAMERAS_NVS_NAMESPACE, true))
+        return;
+    if (!storage.isKey(key)) {
+        storage.end();
+        return;
+    }
+    CameraPtzRecord record{};
+    const bool loaded = storage.getBytesLength(key) == sizeof(record) && storage.getBytes(key, &record, sizeof(record)) == sizeof(record);
+    storage.end();
+    const uint32_t checksum = record.checksum;
+    record.checksum = 0;
+    if (!loaded || record.magic != CAMERA_PTZ_MAGIC || record.id != ctx.id || record.schemaVersion != CAMERA_PTZ_SCHEMA_VERSION || record.payloadSize != sizeof(CameraPtzSettings) || checksum != settingsChecksum(record) || record.values.invertPan > 1) {
+        Serial.printf("PTZ settings of camera %lu ignored; using defaults\n", static_cast<unsigned long>(ctx.id));
+        return;
+    }
+    ctx.ptzSettings = record.values;
 }
 
 void loadRuntimeSettings()
@@ -1201,6 +1258,7 @@ void loadRuntimeSettings()
             }
             loadRebootLimiter(*entry);
             loadCameraPatrol(*entry);
+            loadCameraPtzSettings(*entry);
             *link = std::move(entry);
             link = &(*link)->next;
             cameraCount++;

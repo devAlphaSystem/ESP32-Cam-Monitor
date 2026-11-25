@@ -191,22 +191,33 @@ main{min-width:0;padding:20px 24px 24px}
 .segmented button:focus-visible{outline-offset:-2px}
 .btn.ptz-open-btn{gap:8px;padding-block:0;white-space:nowrap}
 .ptz-count{display:inline-grid;min-width:21px;height:20px;place-items:center;padding:0 5px;border-radius:4px;background:#ffffff1f;font-size:11px;font-variant-numeric:tabular-nums}
-.viewer-stage{position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:var(--stage);overflow:hidden}
+.viewer-stage{--feed-btn:40px;position:relative;display:grid;place-items:center;aspect-ratio:16/9;background:var(--stage);overflow:hidden}
 .viewer-stage img{position:relative;z-index:1;grid-area:1/1;width:100%;height:100%;object-fit:contain;opacity:0}
 .viewer-stage img.ready{opacity:1;cursor:zoom-in}
 .feed-state{position:absolute;z-index:3;inset:0;display:grid;place-items:center;text-align:center;padding:24px;background:#050506e0;color:#e6e6e8;font-size:14px}
 .feed-state.hidden{opacity:0;pointer-events:none}
-.feed-stamp{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:5px 9px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums}
+.feed-stamp,.feed-ptz-status{position:absolute;z-index:4;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:5px 9px;border-radius:4px;background:#000000b3;color:#e6e6e8;font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums}
 .feed-stamp:empty{display:none}
-.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px;display:grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff40;border-radius:6px;background:#000000b3;color:#fff;cursor:pointer}
-@media(hover:hover){.feed-fs-btn:hover{background:var(--surface-hover)}}
-.feed-fs-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feed-ptz-status:empty{padding:0;background:none}
+.feed-ptz-status.warn{color:var(--warn)}.feed-ptz-status.bad{color:var(--bad)}
+.viewer-stage.ptz-ready .feed-ptz-status{max-width:calc(100% - 42px - 3 * var(--feed-btn))}
+.feed-fs-btn{position:absolute;z-index:5;right:12px;top:12px}
+.feed-fs-btn,.feed-ptz-btn{display:grid;place-items:center;width:var(--feed-btn);height:var(--feed-btn);border:1px solid #ffffff40;border-radius:6px;background:#000000b3;color:#fff;cursor:pointer}
+@media(hover:hover){.feed-fs-btn:hover,.feed-ptz-btn:hover:not(:disabled){background:var(--surface-hover)}}
+.feed-ptz-btn.moving,.feed-ptz-btn.moving:hover{background:var(--button-primary);border-color:var(--button-primary);color:var(--on-primary)}
+.feed-ptz-btn:disabled{opacity:.45;cursor:not-allowed}
+.feed-fs-btn svg,.feed-ptz-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feed-ptz{position:absolute;z-index:5;right:12px;bottom:12px;display:grid;grid-template-columns:repeat(3,var(--feed-btn));grid-auto-rows:var(--feed-btn);gap:6px}
+.viewer-stage:not(.ptz-ready) .feed-ptz{display:none}
+.feed-ptz-btn{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.feed-ptz-btn[data-ptz-direction="up"]{grid-area:1/2}.feed-ptz-btn[data-ptz-direction="left"]{grid-area:2/1}.feed-ptz-btn[data-ptz-direction="down"]{grid-area:2/2}.feed-ptz-btn[data-ptz-direction="right"]{grid-area:2/3}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen,.viewer-stage.fs-fallback{aspect-ratio:auto;min-height:0;max-height:none;background:#000}
 .viewer-stage:fullscreen,.viewer-stage:-webkit-full-screen{width:100%;height:100%}
 .viewer-stage.fs-fallback{position:fixed;inset:0;z-index:999;width:100vw;height:100dvh}
 .viewer-stage:fullscreen .feed-fs-btn,.viewer-stage:-webkit-full-screen .feed-fs-btn,.viewer-stage.fs-fallback .feed-fs-btn{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right))}
+.viewer-stage:fullscreen .feed-ptz,.viewer-stage:-webkit-full-screen .feed-ptz,.viewer-stage.fs-fallback .feed-ptz{bottom:max(12px,env(safe-area-inset-bottom));right:max(12px,env(safe-area-inset-right))}
 .viewer-stage:fullscreen .live-badge,.viewer-stage:-webkit-full-screen .live-badge,.viewer-stage.fs-fallback .live-badge{top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left))}
-.viewer-stage:fullscreen .feed-stamp,.viewer-stage:-webkit-full-screen .feed-stamp,.viewer-stage.fs-fallback .feed-stamp{left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom))}
+.viewer-stage:fullscreen .feed-stamp,.viewer-stage:-webkit-full-screen .feed-stamp,.viewer-stage.fs-fallback .feed-stamp,.viewer-stage:fullscreen .feed-ptz-status,.viewer-stage:-webkit-full-screen .feed-ptz-status,.viewer-stage.fs-fallback .feed-ptz-status{left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom))}
 .viewer-stage:fullscreen img,.viewer-stage:-webkit-full-screen img,.viewer-stage.fs-fallback img{cursor:zoom-out}
 body.fs-locked{overflow:hidden}
 .viewer-stage video{position:relative;z-index:1;grid-area:1/1;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;cursor:zoom-in}
@@ -444,7 +455,7 @@ body.fs-locked{overflow:hidden}
 @media(max-width:1000px) and (pointer:coarse){
   :root{--control-h:44px}
   .segmented button{min-height:40px}
-  .feed-fs-btn{width:44px;height:44px}
+  .viewer-stage{--feed-btn:44px}
 }
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -530,6 +541,13 @@ body.fs-locked{overflow:hidden}
         <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
         <svg class="ic-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 9V5a2 2 0 0 1 2-2h4M20 9V5a2 2 0 0 0-2-2h-4M4 15v4a2 2 0 0 0 2 2h4M20 15v4a2 2 0 0 1-2 2h-4"/></svg>
       </button>
+      <div class="feed-ptz" id="ptzPad" role="group" aria-label="Move the camera" data-source="live">
+        <button type="button" class="feed-ptz-btn" data-ptz-direction="up" aria-label="Move up" title="Press and hold to move up" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6"/></svg></button>
+        <button type="button" class="feed-ptz-btn" data-ptz-direction="left" aria-label="Move left" title="Press and hold to move left" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button type="button" class="feed-ptz-btn" data-ptz-direction="down" aria-label="Move down" title="Press and hold to move down" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button type="button" class="feed-ptz-btn" data-ptz-direction="right" aria-label="Move right" title="Press and hold to move right" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <p class="feed-ptz-status" id="ptzPadStatus" role="status" aria-live="polite" data-source="live"></p>
     </div>
     <div class="form-result" id="ptzActionStatus" hidden></div>
   </section>
@@ -752,6 +770,14 @@ body.fs-locked{overflow:hidden}
             <div class="field"><div class="checkline"><input id="cfgPatrolEnabled" type="checkbox" role="switch"><label for="cfgPatrolEnabled"><b>Enable patrol</b><span>Moves the camera through the presets below in order, then starts again from the first. Keeps running while the camera is viewed. The Camera tab has the same switch.</span></label></div></div>
             <div class="field"><label for="cfgPatrolAdd">Add a preset <span>up to 16</span></label><div class="patrol-add"><select id="cfgPatrolAdd"></select><button class="btn" type="button" id="cfgPatrolAddButton">Add to patrol</button></div><small id="cfgPatrolCatalogStatus">Waiting for the camera's preset list.</small></div>
             <div class="field patrol-route-field"><p class="patrol-route-title" id="cfgPatrolRouteTitle">Patrol order <span id="cfgPatrolCount">0 of 16</span></p><ol class="ptz-list patrol-route" id="cfgPatrolRoute" role="list" aria-labelledby="cfgPatrolRouteTitle"></ol><small id="cfgPatrolStatus" class="patrol-announce" aria-live="polite"></small></div>
+          </div>
+          </div>
+        </details>
+        <details class="settings-advanced">
+          <summary>PTZ controls</summary>
+          <div class="dev-body">
+          <div class="form-grid">
+            <div class="field"><div class="checkline"><input id="cfgPtzInvertPan" type="checkbox" role="switch"><label for="cfgPtzInvertPan"><b>Invert pan arrows</b><span>Swap the Left and Right arrows when this camera pans the wrong way.</span></label></div></div>
           </div>
           </div>
         </details>
@@ -1187,6 +1213,7 @@ function selectCamera(id) {
   if (settingsBusy || !$('adminConfirmModal').hidden) return;
   if (settingsDirty && !window.confirm('Discard the unsaved changes before switching cameras?')) return;
   settingsDirty = false;
+  endPtzHold();
   selectedCameraId = id;
   cameraSelectionManual = true;
   settingsRequestGeneration++;
@@ -1769,6 +1796,7 @@ async function loadCameraRegistry(signal) {
   if ((!selected || shouldFollowActiveCamera) && nextCameraId !== selectedCameraId) {
     const previousScope = currentSettingsScope();
     const previousSettingsId = previousScope === 'global' ? 0 : selectedCameraId;
+    endPtzHold();
     cancelFeedLoad(true);
     $('cameraFeed').removeAttribute('src');
     selectedCameraId = nextCameraId;
@@ -1895,6 +1923,8 @@ let settingsPasswordRequired = false;
 let ptzPresets = [];
 let ptzCatalog = {};
 let ptzControlsEnabled = false;
+let ptzPadMutationEnabled = false;
+let ptzAdminActionPending = false;
 let patrolRoute = [];
 let patrolDwell = {};
 let patrolWaitSerial = 0;
@@ -2799,7 +2829,8 @@ const SETTINGS_FIELDS = {
   feedMinIntervalMs: { id: 'cfgFeedMinimum', scale: 1000 },
   feedTargetCycleMs: { id: 'cfgFeedTarget', scale: 1000 },
   statusRefreshIntervalMs: { id: 'cfgStatusRefresh', scale: 1000 },
-  patrolEnabled: { id: 'cfgPatrolEnabled', kind: 'bool' }
+  patrolEnabled: { id: 'cfgPatrolEnabled', kind: 'bool' },
+  ptzInvertPan: { id: 'cfgPtzInvertPan', kind: 'bool' }
 };
 
 function formatSettingNumber(value) {
@@ -2874,6 +2905,8 @@ function setMutationControlsEnabled(enabled) {
   $('patrolSwitch').disabled = !enabled || !ptzControlsEnabled || !patrolSwitchUsable();
   firmwareMutationEnabled = enabled;
   updateFirmwareControls();
+  ptzPadMutationEnabled = enabled;
+  syncPtzPad();
 }
 
 function settingsAuthorizationReady(source) {
@@ -3101,7 +3134,10 @@ async function postForm(url, params, options) {
   let payload = {};
   try { payload = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; }
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.detail || payload.message || 'HTTP ' + response.status);
+    const error = new Error(payload.detail || payload.message || 'HTTP ' + response.status);
+    error.status = response.status;
+    error.code = payload.error || '';
+    throw error;
   }
   return payload;
 }
@@ -3137,6 +3173,7 @@ async function saveSettings(password) {
   setSettingsStatus('Validating and saving to NVS…', 'warn');
   try {
     const payload = await postForm('/api/settings', collectMutationParams(true, password));
+    if (payload.scope === 'global') ptzGrant = { token: '', expiresAt: 0, idleMs: 0 };
     populateSettings(payload);
     if (payload.scope === 'camera') setPatrolResult('', '');
     setSettingsStatus(
@@ -3156,7 +3193,7 @@ $('settingsReset').addEventListener('click', () => {
   if (settingsBusy || !settingsAuthorizationReady('settings')) return;
   openConfirmModal(currentSettingsScope() === 'global'
     ? 'Restore all device settings, including advanced values and the local address. The hostname returns to its firmware default. Camera settings, saved Wi-Fi networks, the admin password, the Resend key, the alert sender, and the alert recipient are kept.'
-    : 'Restore all settings of ' + selectedCameraName() + ', including advanced values and the patrol, while keeping its username and password.', password => resetSettings(password));
+    : 'Restore all settings of ' + selectedCameraName() + ', including advanced values and the patrol, while keeping its username, password, and Invert pan arrows setting.', password => resetSettings(password));
 });
 
 async function resetSettings(password) {
@@ -3502,8 +3539,10 @@ function renderPtz(d) {
   ptzCatalog = d.onvif && d.onvif.ptz ? d.onvif.ptz : {};
   if (!ptzCatalog.available) ptzCatalog.unavailableReason = ptzUnavailableReason(d.onvif);
   ptzPresets = Array.isArray(ptzCatalog.presets) ? ptzCatalog.presets : [];
-  const pending = Boolean(d.adminAction && d.adminAction.pending !== 'none');
-  ptzControlsEnabled = Boolean(settingsWriteToken) && !settingsBusy && !pending;
+  ptzAdminActionPending = Boolean(d.adminAction && d.adminAction.pending !== 'none');
+  ptzControlsEnabled = Boolean(settingsWriteToken) && !settingsBusy && !ptzAdminActionPending;
+  syncPtzPad();
+  syncPtzStopNotice(ptzCatalog.manualMove);
   const usableCount = ptzPresets.length;
   const menuButton = $('ptzMenuButton');
   menuButton.disabled = !ptzCatalog.available || !ptzCatalog.presetsLoaded || !usableCount;
@@ -3835,7 +3874,10 @@ async function executePatrolToggle(camera, enable, password) {
     params.set('cameraId', String(camera.id));
     params.set('enabled', enable ? '1' : '0');
     const payload = await postForm('/api/settings/patrol', params);
-    if (camera.id === selectedCameraId) renderPatrolStatus(payload.patrol, camera.id);
+    if (camera.id === selectedCameraId) {
+      patrolEnabledEdited = false;
+      renderPatrolStatus(payload.patrol, camera.id);
+    }
     setPatrolResult((enable ? 'Patrol turned on for ' : 'Patrol turned off for ') + camera.name + '.', 'ok');
     refresh();
   } catch (error) {
@@ -4288,6 +4330,11 @@ const LivePlayer = (() => {
         this.playing = false;
         if (!this.heldAt) this.heldAt = performance.now();
       });
+      ['ended', 'error'].forEach(type => {
+        video.addEventListener(type, () => {
+          if (this.initialized) this.restart('stalled');
+        });
+      });
     }
 
     reset() {
@@ -4726,6 +4773,7 @@ function setLiveOverlay(text, showRetry) {
   $('liveState').classList.toggle('hidden', !text);
   $('liveStateText').textContent = text || '';
   $('liveRetry').hidden = !showRetry;
+  syncPtzPad();
 }
 
 function setLiveBadge(on, text) {
@@ -4790,6 +4838,7 @@ function stopLive() {
   liveStartedFor = 0;
   liveStartedQuality = '';
   liveVideo.classList.remove('ready');
+  syncPtzPad();
 }
 
 $('liveQuality').addEventListener('change', () => {
@@ -4798,7 +4847,291 @@ $('liveQuality').addEventListener('change', () => {
   startLive();
 });
 $('liveRetry').addEventListener('click', () => { liveFatalSource = null; stopLive(); startLive(); });
-window.addEventListener('pagehide', () => livePlayer.stop());
+
+const PTZ_REQUEST_TIMEOUT_MS = 5000;
+const PTZ_NUDGE_MS = 300;
+const PTZ_HOLD_MAX_MS = 15000;
+const PTZ_STALL_MS = 1500;
+const PTZ_STOP_NOTICE = 'The camera has not confirmed the stop. The ESP32 keeps trying.';
+const ptzPad = $('ptzPad');
+let ptzGrant = { token: '', expiresAt: 0, idleMs: 0 };
+let ptzUnlockKey = '';
+let ptzStallTimer = null;
+let ptzStopNotice = '';
+const ptzMotion = { wanted: '', cameraId: 0, moving: false, inFlight: false, generation: 0, renewTimer: null, renewMs: 500, holdTimer: null, nudgeTimer: null, pointerId: null, key: '', button: null };
+
+function livePlaying() {
+  return liveVideo.classList.contains('ready') && $('liveState').classList.contains('hidden') && (livePlayer.playing || ptzStallTimer !== null);
+}
+
+function ptzPadUsable() {
+  return liveModeActive() && livePlaying() && Boolean(ptzCatalog.available && ptzCatalog.profileResolved) && ptzCatalog.panTilt !== 'unsupported';
+}
+
+function ptzPadEnabled() {
+  return ptzPadUsable() && ptzPadMutationEnabled && !ptzAdminActionPending && !settingsBusy && !factoryResetPending && Boolean(settingsWriteToken);
+}
+
+function setPtzPadStatus(message, tone) {
+  const target = $('ptzPadStatus');
+  const text = ptzPadUsable() ? message : '';
+  if (target.textContent !== text) target.textContent = text;
+  target.className = 'feed-ptz-status' + (text && tone ? ' ' + tone : '');
+}
+
+function setPtzStopNotice(message, tone) {
+  ptzStopNotice = message;
+  setPtzPadStatus(message, tone);
+}
+
+function syncPtzStopNotice(manualMove) {
+  const move = manualMove || {};
+  const shown = $('ptzPadStatus').textContent;
+  if (move.stopPending || move.stopUnconfirmed) {
+    if (!shown || shown === ptzStopNotice) setPtzStopNotice(PTZ_STOP_NOTICE, 'warn');
+  } else if (ptzStopNotice) {
+    if (shown === ptzStopNotice) setPtzPadStatus('', '');
+    ptzStopNotice = '';
+  }
+}
+
+function syncPtzPad() {
+  const usable = ptzPadUsable();
+  const enabled = ptzPadEnabled();
+  cameraStage.classList.toggle('ptz-ready', usable);
+  ptzPad.querySelectorAll('[data-ptz-direction]').forEach(button => { button.disabled = !enabled; });
+  if (!usable) {
+    clearTimeout(ptzStallTimer);
+    ptzStallTimer = null;
+    setPtzPadStatus('', '');
+  }
+  if (!enabled) endPtzHold();
+}
+
+function ptzGrantNeeded() {
+  return settingsPasswordRequired && !(ptzGrant.token && Date.now() < ptzGrant.expiresAt);
+}
+
+function postPtzForm(url, params, keepalive) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PTZ_REQUEST_TIMEOUT_MS);
+  return postForm(url, params, { signal: controller.signal, keepalive }).finally(() => clearTimeout(timer));
+}
+
+function postPtzMove(direction, cameraId, keepalive) {
+  const params = new URLSearchParams();
+  params.set('writeToken', settingsWriteToken);
+  params.set('cameraId', String(cameraId));
+  params.set('direction', direction);
+  if (direction !== 'stop' && ptzGrant.token) params.set('ptzToken', ptzGrant.token);
+  return postPtzForm('/api/ptz/move', params, keepalive);
+}
+
+function ptzErrorDetail(error) {
+  return error.name === 'AbortError' ? 'the ESP32 did not answer in time' : error.message;
+}
+
+function reportPtzMoveError(error) {
+  if (error.code === 'ptz_grant_required') {
+    ptzGrant = { token: '', expiresAt: 0, idleMs: 0 };
+    setPtzPadStatus('Confirm the admin password again to move the camera.', 'warn');
+    loadSettings(true);
+  } else if (error.code === 'timeout_unsupported') {
+    setPtzPadStatus(error.message, 'warn');
+  } else if (error.status === 403) {
+    ptzGrant = { token: '', expiresAt: 0, idleMs: 0 };
+    setPtzPadStatus('Movement refused: ' + error.message, 'bad');
+    loadSettings(true);
+  } else {
+    setPtzPadStatus('Movement refused: ' + ptzErrorDetail(error), 'bad');
+  }
+}
+
+function schedulePtzRenewal() {
+  ptzMotion.renewTimer = setTimeout(() => {
+    ptzMotion.renewTimer = null;
+    pumpPtzMotion();
+  }, ptzMotion.renewMs);
+}
+
+async function sendPtzRequest(direction) {
+  const cameraId = ptzMotion.cameraId;
+  const generation = ptzMotion.generation;
+  ptzMotion.inFlight = true;
+  try {
+    const payload = await postPtzMove(direction, cameraId, false);
+    if (generation !== ptzMotion.generation) return;
+    if (direction === 'stop') {
+      ptzMotion.moving = false;
+      if (payload.stopPending) setPtzStopNotice(PTZ_STOP_NOTICE, 'warn');
+    } else {
+      ptzMotion.moving = true;
+      ptzMotion.renewMs = Math.max(200, Math.floor(Number(payload.leaseMs) / 3));
+      if (ptzGrant.token) ptzGrant.expiresAt = Date.now() + ptzGrant.idleMs;
+      if (ptzMotion.wanted === direction) {
+        setPtzPadStatus('', '');
+        schedulePtzRenewal();
+      }
+    }
+  } catch (error) {
+    if (generation !== ptzMotion.generation) return;
+    if (direction === 'stop') {
+      ptzMotion.moving = false;
+      setPtzStopNotice('Stop not confirmed: ' + ptzErrorDetail(error), 'bad');
+    } else if (error.status === 503 && ptzMotion.moving && ptzMotion.wanted === direction) {
+      schedulePtzRenewal();
+    } else {
+      if (!(error.status >= 400 && error.status < 500)) ptzMotion.moving = true;
+      endPtzHold();
+      reportPtzMoveError(error);
+    }
+  } finally {
+    ptzMotion.inFlight = false;
+    pumpPtzMotion();
+  }
+}
+
+function pumpPtzMotion() {
+  if (ptzMotion.inFlight || ptzMotion.renewTimer) return;
+  if (ptzMotion.wanted && (ptzMotion.cameraId !== selectedCameraId || !ptzPadEnabled())) {
+    endPtzHold();
+    return;
+  }
+  if (ptzMotion.wanted) sendPtzRequest(ptzMotion.wanted);
+  else if (ptzMotion.moving) sendPtzRequest('stop');
+}
+
+function setPtzWanted(direction) {
+  if (direction !== ptzMotion.wanted) {
+    clearTimeout(ptzMotion.renewTimer);
+    ptzMotion.renewTimer = null;
+  }
+  ptzMotion.wanted = direction;
+  pumpPtzMotion();
+}
+
+function startPtzHold(button) {
+  if (!ptzPadEnabled() || ((ptzMotion.moving || ptzMotion.inFlight) && ptzMotion.cameraId !== selectedCameraId)) return false;
+  ptzMotion.button = button;
+  ptzMotion.cameraId = selectedCameraId;
+  button.classList.add('moving');
+  ptzMotion.holdTimer = setTimeout(() => {
+    endPtzHold();
+    setPtzPadStatus('Hold released after ' + PTZ_HOLD_MAX_MS / 1000 + ' s. Press again to keep moving.', 'warn');
+  }, PTZ_HOLD_MAX_MS);
+  setPtzWanted(button.dataset.ptzDirection);
+  return true;
+}
+
+function endPtzHold() {
+  clearTimeout(ptzMotion.holdTimer);
+  clearTimeout(ptzMotion.nudgeTimer);
+  ptzMotion.holdTimer = null;
+  ptzMotion.nudgeTimer = null;
+  if (ptzMotion.button) ptzMotion.button.classList.remove('moving');
+  ptzMotion.button = null;
+  ptzMotion.pointerId = null;
+  ptzMotion.key = '';
+  setPtzWanted('');
+}
+
+async function requestPtzGrant(password, button) {
+  settingsBusy = true;
+  setMutationControlsEnabled(false);
+  try {
+    const payload = await postPtzForm('/api/ptz/grant', collectMutationParams(false, password), false);
+    const idleMs = Number(payload.idleSeconds) * 1000;
+    ptzGrant = { token: String(payload.ptzToken || ''), expiresAt: Date.now() + idleMs, idleMs };
+    setPtzPadStatus('Press and hold an arrow to move the camera.', '');
+    refresh();
+  } catch (error) {
+    setPtzPadStatus('Could not allow the arrows: ' + ptzErrorDetail(error), 'bad');
+  } finally {
+    settingsBusy = false;
+    setMutationControlsEnabled(Boolean(settingsWriteToken));
+    if (!button.disabled && (!document.activeElement || document.activeElement === document.body)) button.focus();
+  }
+}
+
+async function openPtzGrantDialog(button) {
+  if (settingsBusy || !settingsWriteToken) return;
+  if (isNativeFullscreen()) {
+    try { await (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (error) {}
+    if (isNativeFullscreen()) {
+      setPtzPadStatus('Leave full screen, then press an arrow to confirm the admin password.', 'warn');
+      return;
+    }
+  }
+  openConfirmModal('Allow the arrow buttons on the video to move the cameras from this page. The permission ends after 10 minutes without a move.', password => requestPtzGrant(password, button));
+}
+
+ptzPad.addEventListener('pointerdown', event => {
+  const button = event.target.closest('[data-ptz-direction]');
+  if (!button || button.disabled || (event.pointerType === 'mouse' && event.button !== 0) || ptzMotion.button || ptzGrantNeeded()) return;
+  if (!startPtzHold(button)) return;
+  ptzMotion.pointerId = event.pointerId;
+  button.setPointerCapture(event.pointerId);
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+  ptzPad.addEventListener(type, event => {
+    if (ptzMotion.pointerId !== null && event.pointerId === ptzMotion.pointerId) endPtzHold();
+  });
+});
+ptzPad.addEventListener('keydown', event => {
+  const button = event.target.closest('[data-ptz-direction]');
+  if (!button || (event.key !== 'Enter' && event.key !== ' ')) return;
+  event.preventDefault();
+  if (event.repeat || ptzMotion.button || button.disabled) return;
+  if (ptzGrantNeeded()) ptzUnlockKey = event.key;
+  else if (startPtzHold(button)) ptzMotion.key = event.key;
+});
+ptzPad.addEventListener('keyup', event => {
+  if (ptzUnlockKey && event.key === ptzUnlockKey) {
+    event.preventDefault();
+    ptzUnlockKey = '';
+    const button = event.target.closest('[data-ptz-direction]');
+    if (button && !button.disabled) openPtzGrantDialog(button);
+    return;
+  }
+  if (!ptzMotion.key || event.key !== ptzMotion.key) return;
+  event.preventDefault();
+  endPtzHold();
+});
+ptzPad.addEventListener('focusout', () => {
+  ptzUnlockKey = '';
+  if (ptzMotion.key) endPtzHold();
+});
+ptzPad.addEventListener('click', event => {
+  const button = event.target.closest('[data-ptz-direction]');
+  if (!button || button.disabled) return;
+  if (ptzGrantNeeded()) {
+    openPtzGrantDialog(button);
+    return;
+  }
+  if (event.detail !== 0 || ptzMotion.button || !startPtzHold(button)) return;
+  ptzMotion.nudgeTimer = setTimeout(endPtzHold, PTZ_NUDGE_MS);
+});
+ptzPad.addEventListener('contextmenu', event => event.preventDefault());
+liveVideo.addEventListener('waiting', () => {
+  if (livePlayer.playing || ptzStallTimer !== null || !cameraStage.classList.contains('ptz-ready')) return;
+  ptzStallTimer = setTimeout(() => {
+    ptzStallTimer = null;
+    syncPtzPad();
+  }, PTZ_STALL_MS);
+});
+liveVideo.addEventListener('playing', () => {
+  clearTimeout(ptzStallTimer);
+  ptzStallTimer = null;
+});
+window.addEventListener('blur', () => endPtzHold());
+window.addEventListener('pagehide', () => {
+  livePlayer.stop();
+  const stopOwed = Boolean(ptzMotion.wanted || ptzMotion.moving || ptzMotion.inFlight);
+  ptzMotion.generation++;
+  ptzMotion.moving = false;
+  endPtzHold();
+  if (stopOwed) postPtzMove('stop', ptzMotion.cameraId, true).catch(() => {});
+});
 
 function activateView(name, updateHash) {
   const nextView = ['overview', 'camera', 'settings', 'resources'].includes(name)

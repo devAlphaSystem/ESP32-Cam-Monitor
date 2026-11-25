@@ -64,6 +64,11 @@ struct CameraPatrolSettings {
     char presetTokens[CAMERA_PATROL_PRESET_CAPACITY][CAMERA_PATROL_TOKEN_MAX_LENGTH + 1];
 };
 
+struct CameraPtzSettings {
+    uint8_t invertPan;
+    uint8_t reserved[3];
+};
+
 static_assert(sizeof(RuntimeSettings) <= 512, "RuntimeSettings exceeded the planned limit");
 static_assert(sizeof(DeviceSecrets) <= 512, "DeviceSecrets exceeded the planned limit");
 static_assert(sizeof(CameraPatrolSettings) <= 1200, "CameraPatrolSettings exceeded the planned limit");

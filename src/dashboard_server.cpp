@@ -353,7 +353,19 @@ String buildStatusJson(CameraContext& ctx)
     json += ctx.onvifPtz.truncated ? "true" : "false";
     json += ",\"daemonPresetToken\":\"";
     json += jsonEscape(CAMERA_DAEMON_PRESET_TOKEN);
-    json += "\",\"refreshAttempts\":";
+    json += "\",\"panTilt\":\"";
+    json += ctx.onvifPtz.panTilt == OnvifPtzPanTilt::Supported ? "supported" : ctx.onvifPtz.panTilt == OnvifPtzPanTilt::Unsupported ? "unsupported" : "unknown";
+    json += "\",\"invertPan\":";
+    json += ctx.ptzSettings.invertPan ? "true" : "false";
+    json += ",\"manualMove\":{\"active\":";
+    json += ctx.manualPtz.active ? "true" : "false";
+    json += ",\"stopPending\":";
+    json += ctx.manualPtz.stopPending ? "true" : "false";
+    json += ",\"stopUnconfirmed\":";
+    json += ctx.manualPtz.stopUnconfirmed ? "true" : "false";
+    json += ",\"cameraTimeout\":";
+    json += ctx.onvifPtz.moveTimeoutRejected ? "false" : "true";
+    json += "},\"refreshAttempts\":";
     json += ctx.onvifPtz.refreshAttempts;
     json += ",\"refreshSuccesses\":";
     json += ctx.onvifPtz.refreshSuccesses;
@@ -1039,6 +1051,21 @@ void sendApiError(int statusCode, const char* code, const String& detail)
     sendJsonResponse(statusCode, json);
 }
 
+bool dashboardWriteTokenValid(String& error)
+{
+    if (!httpServer.hasArg("writeToken")) {
+        error = "Write token missing; reload the Settings tab";
+        return false;
+    }
+
+    if (httpServer.arg("writeToken") != settingsWriteToken) {
+        error = "Invalid write token; reload the page";
+        return false;
+    }
+
+    return true;
+}
+
 bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck, bool blockDuringFirmwareUpdate)
 {
     if (blockDuringFirmwareUpdate && firmwareUpdateMaintenanceActive()) {
@@ -1051,13 +1078,7 @@ bool authorizeDashboardMutation(String& error, bool blockDuringHealthCheck, bool
         return false;
     }
 
-    if (!httpServer.hasArg("writeToken")) {
-        error = "Write token missing; reload the Settings tab";
-        return false;
-    }
-
-    if (httpServer.arg("writeToken") != settingsWriteToken) {
-        error = "Invalid write token; reload the page";
+    if (!dashboardWriteTokenValid(error)) {
         return false;
     }
 
@@ -1594,7 +1615,8 @@ String buildSettingsJson(CameraContext* ctx)
             appendJsonEscaped(json, ctx->patrolSettings.presetTokens[index]);
             json += '"';
         }
-        json += ']';
+        json += "],\"ptzInvertPan\":";
+        json += ctx->ptzSettings.invertPan;
     }
     json += "}}";
     return json;
@@ -1742,6 +1764,33 @@ bool storeCameraPatrol(CameraContext& ctx, const CameraPatrolSettings& candidate
     return true;
 }
 
+bool storeCameraPtz(CameraContext& ctx, const CameraPtzSettings& candidate)
+{
+    if (memcmp(&candidate, &ctx.ptzSettings, sizeof(CameraPtzSettings)) == 0)
+        return true;
+    if (!saveCameraPtzToNvs(ctx, candidate))
+        return false;
+    ctx.ptzSettings = candidate;
+    return true;
+}
+
+constexpr unsigned long PTZ_GRANT_IDLE_MS = 600000UL;
+constexpr char PTZ_TIMEOUT_UNSUPPORTED_TEXT[] = "This camera cannot stop moving by itself, so the arrows are off.";
+String ptzGrantToken;
+unsigned long ptzGrantUsedAtMs = 0;
+
+void maintainPtzGrant()
+{
+    if (!ptzGrantToken.isEmpty() && millis() - ptzGrantUsedAtMs >= PTZ_GRANT_IDLE_MS)
+        ptzGrantToken = String();
+}
+
+bool ptzGrantActive()
+{
+    maintainPtzGrant();
+    return !ptzGrantToken.isEmpty();
+}
+
 void handleSaveSettings()
 {
     String error;
@@ -1756,6 +1805,7 @@ void handleSaveSettings()
     if (!globalScope && ctx == nullptr)
         return;
     bool patrolSaveFailed = false;
+    bool ptzSaveFailed = false;
     if (globalScope) {
         GlobalSettings candidate = globalSettings;
         if (!parseGlobalSettingsRequest(candidate, error)) {
@@ -1772,8 +1822,11 @@ void handleSaveSettings()
             return;
         }
         const GlobalSettings previous = globalSettings;
+        const bool adminPasswordChanged = strcmp(deviceSecrets.adminPassword, secretsCandidate.adminPassword) != 0;
         globalSettings = candidate;
         deviceSecrets = secretsCandidate;
+        if (adminPasswordChanged)
+            ptzGrantToken = String();
         settingsLoadedFromNvs = true;
         applyGlobalSettings(previous);
     } else {
@@ -1787,6 +1840,15 @@ void handleSaveSettings()
             sendApiError(422, "invalid_settings", error);
             return;
         }
+        CameraPtzSettings ptzCandidate{};
+        if (!readBooleanSettingArgument("ptzInvertPan", ptzCandidate.invertPan, error)) {
+            sendApiError(422, "invalid_settings", error);
+            return;
+        }
+        if (ptzCandidate.invertPan != ctx->ptzSettings.invertPan && manualPtzMoveActive()) {
+            sendApiError(409, "action_busy", "Wait until the camera stops moving before changing the pan arrows");
+            return;
+        }
         if (!saveRuntimeSettingsToNvs(*ctx, candidate)) {
             sendApiError(500, "nvs_write_failed", "Failed to write camera settings");
             return;
@@ -1796,12 +1858,14 @@ void handleSaveSettings()
         ctx->settingsLoadedFromNvs = true;
         applyRuntimeSettings(*ctx, previous);
         patrolSaveFailed = !storeCameraPatrol(*ctx, patrolCandidate);
+        ptzSaveFailed = !storeCameraPtz(*ctx, ptzCandidate);
     }
     settingsRevision++;
     settingsWriteCount++;
-    if (patrolSaveFailed) {
-        lastSettingsResult = currentTimestamp() + " - camera settings saved; patrol not saved";
-        sendApiError(500, "nvs_write_failed", "Camera settings saved, but the patrol settings could not be written");
+    if (patrolSaveFailed || ptzSaveFailed) {
+        const char* unsaved = !ptzSaveFailed ? "patrol" : !patrolSaveFailed ? "pan arrow" : "patrol and pan arrow";
+        lastSettingsResult = currentTimestamp() + " - camera settings saved; " + unsaved + " not saved";
+        sendApiError(500, "nvs_write_failed", String("Camera settings saved, but the ") + unsaved + " settings could not be written");
         return;
     }
     lastSettingsResult = currentTimestamp() + " - settings saved";
@@ -1901,6 +1965,10 @@ bool queueAdminAction(AdminAction action, uint32_t cameraId, String& error)
 {
     if (currentAdminAction() != AdminAction::None) {
         error = "Another action is in progress";
+        return false;
+    }
+    if (manualPtzMoveActive()) {
+        error = "Wait until the camera stops moving";
         return false;
     }
     pendingAdminCameraId = cameraId;
@@ -2060,6 +2128,11 @@ void handleFactoryReset()
         return;
     }
 
+    if (manualPtzMoveActive()) {
+        sendApiError(409, "action_busy", "Wait until the camera stops moving before the reset");
+        return;
+    }
+
     factoryResetRequestedAtMs = millis();
     factoryResetFailed = false;
     lastAdminActionResult = "Factory data reset scheduled";
@@ -2110,6 +2183,136 @@ void handleGotoPtzPresetAction()
     json += jsonEscape(presetToken);
     json += "\",\"message\":\"PTZ movement received and will be run by the main loop\"}";
     sendJsonResponse(202, json);
+}
+
+void handlePtzGrant()
+{
+    String error;
+    if (!authorizeDashboardMutation(error, false)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+    if (!ptzGrantActive())
+        ptzGrantToken = makeSettingsWriteToken();
+    ptzGrantUsedAtMs = millis();
+    String json;
+    json.reserve(96);
+    json += "{\"ok\":true,\"ptzToken\":\"";
+    json += ptzGrantToken;
+    json += "\",\"idleSeconds\":";
+    json += PTZ_GRANT_IDLE_MS / 1000UL;
+    json += '}';
+    sendJsonResponse(200, json);
+}
+
+void handlePtzMove()
+{
+    const String directionText = httpServer.arg("direction");
+    const bool stopRequested = directionText == "stop";
+    PtzMoveDirection direction = PtzMoveDirection::Up;
+    if (directionText == "down")
+        direction = PtzMoveDirection::Down;
+    else if (directionText == "left")
+        direction = PtzMoveDirection::Left;
+    else if (directionText == "right")
+        direction = PtzMoveDirection::Right;
+    else if (directionText != "up" && !stopRequested) {
+        sendApiError(422, "invalid_direction", "Provide up, down, left, right or stop");
+        return;
+    }
+
+    String error;
+    if (!dashboardWriteTokenValid(error)) {
+        sendApiError(403, "forbidden", error);
+        return;
+    }
+    if (!stopRequested && adminPasswordConfigured() && (!ptzGrantActive() || !secureTextEquals(httpServer.arg("ptzToken"), ptzGrantToken.c_str()))) {
+        sendApiError(403, "ptz_grant_required", "Confirm the admin password to move the camera");
+        return;
+    }
+
+    CameraContext* selected = requestedCamera();
+    if (selected == nullptr)
+        return;
+    CameraContext& ctx = *selected;
+    String result;
+
+    if (stopRequested) {
+        const ManualPtzStop outcome = stopManualPtzMove(ctx, result);
+        if (outcome == ManualPtzStop::Unconfirmed) {
+            sendApiError(502, "stop_not_confirmed", result);
+            return;
+        }
+        String json;
+        json.reserve(result.length() + 96);
+        json += "{\"ok\":true,\"cameraId\":";
+        json += ctx.id;
+        if (outcome == ManualPtzStop::Pending) {
+            json += ",\"stopPending\":true,\"message\":\"";
+            json += jsonEscape(result);
+            json += '"';
+        } else {
+            json += ",\"moving\":false,\"stopPending\":false";
+        }
+        json += '}';
+        sendJsonResponse(outcome == ManualPtzStop::Pending ? 202 : 200, json);
+        return;
+    }
+
+    if (firmwareUpdateMaintenanceActive()) {
+        sendApiError(503, "update_in_progress", "Firmware update in progress");
+        return;
+    }
+    if (factoryResetRequestedAtMs != 0 || espRestartRequestedAtMs != 0) {
+        sendApiError(409, "restart_scheduled", "The ESP32 is about to restart");
+        return;
+    }
+    if (currentAdminAction() != AdminAction::None) {
+        sendApiError(409, "action_busy", "Wait for the admin action to finish");
+        return;
+    }
+    if (!ctx.manualPtz.active && manualPtzMoveActive()) {
+        sendApiError(409, "other_camera_moving", "Another camera is moving");
+        return;
+    }
+    if (healthCheckInProgress || registryBusy || cameraIoDepth != 0) {
+        sendApiError(503, "busy", "Camera check in progress; try again");
+        return;
+    }
+    if (cameraPatrolBlock(ctx) == CameraPatrolBlock::Camera) {
+        sendApiError(409, "camera_unavailable", "The camera is not online");
+        return;
+    }
+    if (!ctx.onvifServices.ptz.available || ctx.onvifServices.ptz.url.isEmpty() || !ctx.onvifPtz.profileResolved || ctx.onvifPtz.profileToken.isEmpty() || ctx.onvifPtz.panTilt == OnvifPtzPanTilt::Unsupported) {
+        sendApiError(409, "pan_tilt_unavailable", "This camera does not accept pan and tilt commands");
+        return;
+    }
+    if (ctx.onvifPtz.moveTimeoutRejected) {
+        sendApiError(409, "timeout_unsupported", PTZ_TIMEOUT_UNSUPPORTED_TEXT);
+        return;
+    }
+    if ((ctx.manualPtz.stopPending || ctx.manualPtz.stopUnconfirmed) && stopManualPtzMove(ctx, result) != ManualPtzStop::Stopped) {
+        sendApiError(409, "stop_pending", "A stop is still pending; try again");
+        return;
+    }
+    if (!requestManualPtzMove(ctx, direction, result)) {
+        if (ctx.onvifPtz.moveTimeoutRejected)
+            sendApiError(409, "timeout_unsupported", PTZ_TIMEOUT_UNSUPPORTED_TEXT);
+        else
+            sendApiError(502, "camera_rejected", result);
+        return;
+    }
+    ptzGrantUsedAtMs = millis();
+    String json;
+    json.reserve(112);
+    json += "{\"ok\":true,\"cameraId\":";
+    json += ctx.id;
+    json += ",\"direction\":\"";
+    json += directionText;
+    json += "\",\"moving\":true,\"leaseMs\":";
+    json += MANUAL_PTZ_LEASE_MS;
+    json += '}';
+    sendJsonResponse(200, json);
 }
 
 const char* liveStreamErrorDetail(const char* code)
@@ -2200,6 +2403,11 @@ void handleFirmwareUpdatePrepare()
 
     if (factoryResetRequestedAtMs != 0 || currentAdminAction() != AdminAction::None) {
         sendApiError(409, "action_busy", "Wait for the running action to finish before updating");
+        return;
+    }
+
+    if (manualPtzMoveActive()) {
+        sendApiError(409, "action_busy", "Wait until the camera stops moving before updating");
         return;
     }
 
@@ -2318,7 +2526,7 @@ void handleLiveStart()
             sendApiError(409, "live_in_use", "Another viewer is using the live video of another camera or quality");
             return;
         }
-        if (healthCheckInProgress || registryBusy || cameraIoDepth != 0) {
+        if (healthCheckInProgress || registryBusy || cameraIoDepth != 0 || manualPtzMoveActive()) {
             sendApiError(503, "busy", "Camera check in progress; try again");
             return;
         }
@@ -2457,6 +2665,9 @@ void configureHttpServer()
     httpServer.on("/api/actions/goto-ptz-preset", HTTP_POST, [] {
         handleGotoPtzPresetAction();
     });
+
+    httpServer.on("/api/ptz/grant", HTTP_POST, handlePtzGrant);
+    httpServer.on("/api/ptz/move", HTTP_POST, handlePtzMove);
 
     httpServer.on("/api/actions/reboot-camera", HTTP_POST, [] {
         handleAdminAction(AdminAction::CameraReboot);
